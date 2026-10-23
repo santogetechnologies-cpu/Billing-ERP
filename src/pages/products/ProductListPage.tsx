@@ -270,6 +270,9 @@ export const ProductListPage: React.FC = () => {
         subtitle={`Total ${products.length} products registered across ${categories.length} categories`}
         columns={columns}
         data={productsWithStatus}
+        enablePagination={false}
+        infiniteScroll={true}
+        batchSize={50}
         searchPlaceholder="Search product by name, SKU, brand, barcode, status..."
         searchKeys={['name', 'sku', 'barcode', 'category', 'brand', 'stockStatus', 'currentStock']}
         filters={[

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search,
   ChevronDown,
@@ -51,6 +51,9 @@ interface DataTableProps<T> {
   minTableWidth?: string;
   actionsWidth?: string;
   selectable?: boolean;
+  enablePagination?: boolean;
+  infiniteScroll?: boolean;
+  batchSize?: number;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -72,7 +75,10 @@ export function DataTable<T extends Record<string, any>>({
   tableFixed = false,
   minTableWidth,
   actionsWidth,
-  selectable = true
+  selectable = true,
+  enablePagination = true,
+  infiniteScroll = false,
+  batchSize = 50
 }: DataTableProps<T>) {
   const effectiveActionsWidth = actionsWidth || '116px';
   const [searchTerm, setSearchTerm] = useState('');
@@ -90,6 +96,57 @@ export function DataTable<T extends Record<string, any>>({
   useEffect(() => {
     setVisibleColumns(new Set(columns.map(c => c.key)));
   }, [columnKeysJoined]);
+
+  const isContinuous = enablePagination === false || infiniteScroll;
+  const [visibleCount, setVisibleCount] = useState<number>(batchSize);
+  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset visibleCount whenever search query, filters, or sorting changes
+  useEffect(() => {
+    if (isContinuous) {
+      setVisibleCount(batchSize);
+    }
+  }, [isContinuous, searchTerm, activeFilters, sortKey, sortDir, batchSize]);
+
+  // Infinite scroll trigger via IntersectionObserver
+  useEffect(() => {
+    if (!isContinuous) return;
+    if (visibleCount >= sortedData.length) return;
+
+    const sentinel = bottomSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount(prev => Math.min(prev + batchSize, sortedData.length));
+        }
+      },
+      { root: null, rootMargin: '300px', threshold: 0.01 }
+    );
+
+    observer.observe(sentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [isContinuous, visibleCount, sortedData.length, batchSize]);
+
+  // Window scroll fallback for natural page scrolling
+  useEffect(() => {
+    if (!isContinuous) return;
+    if (visibleCount >= sortedData.length) return;
+
+    const handleWindowScroll = () => {
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const scrollHeight = document.documentElement.scrollHeight;
+      if (scrollPosition >= scrollHeight - 400) {
+        setVisibleCount(prev => Math.min(prev + batchSize, sortedData.length));
+      }
+    };
+
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleWindowScroll);
+  }, [isContinuous, visibleCount, sortedData.length, batchSize]);
 
   const [showColMenu, setShowColMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -135,21 +192,30 @@ export function DataTable<T extends Record<string, any>>({
       } else {
         comparison = String(aVal).localeCompare(String(bVal));
       }
-      return sortDir === 'asc' ? comparison : -comparison;
+      const primaryRes = sortDir === 'asc' ? comparison : -comparison;
+      if (primaryRes !== 0) return primaryRes;
+
+      // Deterministic tie-breaker so products never jump around during scrolling
+      const aId = String(a.id ?? a.sku ?? a.barcode ?? '');
+      const bId = String(b.id ?? b.sku ?? b.barcode ?? '');
+      return aId.localeCompare(bId);
     });
   }, [filteredData, sortKey, sortDir, columns]);
 
-  // Paginated Data
+  // Displayed Data (Paginated or Continuous)
   const totalPages = Math.max(1, Math.ceil(sortedData.length / pageSize));
-  const paginatedData = useMemo(() => {
+  const displayedData = useMemo(() => {
+    if (isContinuous) {
+      return sortedData.slice(0, visibleCount);
+    }
     const start = (currentPage - 1) * pageSize;
     return sortedData.slice(start, start + pageSize);
-  }, [sortedData, currentPage, pageSize]);
+  }, [isContinuous, sortedData, visibleCount, currentPage, pageSize]);
 
   // Row selection helpers
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      const allIds = new Set(paginatedData.map(r => r.id || JSON.stringify(r)));
+      const allIds = new Set(displayedData.map(r => r.id || JSON.stringify(r)));
       setSelectedIds(allIds);
     } else {
       setSelectedIds(new Set());
@@ -391,8 +457,8 @@ export function DataTable<T extends Record<string, any>>({
                     <input
                       type="checkbox"
                       checked={
-                        paginatedData.length > 0 &&
-                        paginatedData.every(r => selectedIds.has(r.id || JSON.stringify(r)))
+                        displayedData.length > 0 &&
+                        displayedData.every(r => selectedIds.has(r.id || JSON.stringify(r)))
                       }
                       onChange={handleSelectAll}
                       className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer align-middle"
@@ -458,7 +524,7 @@ export function DataTable<T extends Record<string, any>>({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-normal">
-            {paginatedData.length === 0 ? (
+            {displayedData.length === 0 ? (
               <tr>
                 <td
                   colSpan={columns.filter(c => visibleColumns.has(c.key)).length + (actions ? 1 : 0) + (selectable ? 1 : 0)}
@@ -469,7 +535,7 @@ export function DataTable<T extends Record<string, any>>({
                 </td>
               </tr>
             ) : (
-              paginatedData.map((row, idx) => {
+              displayedData.map((row, idx) => {
                 const rowId = row.id || JSON.stringify(row);
                 const isSelected = selectedIds.has(rowId);
                 return (
@@ -531,61 +597,121 @@ export function DataTable<T extends Record<string, any>>({
               })
             )}
           </tbody>
+          {isContinuous && visibleCount < sortedData.length && (
+            <tfoot>
+              <tr>
+                <td
+                  colSpan={
+                    columns.filter(c => visibleColumns.has(c.key)).length +
+                    (actions ? 1 : 0) +
+                    (selectable ? 1 : 0)
+                  }
+                  className="p-0 border-0"
+                >
+                  <div
+                    ref={bottomSentinelRef}
+                    className="py-3 text-center text-xs text-slate-500 bg-slate-50/70 border-t border-slate-100 flex items-center justify-center gap-2"
+                  >
+                    <div className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    <span>Loading more records...</span>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
-      {/* Pagination Footer */}
-      <div className="px-4 py-3 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 bg-slate-50/70">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="font-normal text-slate-600">
-            Showing <strong className="font-semibold text-slate-900">{sortedData.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong> to{' '}
-            <strong className="font-semibold text-slate-900">
-              {Math.min(currentPage * pageSize, sortedData.length)}
-            </strong>{' '}
-            of <strong className="font-semibold text-slate-900">{sortedData.length}</strong> entries
-          </span>
-          <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200">
-            <span className="text-slate-500">Per page:</span>
-            <select
-              value={pageSize}
-              onChange={e => {
-                setPageSize(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="bg-white border border-slate-200 rounded-md px-2 py-0.5 text-slate-700 font-medium text-xs focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-2xs"
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
+      {/* Footer: Continuous Summary or Pagination Controls */}
+      {isContinuous ? (
+        <div className="px-4 py-3 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-slate-500 bg-slate-50/60">
+          <div className="flex items-center gap-2">
+            <span className="font-normal text-slate-600">
+              {sortedData.length === 0 ? (
+                '0 records found'
+              ) : displayedData.length >= sortedData.length ? (
+                <>
+                  Showing all <strong className="font-semibold text-slate-900">{sortedData.length}</strong> {sortedData.length === 1 ? 'record' : 'records'}
+                </>
+              ) : (
+                <>
+                  Showing <strong className="font-semibold text-slate-900">{displayedData.length}</strong> of{' '}
+                  <strong className="font-semibold text-slate-900">{sortedData.length}</strong> records
+                  <span className="text-[11px] text-slate-400 font-normal ml-1.5">
+                    • Scroll down to reveal more
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {visibleCount < sortedData.length && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200/80">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                Continuous Scrolling Active
+              </span>
+            )}
+            {selectedIds.size > 0 && (
+              <span className="text-[11px] font-medium text-slate-600">
+                {selectedIds.size} of {displayedData.length} selected
+              </span>
+            )}
           </div>
         </div>
+      ) : (
+        <div className="px-4 py-3 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 bg-slate-50/70">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-normal text-slate-600">
+              Showing <strong className="font-semibold text-slate-900">{sortedData.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong> to{' '}
+              <strong className="font-semibold text-slate-900">
+                {Math.min(currentPage * pageSize, sortedData.length)}
+              </strong>{' '}
+              of <strong className="font-semibold text-slate-900">{sortedData.length}</strong> entries
+            </span>
+            <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200">
+              <span className="text-slate-500">Per page:</span>
+              <select
+                value={pageSize}
+                onChange={e => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-white border border-slate-200 rounded-md px-2 py-0.5 text-slate-700 font-medium text-xs focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-2xs"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium shadow-2xs"
-            title="Previous Page"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-            <span>Previous</span>
-          </button>
-          <span className="px-2.5 py-1 font-semibold text-slate-800 bg-white border border-slate-200 rounded-md text-xs shadow-2xs">
-            {currentPage} / {totalPages}
-          </span>
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages || sortedData.length === 0}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium shadow-2xs"
-            title="Next Page"
-          >
-            <span>Next</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium shadow-2xs"
+              title="Previous Page"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Previous</span>
+            </button>
+            <span className="px-2.5 py-1 font-semibold text-slate-800 bg-white border border-slate-200 rounded-md text-xs shadow-2xs">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages || sortedData.length === 0}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium shadow-2xs"
+              title="Next Page"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

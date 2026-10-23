@@ -22,16 +22,53 @@ export const productService = {
       query = query.eq('category', params.category);
     }
 
+    let rawProducts: any[] = [];
     if (params?.page !== undefined && params?.limit !== undefined) {
       const from = (params.page - 1) * params.limit;
       const to = from + params.limit - 1;
       query = query.range(from, to);
-    }
+      const { data, error } = await query;
+      if (error) {
+        console.warn('Error fetching products from Supabase:', error.message);
+        return [];
+      }
+      rawProducts = data || [];
+    } else {
+      // Small to large catalogues: fetch all records in full (paginating 1000-item chunks if DB exceeds PostgREST default limit)
+      let from = 0;
+      const chunkSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        let chunkQuery = supabase
+          .from('products')
+          .select('*')
+          .eq('company_id', finalCompanyId)
+          .order('created_at', { ascending: false })
+          .range(from, from + chunkSize - 1);
 
-    const { data, error } = await query;
-    if (error) {
-      console.warn('Error fetching products from Supabase:', error.message);
-      return [];
+        if (params?.search) {
+          chunkQuery = chunkQuery.or(`name.ilike.%${params.search}%,sku.ilike.%${params.search}%,barcode.ilike.%${params.search}%`);
+        }
+        if (params?.category && params.category !== 'All') {
+          chunkQuery = chunkQuery.eq('category', params.category);
+        }
+
+        const { data: chunk, error: chunkErr } = await chunkQuery;
+        if (chunkErr) {
+          console.warn('Error fetching products chunk from Supabase:', chunkErr.message);
+          break;
+        }
+        if (chunk && chunk.length > 0) {
+          rawProducts.push(...chunk);
+          if (chunk.length < chunkSize) {
+            hasMore = false;
+          } else {
+            from += chunkSize;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
     }
 
     // Load active product batches for batch and expiry details
@@ -55,7 +92,7 @@ export const productService = {
     }
 
     // Map database snake_case to frontend camelCase
-    return (data || []).map(p => {
+    return rawProducts.map(p => {
       const primaryBatch = batchesByProduct.get(p.id);
       return {
       id: p.id,
