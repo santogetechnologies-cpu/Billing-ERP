@@ -56,6 +56,7 @@ export const InventoryDashboardPage: React.FC = () => {
 
   const { user } = useAuth();
   const isExecutive = profile?.role === 'Owner' || profile?.role === 'Admin';
+  const isWarehouseManager = profile?.role === 'Warehouse Manager';
 
   const managedWarehouseIds = useMemo(() => {
     if (isExecutive) return warehouses.map(w => w.id);
@@ -1013,19 +1014,25 @@ export const InventoryDashboardPage: React.FC = () => {
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50/90 text-slate-600 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200">
                   <tr>
-                    <th className="py-3 px-4">Product Name & SKU</th>
-                    <th className="py-3 px-3">Category</th>
-                    <th className="py-3 px-3">Warehouse Stock Breakdown</th>
-                    <th className="py-3 px-3 text-right">Available Quantity</th>
-                    <th className="py-3 px-3 text-center">Low-Stock Threshold</th>
-                    <th className="py-3 px-3 text-center">Stock Status</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
+                    <th className={`py-3 px-4 ${isWarehouseManager ? 'w-[36%] min-w-[240px]' : ''}`}>Product Name & SKU</th>
+                    {!isWarehouseManager && (
+                      <th className="py-3 px-3">Category</th>
+                    )}
+                    <th className={`py-3 px-3 ${isWarehouseManager ? 'w-[38%] min-w-[260px]' : ''}`}>Warehouse Stock Breakdown</th>
+                    {!isWarehouseManager && (
+                      <th className="py-3 px-3 text-right">Available Quantity</th>
+                    )}
+                    {!isWarehouseManager && (
+                      <th className="py-3 px-3 text-center">Low-Stock Threshold</th>
+                    )}
+                    <th className={`py-3 px-3 text-center ${isWarehouseManager ? 'w-[12%] min-w-[120px]' : ''}`}>Stock Status</th>
+                    <th className={`py-3 px-4 text-right ${isWarehouseManager ? 'w-[14%] min-w-[140px]' : ''}`}>Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {paginatedOpStock.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-500">
+                      <td colSpan={isWarehouseManager ? 4 : 7} className="py-12 text-center text-slate-500">
                         <Boxes className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                         <p className="font-semibold text-xs text-slate-700">No products matching the selected filters</p>
                         <p className="text-[11px] text-slate-400 mt-1">Adjust search query or filter options.</p>
@@ -1057,11 +1064,13 @@ export const InventoryDashboardPage: React.FC = () => {
                           </td>
 
                           {/* Category */}
-                          <td className="py-3 px-3 align-middle text-slate-600">
-                            <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100">
-                              {item.product.category || 'General'}
-                            </span>
-                          </td>
+                          {!isWarehouseManager && (
+                            <td className="py-3 px-3 align-middle text-slate-600">
+                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100">
+                                {item.product.category || 'General'}
+                              </span>
+                            </td>
+                          )}
 
                           {/* Warehouse Breakdown */}
                           <td className="py-3 px-3 align-middle text-slate-700">
@@ -1071,8 +1080,8 @@ export const InventoryDashboardPage: React.FC = () => {
                                 <span>{item.warehouseLabel}: <strong>{formatNumber(item.availableQty)} {item.product.primaryUnit || 'Units'}</strong></span>
                               </span>
                             ) : whBreakdown.length > 0 ? (
-                              <div className="flex flex-wrap gap-1 max-w-xs">
-                                {whBreakdown.slice(0, 2).map(({ warehouse, stock }) => (
+                              <div className={`flex flex-wrap gap-1 ${isWarehouseManager ? 'max-w-md' : 'max-w-xs'}`}>
+                                {whBreakdown.slice(0, isWarehouseManager ? 4 : 2).map(({ warehouse, stock }) => (
                                   <span
                                     key={warehouse.id}
                                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700"
@@ -1082,9 +1091,9 @@ export const InventoryDashboardPage: React.FC = () => {
                                     <strong className="font-mono">{formatNumber(stock)}</strong>
                                   </span>
                                 ))}
-                                {whBreakdown.length > 2 && (
+                                {whBreakdown.length > (isWarehouseManager ? 4 : 2) && (
                                   <span className="text-[10px] font-bold text-slate-500 self-center">
-                                    +{whBreakdown.length - 2} more
+                                    +{whBreakdown.length - (isWarehouseManager ? 4 : 2)} more
                                   </span>
                                 )}
                               </div>
@@ -1094,34 +1103,38 @@ export const InventoryDashboardPage: React.FC = () => {
                           </td>
 
                           {/* Available Quantity */}
-                          <td className="py-3 px-3 text-right align-middle">
-                            <span className={`text-sm font-black font-mono ${
-                              isOutOfStock ? 'text-rose-600' : isLowStock ? 'text-amber-600' : 'text-slate-900'
-                            }`}>
-                              {formatNumber(item.availableQty)}
-                            </span>{' '}
-                            <span className="text-[11px] text-slate-500 font-medium">
-                              {item.product.primaryUnit || 'Piece'}
-                            </span>
-                          </td>
+                          {!isWarehouseManager && (
+                            <td className="py-3 px-3 text-right align-middle">
+                              <span className={`text-sm font-black font-mono ${
+                                isOutOfStock ? 'text-rose-600' : isLowStock ? 'text-amber-600' : 'text-slate-900'
+                              }`}>
+                                {formatNumber(item.availableQty)}
+                              </span>{' '}
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                {item.product.primaryUnit || 'Piece'}
+                              </span>
+                            </td>
+                          )}
 
                           {/* Low-Stock Threshold */}
-                          <td className="py-3 px-3 text-center align-middle">
-                            {item.reorderLevel !== null && item.reorderLevel !== undefined ? (
-                              <div className="inline-flex flex-col items-center">
-                                <span className="font-mono font-bold text-slate-700">
-                                  {formatNumber(item.reorderLevel)} {item.product.primaryUnit || 'Units'}
-                                </span>
-                                {item.availableQty <= item.reorderLevel && (
-                                  <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-0.5">
-                                    <AlertTriangle className="w-2.5 h-2.5" /> Reorder point reached
+                          {!isWarehouseManager && (
+                            <td className="py-3 px-3 text-center align-middle">
+                              {item.reorderLevel !== null && item.reorderLevel !== undefined ? (
+                                <div className="inline-flex flex-col items-center">
+                                  <span className="font-mono font-bold text-slate-700">
+                                    {formatNumber(item.reorderLevel)} {item.product.primaryUnit || 'Units'}
                                   </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 italic text-[11px]">Not configured</span>
-                            )}
-                          </td>
+                                  {item.availableQty <= item.reorderLevel && (
+                                    <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-0.5">
+                                      <AlertTriangle className="w-2.5 h-2.5" /> Reorder point reached
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">Not configured</span>
+                              )}
+                            </td>
+                          )}
 
                           {/* Stock Status */}
                           <td className="py-3 px-3 text-center align-middle">
