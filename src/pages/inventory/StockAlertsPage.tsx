@@ -11,7 +11,6 @@ import {
   AlertCircle,
   Calendar,
   Layers,
-  ArrowUpDown,
   FileText,
   Clock,
   Send,
@@ -814,28 +813,6 @@ export const StockAlertsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Sort Toggle */}
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
-              <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
-              <select
-                value={sortField}
-                onChange={e => setSortField(e.target.value as any)}
-                className="bg-transparent text-xs font-medium text-slate-700 focus:outline-none cursor-pointer"
-              >
-                <option value="stock">Sort by Stock Overview</option>
-                <option value="warningLimit">Sort by Warning Limit</option>
-                <option value="suggestedQty">Sort by Suggested Reorder</option>
-                <option value="name">Sort by Product Name</option>
-                <option value="movementDate">Sort by Movement Date</option>
-              </select>
-              <button
-                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                className="text-xs text-slate-500 hover:text-slate-800 font-bold px-1 cursor-pointer"
-                title="Toggle Sort Direction"
-              >
-                {sortOrder === 'asc' ? '↑' : '↓'}
-              </button>
-            </div>
           </div>
         </div>
 
