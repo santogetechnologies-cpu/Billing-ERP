@@ -39,7 +39,7 @@ interface WizardStep {
 
 const STEPS: WizardStep[] = [
   { id: 1, key: 'basic', title: '1. Basic Information', shortTitle: 'Basic Info', description: 'Name, Category, Brand, SKU & Code', icon: Package },
-  { id: 2, key: 'pricing', title: '2. Multi-Tier Pricing', shortTitle: 'Pricing', description: 'Purchase, Cost, Selling & MRP', icon: DollarSign },
+  { id: 2, key: 'pricing', title: '2. Product Prices', shortTitle: 'Pricing', description: 'Buying Cost & Customer Selling Prices', icon: DollarSign },
   { id: 3, key: 'inventory', title: '3. Inventory & Stocks', shortTitle: 'Inventory', description: 'Warehouse, Opening & Reorder Stock', icon: Boxes },
   { id: 4, key: 'units', title: '4. Units & Conversion', shortTitle: 'Units', description: 'Primary, Secondary & Multipliers', icon: Ruler },
   { id: 5, key: 'tax', title: '5. Tax & HSN', shortTitle: 'Tax & HSN', description: 'GST Slabs & HSN / SAC Codes', icon: Percent }
@@ -325,27 +325,27 @@ export const NewProductPage: React.FC = () => {
     // STEP 2: Multi-Tier Pricing
     if (stepNumber === 2) {
       if (sellingPrice === '' || Number(sellingPrice) <= 0) {
-        errs.sellingPrice = 'Default selling price is mandatory and must be greater than ₹0.';
+        errs.sellingPrice = 'Selling price is mandatory and must be greater than ₹0.';
       }
 
       if (costPrice !== '' && Number(costPrice) < 0) {
-        errs.costPrice = 'Cost price cannot be negative.';
+        errs.costPrice = 'Total cost per item cannot be negative.';
       }
 
       if (purchasePrice !== '' && Number(purchasePrice) < 0) {
-        errs.purchasePrice = 'Purchase price cannot be negative.';
+        errs.purchasePrice = 'Buying price cannot be negative.';
       }
 
       if (retailPrice !== '' && Number(retailPrice) < 0) {
-        errs.retailPrice = 'Retail price cannot be negative.';
+        errs.retailPrice = 'Retail customer price cannot be negative.';
       }
 
       if (wholesalePrice !== '' && Number(wholesalePrice) < 0) {
-        errs.wholesalePrice = 'Wholesale price cannot be negative.';
+        errs.wholesalePrice = 'Bulk purchase price cannot be negative.';
       }
 
       if (dealerPrice !== '' && Number(dealerPrice) < 0) {
-        errs.dealerPrice = 'Dealer price cannot be negative.';
+        errs.dealerPrice = 'Dealer customer price cannot be negative.';
       }
 
       if (mrp !== '' && Number(mrp) < 0) {
@@ -357,11 +357,11 @@ export const NewProductPage: React.FC = () => {
       }
 
       if (minSellingPrice !== '' && Number(minSellingPrice) < 0) {
-        errs.minSellingPrice = 'Minimum floor price cannot be negative.';
+        errs.minSellingPrice = 'Lowest allowed selling price cannot be negative.';
       }
 
       if (minSellingPrice !== '' && sellingPrice !== '' && Number(sellingPrice) < Number(minSellingPrice)) {
-        errs.minSellingPrice = `Selling price cannot be below minimum floor price (${formatCurrency(Number(minSellingPrice))}).`;
+        errs.minSellingPrice = `Selling price cannot be below lowest allowed selling price (${formatCurrency(Number(minSellingPrice))}).`;
       }
     }
 
@@ -954,6 +954,16 @@ export const NewProductPage: React.FC = () => {
         ========================================================================= */}
         {currentStep === 2 && (
           <div className="space-y-4 animate-fadeIn text-xs">
+            {/* Heading & Explanation */}
+            <div className="pb-2 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">Product Prices</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Enter the buying cost and the prices you charge customers.
+                </p>
+              </div>
+            </div>
+
             {/* Profit Margin Preview Card */}
             <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between">
               <div>
@@ -961,7 +971,7 @@ export const NewProductPage: React.FC = () => {
                   Gross Profit Margin: {marginPct}% ({formatCurrency(marginAmt)}/unit)
                 </span>
                 <span className="text-[11px] text-emerald-700">
-                  Formula: Selling Price ({formatCurrency(numSellingPrice)}) - Cost Price ({formatCurrency(numCostPrice)})
+                  Formula: Selling Price ({formatCurrency(numSellingPrice)}) - Total Cost ({formatCurrency(numCostPrice)})
                 </span>
               </div>
               <div className="text-right">
@@ -971,9 +981,11 @@ export const NewProductPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Purchase Price */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Purchase Price (₹)</label>
+              {/* Buying Price */}
+              <div className="flex flex-col">
+                <label htmlFor="field-purchasePrice" className="block font-medium text-slate-700 mb-1">
+                  Buying Price (₹)
+                </label>
                 <input
                   id="field-purchasePrice"
                   type="number"
@@ -985,17 +997,22 @@ export const NewProductPage: React.FC = () => {
                     setPurchasePrice(cleanNumberInput(e.target.value));
                     if (errors.purchasePrice) setErrors(prev => ({ ...prev, purchasePrice: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter buying price"
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-semibold text-slate-900 text-xs ${
                     errors.purchasePrice ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The price paid to the supplier to buy one item.
+                </p>
                 {errors.purchasePrice && <p className="text-[11px] text-rose-600 mt-1">{errors.purchasePrice}</p>}
               </div>
 
-              {/* Cost Price */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Cost Price / COGS (₹)</label>
+              {/* Total Cost per Item */}
+              <div className="flex flex-col">
+                <label htmlFor="field-costPrice" className="block font-medium text-slate-700 mb-1">
+                  Total Cost per Item (₹)
+                </label>
                 <input
                   id="field-costPrice"
                   type="number"
@@ -1007,18 +1024,21 @@ export const NewProductPage: React.FC = () => {
                     setCostPrice(cleanNumberInput(e.target.value));
                     if (errors.costPrice) setErrors(prev => ({ ...prev, costPrice: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter total cost per item"
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-semibold text-slate-900 text-xs ${
                     errors.costPrice ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The total cost of one item, including purchase cost and any additional costs already supported by the application.
+                </p>
                 {errors.costPrice && <p className="text-[11px] text-rose-600 mt-1">{errors.costPrice}</p>}
               </div>
 
-              {/* Default Selling Price */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">
-                  Default Selling Price (₹) <span className="text-rose-500">*</span>
+              {/* Selling Price */}
+              <div className="flex flex-col">
+                <label htmlFor="field-sellingPrice" className="block font-medium text-slate-700 mb-1">
+                  Selling Price (₹) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   id="field-sellingPrice"
@@ -1031,17 +1051,22 @@ export const NewProductPage: React.FC = () => {
                     setSellingPrice(cleanNumberInput(e.target.value));
                     if (errors.sellingPrice) setErrors(prev => ({ ...prev, sellingPrice: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter selling price"
                   className={`w-full px-3 py-2 bg-blue-50 border rounded-lg font-bold text-blue-900 text-xs ${
                     errors.sellingPrice ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-blue-300'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The normal price charged to a customer. Use this as the default price during billing.
+                </p>
                 {errors.sellingPrice && <p className="text-[11px] text-rose-600 mt-1">{errors.sellingPrice}</p>}
               </div>
 
-              {/* Retail Price */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Retail Price (₹)</label>
+              {/* Retail Customer Price */}
+              <div className="flex flex-col">
+                <label htmlFor="field-retailPrice" className="block font-medium text-slate-700 mb-1">
+                  Retail Customer Price (₹)
+                </label>
                 <input
                   id="field-retailPrice"
                   type="number"
@@ -1053,17 +1078,22 @@ export const NewProductPage: React.FC = () => {
                     setRetailPrice(cleanNumberInput(e.target.value));
                     if (errors.retailPrice) setErrors(prev => ({ ...prev, retailPrice: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter retail customer price"
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-semibold text-slate-900 text-xs ${
                     errors.retailPrice ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The price charged when selling individual items to retail customers.
+                </p>
                 {errors.retailPrice && <p className="text-[11px] text-rose-600 mt-1">{errors.retailPrice}</p>}
               </div>
 
-              {/* Wholesale Price */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Wholesale Price (₹)</label>
+              {/* Bulk Purchase Price */}
+              <div className="flex flex-col">
+                <label htmlFor="field-wholesalePrice" className="block font-medium text-slate-700 mb-1">
+                  Bulk Purchase Price (₹)
+                </label>
                 <input
                   id="field-wholesalePrice"
                   type="number"
@@ -1075,17 +1105,22 @@ export const NewProductPage: React.FC = () => {
                     setWholesalePrice(cleanNumberInput(e.target.value));
                     if (errors.wholesalePrice) setErrors(prev => ({ ...prev, wholesalePrice: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter bulk purchase price"
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-semibold text-slate-900 text-xs ${
                     errors.wholesalePrice ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The price offered when a customer buys in bulk.
+                </p>
                 {errors.wholesalePrice && <p className="text-[11px] text-rose-600 mt-1">{errors.wholesalePrice}</p>}
               </div>
 
-              {/* Dealer Price */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Dealer Price (₹)</label>
+              {/* Dealer Customer Price */}
+              <div className="flex flex-col">
+                <label htmlFor="field-dealerPrice" className="block font-medium text-slate-700 mb-1">
+                  Dealer Customer Price (₹)
+                </label>
                 <input
                   id="field-dealerPrice"
                   type="number"
@@ -1097,18 +1132,21 @@ export const NewProductPage: React.FC = () => {
                     setDealerPrice(cleanNumberInput(e.target.value));
                     if (errors.dealerPrice) setErrors(prev => ({ ...prev, dealerPrice: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter dealer customer price"
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-semibold text-slate-900 text-xs ${
                     errors.dealerPrice ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The special price offered to dealers.
+                </p>
                 {errors.dealerPrice && <p className="text-[11px] text-rose-600 mt-1">{errors.dealerPrice}</p>}
               </div>
 
-              {/* MRP */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">
-                  Maximum Retail Price / MRP (₹)
+              {/* MRP – Printed Maximum Price */}
+              <div className="flex flex-col">
+                <label htmlFor="field-mrp" className="block font-medium text-slate-700 mb-1">
+                  MRP – Printed Maximum Price (₹)
                 </label>
                 <input
                   id="field-mrp"
@@ -1121,18 +1159,21 @@ export const NewProductPage: React.FC = () => {
                     setMrp(cleanNumberInput(e.target.value));
                     if (errors.mrp) setErrors(prev => ({ ...prev, mrp: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter MRP printed price"
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-semibold text-slate-900 text-xs ${
                     errors.mrp ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The maximum retail price printed on the product, where applicable.
+                </p>
                 {errors.mrp && <p className="text-[11px] text-rose-600 mt-1">{errors.mrp}</p>}
               </div>
 
-              {/* Minimum Floor Price */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">
-                  Minimum Floor Price (₹)
+              {/* Lowest Allowed Selling Price */}
+              <div className="flex flex-col">
+                <label htmlFor="field-minSellingPrice" className="block font-medium text-slate-700 mb-1">
+                  Lowest Allowed Selling Price (₹)
                 </label>
                 <input
                   id="field-minSellingPrice"
@@ -1145,11 +1186,14 @@ export const NewProductPage: React.FC = () => {
                     setMinSellingPrice(cleanNumberInput(e.target.value));
                     if (errors.minSellingPrice) setErrors(prev => ({ ...prev, minSellingPrice: '' }));
                   }}
-                  placeholder="0.00"
+                  placeholder="Enter lowest selling price"
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-semibold text-slate-900 text-xs ${
                     errors.minSellingPrice ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  The minimum price the system permits an authorized user to sell at, subject to existing permissions and pricing rules.
+                </p>
                 {errors.minSellingPrice && <p className="text-[11px] text-rose-600 mt-1">{errors.minSellingPrice}</p>}
               </div>
             </div>
@@ -1275,7 +1319,7 @@ export const NewProductPage: React.FC = () => {
                   className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-600 text-xs"
                 />
                 <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Calculated as: Opening Stock ({numOpeningStock}) × Cost Price ({formatCurrency(numCostPrice)})
+                  Calculated as: Opening Stock ({numOpeningStock}) × Total Cost per Item ({formatCurrency(numCostPrice)})
                 </span>
               </div>
             </div>
