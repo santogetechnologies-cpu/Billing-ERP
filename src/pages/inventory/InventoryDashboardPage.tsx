@@ -1001,43 +1001,43 @@ const InventoryDashboardInner: React.FC = () => {
             </div>
 
             {/* Operational Inventory Table */}
-            <div className="overflow-x-auto scrollbar-thin rounded-xl border border-slate-200">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="overflow-x-hidden no-scrollbar w-full rounded-xl border border-slate-200">
+              <table className="w-full table-fixed text-left text-xs border-collapse">
                 <colgroup>
                   {isWarehouseManager ? (
                     <>
                       <col className="w-[38%]" />
-                      <col className="w-[40%]" />
+                      <col className="w-[38%]" />
                       <col className="w-[12%]" />
-                      <col className="w-[10%]" />
+                      <col className="w-[12%]" />
                     </>
                   ) : (
                     <>
-                      <col className="w-[24%]" />
+                      <col className="w-[23%]" />
+                      <col className="w-[11%]" />
+                      <col className="w-[23%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[11%]" />
                       <col className="w-[10%]" />
-                      <col className="w-[24%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
+                      <col className="w-[9%]" />
                     </>
                   )}
                 </colgroup>
                 <thead className="bg-slate-50/90 text-slate-600 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200">
                   <tr>
-                    <th className={`py-3 px-4 ${isWarehouseManager ? 'w-[38%] min-w-[240px]' : ''}`}>Product Name & SKU</th>
+                    <th className="py-3 px-4">Product Name & SKU</th>
                     {!isWarehouseManager && (
                       <th className="py-3 px-3">Category</th>
                     )}
-                    <th className={`py-3 px-3 ${isWarehouseManager ? 'w-[40%] min-w-[260px]' : ''}`}>Warehouse Stock Breakdown</th>
+                    <th className="py-3 px-3">Warehouse Stock Breakdown</th>
                     {!isWarehouseManager && (
                       <th className="py-3 px-3 text-right">Available Quantity</th>
                     )}
                     {!isWarehouseManager && (
                       <th className="py-3 px-3 text-center">Low-Stock Threshold</th>
                     )}
-                    <th className={`py-3 px-3 text-center ${isWarehouseManager ? 'w-[12%] min-w-[120px]' : ''}`}>Stock Status</th>
-                    <th className={`py-3 px-4 text-right ${isWarehouseManager ? 'w-[10%] min-w-[100px]' : 'min-w-[95px]'}`}>Actions</th>
+                    <th className="py-3 px-3 text-center">Stock Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1065,7 +1065,7 @@ const InventoryDashboardInner: React.FC = () => {
                       return (
                         <tr key={item.product.id} className="hover:bg-slate-50/70 transition-colors">
                           {/* Product Name & SKU */}
-                          <td className="py-3 px-4 align-middle">
+                          <td className="py-3 px-4 align-middle min-w-0">
                             <span className="font-bold text-slate-900 block truncate" title={item.product.name}>
                               {item.product.name}
                             </span>
@@ -1076,35 +1076,35 @@ const InventoryDashboardInner: React.FC = () => {
 
                           {/* Category */}
                           {!isWarehouseManager && (
-                            <td className="py-3 px-3 align-middle text-slate-600">
-                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100">
+                            <td className="py-3 px-3 align-middle text-slate-600 min-w-0">
+                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 truncate block">
                                 {item.product.category || 'General'}
                               </span>
                             </td>
                           )}
 
                           {/* Warehouse Breakdown */}
-                          <td className="py-3 px-3 align-middle text-slate-700">
+                          <td className="py-3 px-3 align-middle text-slate-700 min-w-0">
                             {opWarehouse !== 'ALL' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-[11px]">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-[11px] max-w-full truncate">
                                 <Building className="w-3 h-3 text-blue-500 shrink-0" />
-                                <span>{item.warehouseLabel}: <strong>{formatNumber(item.availableQty)} {item.product.primaryUnit || 'Units'}</strong></span>
+                                <span className="truncate">{item.warehouseLabel}: <strong>{formatNumber(item.availableQty)} {item.product.primaryUnit || 'Units'}</strong></span>
                               </span>
                             ) : whBreakdown.length > 0 ? (
-                              <div className={`flex flex-wrap gap-1 ${isWarehouseManager ? 'max-w-md' : 'max-w-xs'}`}>
-                                {whBreakdown.slice(0, isWarehouseManager ? 4 : 2).map(({ warehouse, stock }) => (
+                              <div className="flex flex-wrap items-center gap-1 max-w-full">
+                                {whBreakdown.slice(0, isWarehouseManager ? 3 : 2).map(({ warehouse, stock }) => (
                                   <span
                                     key={warehouse.id}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 shrink-0"
                                     title={`${warehouse.name}: ${stock} ${item.product.primaryUnit || 'Units'}`}
                                   >
-                                    <span className="truncate max-w-[80px]">{warehouse.name}:</span>
+                                    <span className="truncate max-w-[85px]">{warehouse.name}:</span>
                                     <strong className="font-mono">{formatNumber(stock)}</strong>
                                   </span>
                                 ))}
-                                {whBreakdown.length > (isWarehouseManager ? 4 : 2) && (
-                                  <span className="text-[10px] font-bold text-slate-500 self-center">
-                                    +{whBreakdown.length - (isWarehouseManager ? 4 : 2)} more
+                                {whBreakdown.length > (isWarehouseManager ? 3 : 2) && (
+                                  <span className="text-[10px] font-bold text-slate-500 self-center shrink-0">
+                                    +{whBreakdown.length - (isWarehouseManager ? 3 : 2)} more
                                   </span>
                                 )}
                               </div>
@@ -1148,7 +1148,7 @@ const InventoryDashboardInner: React.FC = () => {
                           )}
 
                           {/* Stock Status */}
-                          <td className="py-3 px-3 text-center align-middle">
+                          <td className="py-3 px-2 text-center align-middle whitespace-nowrap">
                             <div className="flex justify-center">
                               <StatusBadge
                               status={
@@ -1163,12 +1163,12 @@ const InventoryDashboardInner: React.FC = () => {
                           </td>
 
                           {/* Actions */}
-                          <td className="py-3 px-4 text-right align-middle">
+                          <td className="py-3 px-4 text-right align-middle whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => openAdjustForProduct(item.product.id)}
-                                className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs"
+                                className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs shrink-0"
                                 title="Adjust Stock"
                                 aria-label="Adjust Stock"
                               >
@@ -1180,7 +1180,7 @@ const InventoryDashboardInner: React.FC = () => {
                                   setMovementProductFilter(item.product.name);
                                   setActiveTab('movements');
                                 }}
-                                className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border border-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs"
+                                className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border border-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs shrink-0"
                                 title="View Stock Movements"
                                 aria-label="View Stock Movements"
                               >
