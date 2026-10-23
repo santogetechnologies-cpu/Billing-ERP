@@ -1343,9 +1343,9 @@ export const PurchaseRequestsPage: React.FC = () => {
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4 w-[140px] whitespace-nowrap">Request #</th>
+                <th className="py-3 px-4 min-w-[220px]">Product(s)</th>
                 <th className="py-3 px-3.5 w-[110px] whitespace-nowrap">Date</th>
                 <th className="py-3 px-3.5 w-[160px] whitespace-nowrap">Warehouse</th>
-                <th className="py-3 px-4 min-w-[220px]">Product(s)</th>
                 <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap">Quantity</th>
                 <th className="py-3 px-3 w-[100px] text-center whitespace-nowrap">Priority</th>
                 <th className="py-3 px-3.5 w-[130px] text-center whitespace-nowrap">Status</th>
@@ -1386,20 +1386,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                         <span>#{req.requestNumber}</span>
                       </td>
 
-                      {/* 2. Request Date */}
-                      <td className="py-3.5 px-3.5 text-slate-600 font-medium whitespace-nowrap">
-                        {formatDate(req.createdAt)}
-                      </td>
-
-                      {/* 3. Warehouse Name */}
-                      <td className="py-3.5 px-3.5 text-slate-800 font-medium">
-                        <div className="flex items-center gap-1.5 whitespace-nowrap">
-                          <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[140px]" title={req.warehouseName}>{req.warehouseName}</span>
-                        </div>
-                      </td>
-
-                      {/* 4. Product(s) */}
+                      {/* 2. Product(s) */}
                       <td className="py-3.5 px-4 text-slate-800">
                         {firstItem ? (
                           <div className="min-w-0">
@@ -1422,6 +1409,19 @@ export const PurchaseRequestsPage: React.FC = () => {
                         ) : (
                           <span className="text-slate-400 italic text-xs">No products</span>
                         )}
+                      </td>
+
+                      {/* 3. Request Date */}
+                      <td className="py-3.5 px-3.5 text-slate-600 font-medium whitespace-nowrap">
+                        {formatDate(req.createdAt)}
+                      </td>
+
+                      {/* 4. Warehouse Name */}
+                      <td className="py-3.5 px-3.5 text-slate-800 font-medium">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
+                          <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate max-w-[140px]" title={req.warehouseName}>{req.warehouseName}</span>
+                        </div>
                       </td>
 
                       {/* 6. Quantity */}
