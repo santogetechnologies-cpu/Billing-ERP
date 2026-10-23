@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   Sliders,
   QrCode,
-  Sparkles,
   Check,
   Loader2,
   AlertTriangle,
@@ -924,7 +923,7 @@ export const SettingsPage: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="max-w-2xl">
             {/* Primary Accent Color Selector */}
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-4">
               <div>
@@ -981,71 +980,6 @@ export const SettingsPage: React.FC = () => {
                 <p className="text-[11px]">
                   <strong>User Isolation Guarantee:</strong> Your selected interface accent is stored uniquely for your authenticated profile (<span className="font-mono">{user?.email || 'current user'}</span>) and persists across page reloads without modifying other team members' preferences or company-wide invoice settings.
                 </p>
-              </div>
-            </div>
-
-            {/* Live Interactive UI Preview */}
-            <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
-              <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
-                Live Theme Preview
-              </h3>
-              <p className="text-xs text-slate-500">
-                Buttons, interactive chips, badges, and focus rings instantly adopt your selected color:
-              </p>
-
-              <div className="flex flex-wrap items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  style={{ backgroundColor: activePreset.primary }}
-                  className="px-3.5 py-1.5 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Primary Button</span>
-                </button>
-
-                <button
-                  type="button"
-                  style={{
-                    backgroundColor: activePreset.light,
-                    color: activePreset.primary,
-                    borderColor: activePreset.border
-                  }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
-                >
-                  Subtle Accent
-                </button>
-
-                <span
-                  style={{
-                    backgroundColor: activePreset.light,
-                    color: activePreset.primary,
-                    borderColor: activePreset.border
-                  }}
-                  className="px-2.5 py-0.5 rounded-full text-xs font-bold border font-mono"
-                >
-                  Badge Active
-                </span>
-              </div>
-
-              <div className="pt-3 border-t border-slate-100">
-                <span className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Sidebar Menu Active Highlight
-                </span>
-                <div
-                  style={{ backgroundColor: activePreset.sidebarBg }}
-                  className="p-3 rounded-lg flex items-center justify-between text-white text-xs font-semibold"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: activePreset.primary }} />
-                    <span>Selected Navigation Item</span>
-                  </div>
-                  <span
-                    style={{ backgroundColor: activePreset.sidebarBadgeBg }}
-                    className="px-2 py-0.5 rounded text-[10px] font-bold"
-                  >
-                    Active
-                  </span>
-                </div>
               </div>
             </div>
           </div>
