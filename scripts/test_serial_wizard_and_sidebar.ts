@@ -70,7 +70,7 @@ function runTests() {
   assert(productListContent.includes('/inventory/serials'), 'ProductListPage links to /inventory/serials when serialTracking is true');
 
   const batchPageContent = fs.readFileSync('src/pages/inventory/BatchManagementPage.tsx', 'utf8');
-  assert(batchPageContent.includes('/inventory/serials'), 'BatchManagementPage links to /inventory/serials');
+  assert(!batchPageContent.includes('/inventory/serials'), 'BatchManagementPage does not link to /inventory/serials');
 
   console.log(`\nTests Completed: ${passed} passed, ${failed} failed.`);
   if (failed > 0) {
