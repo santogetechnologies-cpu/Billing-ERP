@@ -1339,14 +1339,13 @@ export const PurchaseRequestsPage: React.FC = () => {
       {/* ========================================================================= */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs min-w-[980px]">
+          <table className="w-full text-left border-collapse text-xs min-w-[850px]">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4 w-[140px] whitespace-nowrap">Request #</th>
                 <th className="py-3 px-3.5 w-[110px] whitespace-nowrap">Date</th>
-                <th className="py-3 px-3.5 w-[150px] whitespace-nowrap">Warehouse</th>
-                <th className="py-3 px-3.5 w-[150px] whitespace-nowrap">Requester</th>
-                <th className="py-3 px-4 min-w-[200px]">Product(s)</th>
+                <th className="py-3 px-3.5 w-[160px] whitespace-nowrap">Warehouse</th>
+                <th className="py-3 px-4 min-w-[220px]">Product(s)</th>
                 <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap">Quantity</th>
                 <th className="py-3 px-3 w-[100px] text-center whitespace-nowrap">Priority</th>
                 <th className="py-3 px-3.5 w-[130px] text-center whitespace-nowrap">Status</th>
@@ -1356,7 +1355,7 @@ export const PurchaseRequestsPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {paginatedRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <ClipboardList className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-700">No purchase requests found</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1400,22 +1399,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* 4. Requested By */}
-                      <td className="py-3.5 px-3.5 text-slate-800">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 font-semibold text-slate-900 truncate">
-                            <UserIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span className="truncate max-w-[130px]" title={req.requesterName}>{req.requesterName}</span>
-                          </div>
-                          {req.requesterRole && (
-                            <span className="text-[10px] text-slate-500 block pl-5 truncate max-w-[130px]">
-                              {req.requesterRole}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* 5. Product(s) */}
+                      {/* 4. Product(s) */}
                       <td className="py-3.5 px-4 text-slate-800">
                         {firstItem ? (
                           <div className="min-w-0">
@@ -1460,7 +1444,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                         )}
                       </td>
 
-                      {/* 7. Priority */}
+                      {/* 6. Priority */}
                       <td className="py-3.5 px-3 text-center whitespace-nowrap">
                         <span
                           className={"inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border " + (isUrgent ? "bg-rose-50 text-rose-700 border-rose-200" : isHigh ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-700 border-slate-200")}
@@ -1469,12 +1453,12 @@ export const PurchaseRequestsPage: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* 8. Request Status */}
+                      {/* 7. Request Status */}
                       <td className="py-3.5 px-3.5 text-center whitespace-nowrap">
                         <StatusBadge status={req.status} size="sm" />
                       </td>
 
-                      {/* 9. Actions */}
+                      {/* 8. Actions */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div
                           className="flex items-center justify-end gap-1.5"
