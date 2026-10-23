@@ -1128,27 +1128,25 @@ export const PurchaseRequestsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center">
-              <ClipboardList className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900">
-                Purchase Requests & Procurement Workflow
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Warehouse replenishment requests, approval matrix, purchase orders, and goods receiving (GRN)
-              </p>
-            </div>
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white p-4.5 sm:p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200/80 text-indigo-600 flex items-center justify-center shrink-0">
+            <ClipboardList className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 truncate sm:whitespace-normal">
+              Purchase Requests & Procurement Workflow
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Warehouse replenishment requests, approval matrix, purchase orders, and goods receiving (GRN)
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap xl:flex-nowrap shrink-0 xl:justify-end">
           <button
             onClick={() => navigate('/purchases/orders')}
-            className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/90 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
             title="View Active Purchase Orders & Deliveries"
           >
             <Truck className="w-4 h-4 text-blue-600" />
@@ -1157,16 +1155,16 @@ export const PurchaseRequestsPage: React.FC = () => {
 
           <button
             onClick={() => navigate('/inventory/alerts')}
-            className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200/90 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
           >
-            <AlertTriangle className="w-4 h-4" />
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
             <span>Low Stock & Reorder</span>
           </button>
 
           {canManageBarcodeOverride(profile?.role) && (
             <button
               onClick={() => navigate('/purchases/barcode-management')}
-              className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
               title="Supplier Barcode Management & Override"
             >
               <ScanBarcode className="w-4 h-4 text-indigo-600" />
@@ -1177,7 +1175,7 @@ export const PurchaseRequestsPage: React.FC = () => {
           {(isWarehouseManager || isPurchaseManager) && (
             <button
               onClick={handleOpenNewRequestModal}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
               <span>Create Purchase Request</span>

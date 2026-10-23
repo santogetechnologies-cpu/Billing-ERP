@@ -11,6 +11,7 @@ interface AuthContextType {
   companyId: string;
   loading: boolean;
   inactivityWarningActive: boolean;
+
   inactivitySecondsRemaining: number;
   resetInactivityTimer: () => void;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string; role?: string }>;
