@@ -2372,7 +2372,7 @@ const InventoryDashboardInner: React.FC = () => {
         onClose={() => setStockModal(null)}
         title="Expiring & Expired Batches Watchlist"
         subtitle="Batches requiring First-Expiry-First-Out (FEFO) clearance or write-off"
-        size="lg"
+        size="xl"
         footer={
           <div className="flex items-center justify-between w-full">
             <button
@@ -2393,13 +2393,17 @@ const InventoryDashboardInner: React.FC = () => {
             <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-0.5">
               <span className="text-[10px] uppercase font-bold text-rose-700 block">Expired Batches</span>
               <span className="text-base font-black text-rose-900 font-mono block">
-                {batches.filter(b => b.status === 'Expired').length} Batches
+                {batches.filter(b => b.status === 'Expired').length === 1
+                  ? '1 Batch'
+                  : `${batches.filter(b => b.status === 'Expired').length} Batches`}
               </span>
             </div>
             <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-0.5">
               <span className="text-[10px] uppercase font-bold text-amber-700 block">Expiring Soon</span>
               <span className="text-base font-black text-amber-900 font-mono block">
-                {batches.filter(b => b.status === 'Expiring Soon').length} Batches
+                {batches.filter(b => b.status === 'Expiring Soon').length === 1
+                  ? '1 Batch'
+                  : `${batches.filter(b => b.status === 'Expiring Soon').length} Batches`}
               </span>
             </div>
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-0.5">
@@ -2417,16 +2421,16 @@ const InventoryDashboardInner: React.FC = () => {
               <p className="text-[11px] text-slate-400">All batch inventory remains well within expiration thresholds.</p>
             </div>
           ) : (
-            <div className="overflow-x-hidden no-scrollbar w-full rounded-lg border border-slate-200 max-h-72 overflow-y-auto">
-              <table className="w-full text-left text-xs table-fixed">
+            <div className="overflow-x-auto scrollbar-thin w-full rounded-lg border border-slate-200 max-h-72 overflow-y-auto">
+              <table className="w-full text-left text-xs table-fixed min-w-[620px]">
                 <thead className="bg-slate-50 text-slate-500 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <th className="py-2.5 px-3 w-[20%]">Batch #</th>
-                    <th className="py-2.5 px-3 w-[30%]">Product</th>
+                    <th className="py-2.5 px-3 w-[16%]">Batch #</th>
+                    <th className="py-2.5 px-3 w-[26%]">Product</th>
                     <th className="py-2.5 px-3 w-[18%]">Expiry Date</th>
-                    <th className="py-2.5 px-3 text-right w-[12%]">Available Qty</th>
-                    <th className="py-2.5 px-3 text-center w-[10%]">Status</th>
-                    <th className="py-2.5 px-3 text-right w-[10%]">Action</th>
+                    <th className="py-2.5 px-3 text-right w-[13%]">Available Qty</th>
+                    <th className="py-2.5 px-3 text-center w-[14%]">Status</th>
+                    <th className="py-2.5 pr-4 pl-2 text-right w-[13%]">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
@@ -2434,26 +2438,26 @@ const InventoryDashboardInner: React.FC = () => {
                     <tr key={b.id} className="hover:bg-slate-50/60">
                       <td className="py-2 px-3 font-semibold text-slate-900 overflow-hidden truncate" title={b.batchNumber}>{b.batchNumber}</td>
                       <td className="py-2 px-3 font-sans text-slate-800 overflow-hidden truncate" title={b.productName}>{b.productName}</td>
-                      <td className="py-2 px-3 text-slate-600 overflow-hidden truncate">{formatDate(b.expiryDate)}</td>
-                      <td className="py-2 px-3 text-right font-bold text-slate-900 overflow-hidden truncate">{b.qty}</td>
-                      <td className="py-2 px-3 text-center font-sans overflow-hidden">
+                      <td className="py-2 px-3 text-slate-600 overflow-hidden truncate whitespace-nowrap">{formatDate(b.expiryDate)}</td>
+                      <td className="py-2 px-3 text-right font-bold text-slate-900 overflow-hidden truncate whitespace-nowrap">{b.qty}</td>
+                      <td className="py-2 px-3 text-center font-sans">
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold block truncate ${
+                          className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${
                             b.status === 'Expired'
-                              ? 'bg-rose-50 text-rose-700'
-                              : 'bg-amber-50 text-amber-700'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}
                         >
                           {b.status}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-right font-sans overflow-hidden">
+                      <td className="py-2 pr-4 pl-2 text-right font-sans whitespace-nowrap">
                         <button
                           onClick={() => {
                             setStockModal(null);
                             navigate('/sales/new');
                           }}
-                          className="px-2 py-0.5 text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+                          className="inline-flex items-center justify-center px-3 py-1 text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-2xs cursor-pointer"
                         >
                           Dispatch
                         </button>
