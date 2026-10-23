@@ -28,7 +28,7 @@ import { UNIVERSAL_BUILTIN_UNITS, normalizeUnitKey } from '../../data/unitsData'
 
 interface WizardStep {
   id: number;
-  key: 'basic' | 'pricing' | 'inventory' | 'units' | 'tax' | 'tracking';
+  key: 'basic' | 'pricing' | 'inventory' | 'units' | 'tax';
   title: string;
   shortTitle: string;
   description: string;
@@ -40,8 +40,7 @@ const STEPS: WizardStep[] = [
   { id: 2, key: 'pricing', title: '2. Multi-Tier Pricing', shortTitle: 'Pricing', description: 'Purchase, Cost, Selling & MRP', icon: DollarSign },
   { id: 3, key: 'inventory', title: '3. Inventory & Stocks', shortTitle: 'Inventory', description: 'Warehouse, Opening & Reorder Stock', icon: Boxes },
   { id: 4, key: 'units', title: '4. Units & Conversion', shortTitle: 'Units', description: 'Primary, Secondary & Multipliers', icon: Ruler },
-  { id: 5, key: 'tax', title: '5. Tax & HSN', shortTitle: 'Tax & HSN', description: 'GST Slabs & HSN / SAC Codes', icon: Percent },
-  { id: 6, key: 'tracking', title: '6. Serial & Batch', shortTitle: 'Tracking & Review', description: 'Batch, Serial, Expiry & Review', icon: Barcode }
+  { id: 5, key: 'tax', title: '5. Tax & HSN', shortTitle: 'Tax & HSN', description: 'GST Slabs & HSN / SAC Codes', icon: Percent }
 ];
 
 export const NewProductPage: React.FC = () => {
@@ -393,7 +392,7 @@ export const NewProductPage: React.FC = () => {
     setErrors({});
     setSubmitError(null);
     setCompletedSteps(prev => new Set([...prev, currentStep]));
-    if (currentStep < 6) {
+    if (currentStep < 5) {
       setCurrentStep(prev => prev + 1);
     }
   };
@@ -438,13 +437,13 @@ export const NewProductPage: React.FC = () => {
     setCurrentStep(targetStep);
   };
 
-  // Final Submission on Step 6
+  // Final Submission on Step 5
   const handleFinalSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (isSubmitting) return;
 
-    // Validate ALL 6 steps sequentially
-    for (let s = 1; s <= 6; s++) {
+    // Validate ALL 5 steps sequentially
+    for (let s = 1; s <= 5; s++) {
       const sErrs = validateStep(s);
       if (Object.keys(sErrs).length > 0) {
         setErrors(sErrs);
@@ -542,7 +541,7 @@ export const NewProductPage: React.FC = () => {
                 {isEditMode ? `Edit Product: ${name || 'Master'}` : 'New Master Product Wizard'}
               </h1>
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                Step {currentStep} of 6
+                Step {currentStep} of 5
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -559,7 +558,7 @@ export const NewProductPage: React.FC = () => {
           >
             Cancel
           </button>
-          {(isEditMode || currentStep === 6) && (
+          {(isEditMode || currentStep === 5) && (
             <button
               type="button"
               disabled={isSubmitting}
@@ -585,7 +584,7 @@ export const NewProductPage: React.FC = () => {
       {/* Wizard Step Progress Tracker */}
       <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200/90 shadow-2xs space-y-3">
         {/* Step Icons & Tabs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           {STEPS.map(step => {
             const Icon = step.icon;
             const isCurrent = currentStep === step.id;
@@ -670,7 +669,7 @@ export const NewProductPage: React.FC = () => {
         <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
           <div
             className="bg-blue-600 h-1.5 rounded-full transition-all duration-300 ease-out"
-            style={{ width: `${(currentStep / 6) * 100}%` }}
+            style={{ width: `${(currentStep / 5) * 100}%` }}
           />
         </div>
       </div>
@@ -699,7 +698,7 @@ export const NewProductPage: React.FC = () => {
             </p>
           </div>
           <span className="text-xs font-semibold text-slate-400">
-            Step {currentStep} of 6
+            Step {currentStep} of 5
           </span>
         </div>
 
@@ -1401,209 +1400,6 @@ export const NewProductPage: React.FC = () => {
           </div>
         )}
 
-        {/* =========================================================================
-            STEP 6: SERIAL & BATCH + FINAL REVIEW SUMMARY
-        ========================================================================= */}
-        {currentStep === 6 && (
-          <div className="space-y-6 animate-fadeIn text-xs">
-            {/* Tracking Switches */}
-            <div className="space-y-3">
-              <span className="font-bold text-slate-900 block text-sm">Inventory Tracking Modes</span>
-
-              <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-100/70 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={batchTracking}
-                  onChange={e => setBatchTracking(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <div>
-                  <span className="font-bold text-slate-900 block">Enable Batch Tracking</span>
-                  <span className="text-[11px] text-slate-500">
-                    Tracks distinct manufacturing lots, cost layers, and production runs.
-                  </span>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-100/70 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={serialTracking}
-                  onChange={e => setSerialTracking(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <div>
-                  <span className="font-bold text-slate-900 block">Enable Serial Number Tracking</span>
-                  <span className="text-[11px] text-slate-500">
-                    Assigns individual unique serials per unit. Critical for equipment and warranty items.
-                  </span>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-100/70 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={expiryTracking}
-                  onChange={e => setExpiryTracking(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <div>
-                  <span className="font-bold text-slate-900 block">Enable Expiry Date Tracking</span>
-                  <span className="text-[11px] text-slate-500">
-                    Monitors shelf-life and generates automatic alerts for nearing-expiry stock.
-                  </span>
-                </div>
-              </label>
-            </div>
-
-            {/* Comprehensive Review Summary Box */}
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-600" />
-                  <span className="font-bold text-sm text-slate-900">Pre-Save Product Summary</span>
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium">
-                  Review all entered specifications before saving to database
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {/* 1. Basic Info Summary */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1.5 relative">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                      <Package className="w-3.5 h-3.5 text-blue-600" /> Basic Info
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleStepClick(1)}
-                      className="text-blue-600 hover:text-blue-800 text-[11px] font-semibold flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3 h-3" /> Edit
-                    </button>
-                  </div>
-                  <div className="text-[11px] space-y-0.5 text-slate-600 pt-1 border-t border-slate-100">
-                    <div><span className="text-slate-400">Name:</span> <strong className="text-slate-800">{name || '—'}</strong></div>
-                    <div><span className="text-slate-400">SKU:</span> <strong className="font-mono text-slate-800">{sku || '—'}</strong></div>
-                    <div><span className="text-slate-400">Category:</span> {category || '—'}</div>
-                    {brand && <div><span className="text-slate-400">Brand:</span> {brand}</div>}
-                    {barcode && <div><span className="text-slate-400">Barcode:</span> <span className="font-mono">{barcode}</span></div>}
-                  </div>
-                </div>
-
-                {/* 2. Pricing Summary */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1.5 relative">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5 text-emerald-600" /> Pricing
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleStepClick(2)}
-                      className="text-blue-600 hover:text-blue-800 text-[11px] font-semibold flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3 h-3" /> Edit
-                    </button>
-                  </div>
-                  <div className="text-[11px] space-y-0.5 text-slate-600 pt-1 border-t border-slate-100">
-                    <div><span className="text-slate-400">Selling Price:</span> <strong className="text-emerald-700">{formatCurrency(numSellingPrice)}</strong></div>
-                    <div><span className="text-slate-400">Cost Price:</span> {formatCurrency(numCostPrice)}</div>
-                    <div><span className="text-slate-400">Gross Margin:</span> <span className="font-semibold text-emerald-600">{marginPct}%</span></div>
-                    {mrp !== '' && <div><span className="text-slate-400">MRP:</span> {formatCurrency(Number(mrp))}</div>}
-                  </div>
-                </div>
-
-                {/* 3. Inventory Summary */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1.5 relative">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                      <Boxes className="w-3.5 h-3.5 text-amber-600" /> Inventory
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleStepClick(3)}
-                      className="text-blue-600 hover:text-blue-800 text-[11px] font-semibold flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3 h-3" /> Edit
-                    </button>
-                  </div>
-                  <div className="text-[11px] space-y-0.5 text-slate-600 pt-1 border-t border-slate-100">
-                    <div><span className="text-slate-400">Warehouse:</span> <strong className="text-slate-800">{warehouse || 'Default'}</strong></div>
-                    <div><span className="text-slate-400">Opening Stock:</span> {numOpeningStock} {primaryUnit}</div>
-                    <div>
-                      <span className="text-slate-400">Warning Limit:</span>{' '}
-                      {reorderLevel !== '' ? (
-                        <strong className="text-amber-700 font-bold">{reorderLevel} {primaryUnit}</strong>
-                      ) : (
-                        <span className="text-slate-400 italic">Not Set</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 4. Units Summary */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1.5 relative">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                      <Ruler className="w-3.5 h-3.5 text-indigo-600" /> Units
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleStepClick(4)}
-                      className="text-blue-600 hover:text-blue-800 text-[11px] font-semibold flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3 h-3" /> Edit
-                    </button>
-                  </div>
-                  <div className="text-[11px] space-y-0.5 text-slate-600 pt-1 border-t border-slate-100">
-                    <div><span className="text-slate-400">Base Unit:</span> <strong className="text-slate-800">{primaryUnit}</strong></div>
-                    {secondaryUnit ? (
-                      <div><span className="text-slate-400">Conversion:</span> 1 {secondaryUnit} = {conversionFactor} {primaryUnit}</div>
-                    ) : (
-                      <div><span className="text-slate-400">Secondary:</span> None</div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 5. Tax Summary */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1.5 relative">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                      <Percent className="w-3.5 h-3.5 text-rose-600" /> Tax & HSN
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleStepClick(5)}
-                      className="text-blue-600 hover:text-blue-800 text-[11px] font-semibold flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3 h-3" /> Edit
-                    </button>
-                  </div>
-                  <div className="text-[11px] space-y-0.5 text-slate-600 pt-1 border-t border-slate-100">
-                    <div><span className="text-slate-400">GST Slab:</span> <strong className="text-slate-800">{taxRate}%</strong></div>
-                    <div><span className="text-slate-400">HSN/SAC:</span> <span className="font-mono">{hsn || 'Not specified'}</span></div>
-                  </div>
-                </div>
-
-                {/* 6. Tracking Summary */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1.5 relative">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                      <Barcode className="w-3.5 h-3.5 text-purple-600" /> Tracking
-                    </span>
-                  </div>
-                  <div className="text-[11px] space-y-0.5 text-slate-600 pt-1 border-t border-slate-100">
-                    <div><span className="text-slate-400">Batch:</span> {batchTracking ? 'Enabled' : 'Disabled'}</div>
-                    <div><span className="text-slate-400">Serial:</span> {serialTracking ? 'Enabled' : 'Disabled'}</div>
-                    <div><span className="text-slate-400">Expiry:</span> {expiryTracking ? 'Enabled' : 'Disabled'}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Wizard Step Navigation Footer */}
         <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
           <div>
@@ -1619,7 +1415,7 @@ export const NewProductPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            {currentStep < 6 ? (
+            {currentStep < 5 ? (
               <button
                 type="button"
                 onClick={handleNext}
