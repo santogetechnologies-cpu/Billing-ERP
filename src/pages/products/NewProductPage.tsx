@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { hasPermission } from '../../utils/rbac';
 import {
   ArrowLeft,
   ArrowRight,
@@ -40,7 +42,7 @@ interface WizardStep {
 const STEPS: WizardStep[] = [
   { id: 1, key: 'basic', title: '1. Basic Information', shortTitle: 'Basic Info', description: 'Name, Category, Brand, SKU & Code', icon: Package },
   { id: 2, key: 'pricing', title: '2. Product Prices', shortTitle: 'Pricing', description: 'Buying Cost & Customer Selling Prices', icon: DollarSign },
-  { id: 3, key: 'inventory', title: '3. Inventory & Stocks', shortTitle: 'Inventory', description: 'Warehouse, Opening & Reorder Stock', icon: Boxes },
+  { id: 3, key: 'inventory', title: '3. Warehouse & Opening Stock Details', shortTitle: 'Warehouse & Stock', description: 'Warehouse, Opening Stock, Unit & Batch Tracking', icon: WarehouseIcon },
   { id: 4, key: 'units', title: '4. Units & Conversion', shortTitle: 'Units', description: 'Primary, Secondary & Multipliers', icon: Ruler },
   { id: 5, key: 'tax', title: '5. Tax & HSN', shortTitle: 'Tax & HSN', description: 'GST Slabs & HSN / SAC Codes', icon: Percent }
 ];
@@ -49,6 +51,7 @@ export const NewProductPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
+  const { profile } = useAuth();
   const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory, batches } = useERP();
 
   // Custom Category Modal State
@@ -190,13 +193,7 @@ export const NewProductPage: React.FC = () => {
   const [serialTracking, setSerialTracking] = useState(false);
   const [expiryTracking, setExpiryTracking] = useState(false);
 
-  // Set default warehouse once available
-  useEffect(() => {
-    if (!warehouse && warehouses.length > 0) {
-      const defaultWh = warehouses.find(w => w.isDefault) || warehouses[0];
-      setWarehouse(defaultWh.code || defaultWh.id);
-    }
-  }, [warehouses, warehouse]);
+  // Note: Warehouse auto-selection is intentionally disabled for new products to require explicit user choice.
 
   // Set default primary unit once available
   useEffect(() => {
@@ -234,7 +231,8 @@ export const NewProductPage: React.FC = () => {
 
         setOpeningStock(toPriceInput(existing.openingStock));
         setReorderLevel(existing.reorderLevel !== null && existing.reorderLevel !== undefined ? String(existing.reorderLevel) : '');
-        setWarehouse(existing.warehouse || warehouses[0]?.code || '');
+        const matchedWh = warehouses.find(w => w.id === existing.warehouse || w.code === existing.warehouse);
+        setWarehouse(matchedWh ? matchedWh.id : (existing.warehouse || ''));
         setRack(existing.rack || '');
 
         const productBatch = batches?.find(b => b.productId === existing.id);
@@ -373,13 +371,17 @@ export const NewProductPage: React.FC = () => {
       }
     }
 
-    // STEP 3: Inventory & Stocks
+        // STEP 3: Warehouse & Opening Stock Details
     if (stepNumber === 3) {
-      if (!warehouse) {
-        errs.warehouse = 'Please select a default warehouse.';
+      if (!warehouse || !warehouse.trim()) {
+        errs.warehouse = 'Please select a warehouse.';
       }
 
-      if (openingStock !== '' && Number(openingStock) < 0) {
+      if (openingStock === '' || openingStock === null || openingStock === undefined) {
+        errs.openingStock = 'Opening stock quantity is required.';
+      } else if (isNaN(Number(openingStock))) {
+        errs.openingStock = 'Opening stock quantity must be a valid number.';
+      } else if (Number(openingStock) < 0) {
         errs.openingStock = 'Opening stock quantity cannot be negative.';
       }
 
@@ -553,7 +555,7 @@ export const NewProductPage: React.FC = () => {
         primaryUnit: primaryUnit.trim() || 'Piece',
         secondaryUnit: secondaryUnit.trim() || undefined,
         conversionFactor: Number(conversionFactor) || 1,
-        warehouse: warehouse || (warehouses[0]?.code || 'WH-MAIN'),
+        warehouse: warehouse.trim(),
         rack: rack.trim(),
         batchNumber: batchNumber.trim(),
         expiryDate: expiryDate.trim(),
@@ -1231,194 +1233,272 @@ export const NewProductPage: React.FC = () => {
         )}
 
         {/* =========================================================================
-            STEP 3: INVENTORY & STOCKS
+            STEP 3: WAREHOUSE & OPENING STOCK DETAILS
         ========================================================================= */}
         {currentStep === 3 && (
           <div className="space-y-4 animate-fadeIn text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Default Warehouse */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">
-                  Default Warehouse <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  id="field-warehouse"
-                  value={warehouse}
-                  onChange={e => {
-                    setWarehouse(e.target.value);
-                    if (errors.warehouse) setErrors(prev => ({ ...prev, warehouse: '' }));
-                  }}
-                  className={`w-full px-3 py-2 bg-slate-50 border rounded-lg text-slate-800 text-xs cursor-pointer ${
-                    errors.warehouse ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
-                  }`}
-                >
-                  <option value="">-- Select Warehouse --</option>
-                  {warehouses.map(w => (
-                    <option key={w.id} value={w.code || w.id}>
-                      {w.name} ({w.code})
-                    </option>
-                  ))}
-                </select>
-                {errors.warehouse && <p className="text-[11px] text-rose-600 mt-1">{errors.warehouse}</p>}
+            {/* Warehouse & Opening Stock Section Card */}
+            <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-4 shadow-2xs">
+              <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
+                <WarehouseIcon className="w-4 h-4 text-blue-600" />
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900">Warehouse &amp; Opening Stock Details</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Specify warehouse allocation, opening physical stock intake, and link inventory lot details.
+                  </p>
+                </div>
               </div>
 
-              {/* Storage Rack */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Storage Rack / Bin Location</label>
-                <input
-                  id="field-rack"
-                  type="text"
-                  value={rack}
-                  onChange={e => setRack(e.target.value)}
-                  placeholder="e.g. BAY-C4, SHELF-02"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900 text-xs"
-                />
-              </div>
+              {/* No Active Warehouses Warning */}
+              {warehouses.length === 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>No active warehouses found in the database. A warehouse is required to save inventory.</span>
+                  </div>
+                  {hasPermission(profile?.role, 'inventory', 'manage') && (
+                    <Link
+                      to="/inventory/warehouses"
+                      className="ml-3 px-2.5 py-1 bg-amber-600 text-white font-medium rounded hover:bg-amber-700 whitespace-nowrap"
+                    >
+                      Manage Warehouses &rarr;
+                    </Link>
+                  )}
+                </div>
+              )}
 
-              {/* Warning Limit */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="field-reorderLevel" className="block font-medium text-slate-700 text-xs">
-                    Warning Limit
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* Warehouse Dropdown */}
+                <div>
+                  <label htmlFor="field-warehouse" className="block font-medium text-slate-700 mb-1">
+                    Warehouse <span className="text-rose-500">*</span>
                   </label>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    Unit: {primaryUnit || 'Units'}
+                  <select
+                    id="field-warehouse"
+                    value={warehouse}
+                    onChange={e => {
+                      setWarehouse(e.target.value);
+                      if (errors.warehouse) setErrors(prev => ({ ...prev, warehouse: '' }));
+                    }}
+                    className={`w-full px-3 py-2 bg-slate-50 border rounded-lg text-slate-800 text-xs cursor-pointer ${
+                      errors.warehouse ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/20' : 'border-slate-200'
+                    }`}
+                  >
+                    <option value="">-- Select Warehouse * --</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.code}){w.address ? ` — ${w.address}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.warehouse ? (
+                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.warehouse}</p>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Choose the target warehouse where opening stock will be placed.
+                    </p>
+                  )}
+                </div>
+
+                {/* Opening Stock Quantity */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label htmlFor="field-openingStock" className="block font-medium text-slate-700 text-xs">
+                      Opening Stock Quantity <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Unit: {primaryUnit || 'Piece'}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      id="field-openingStock"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={openingStock}
+                      onFocus={e => e.target.select()}
+                      onChange={e => {
+                        setOpeningStock(cleanNumberInput(e.target.value));
+                        if (errors.openingStock) setErrors(prev => ({ ...prev, openingStock: '' }));
+                      }}
+                      placeholder="0"
+                      className={`w-full px-3 py-2 pr-16 bg-slate-50 border rounded-lg font-bold text-slate-900 text-xs ${
+                        errors.openingStock ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/20' : 'border-slate-200'
+                      }`}
+                    />
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-500 pointer-events-none">
+                      {primaryUnit || 'Piece'}
+                    </div>
+                  </div>
+                  {errors.openingStock ? (
+                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.openingStock}</p>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Initial physical quantity placed in this warehouse (0 or more).
+                    </p>
+                  )}
+                </div>
+
+                {/* Unit Selection / Representation */}
+                <div>
+                  <label htmlFor="field-stockUnit" className="block font-medium text-slate-700 mb-1">
+                    Unit
+                  </label>
+                  <select
+                    id="field-stockUnit"
+                    value={primaryUnit}
+                    onChange={e => setPrimaryUnit(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-xs cursor-pointer font-medium"
+                  >
+                    {unitOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Measurement unit for this product (Piece, Kg, Litre, Meter, etc.).
+                  </p>
+                </div>
+
+                {/* Opening Stock Value */}
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <label htmlFor="field-openingStockValue" className="block font-medium text-slate-700 mb-1">
+                    Opening Stock Value (₹)
+                  </label>
+                  <input
+                    id="field-openingStockValue"
+                    type="text"
+                    disabled
+                    value={formatCurrency(numOpeningStock * effectiveCostPrice)}
+                    className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-600 text-xs"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Calculated as: {numOpeningStock} {primaryUnit || 'Piece'} × {numCostPrice > 0 ? 'Total Cost per Item' : 'Buying Price'} ({formatCurrency(effectiveCostPrice)})
                   </span>
                 </div>
-                <div className="relative">
+
+                {/* Storage Rack */}
+                <div>
+                  <label htmlFor="field-rack" className="block font-medium text-slate-700 mb-1">Storage Rack / Bin Location</label>
                   <input
-                    id="field-reorderLevel"
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={reorderLevel}
-                    onFocus={e => e.target.select()}
-                    onChange={e => {
-                      setReorderLevel(cleanNumberInput(e.target.value));
-                      if (errors.reorderLevel) setErrors(prev => ({ ...prev, reorderLevel: '' }));
-                    }}
-                    placeholder="e.g. 10 (Leave blank for Not Set)"
-                    className={`w-full px-3 py-2 pr-16 bg-slate-50 border rounded-lg font-bold text-amber-700 text-xs ${
-                      errors.reorderLevel ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
-                    }`}
+                    id="field-rack"
+                    type="text"
+                    value={rack}
+                    onChange={e => setRack(e.target.value)}
+                    placeholder="e.g. BAY-C4, SHELF-02"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900 text-xs"
                   />
-                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 pointer-events-none">
-                    {primaryUnit || 'Units'}
+                  <p className="text-[10px] text-slate-400 mt-1">Physical storage location in the warehouse.</p>
+                </div>
+
+                {/* Warning Limit */}
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <label htmlFor="field-reorderLevel" className="block font-medium text-slate-700 text-xs">
+                      Warning Limit
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Unit: {primaryUnit || 'Piece'}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      id="field-reorderLevel"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={reorderLevel}
+                      onFocus={e => e.target.select()}
+                      onChange={e => {
+                        setReorderLevel(cleanNumberInput(e.target.value));
+                        if (errors.reorderLevel) setErrors(prev => ({ ...prev, reorderLevel: '' }));
+                      }}
+                      placeholder="e.g. 10 (Leave blank for Not Set)"
+                      className={`w-full px-3 py-2 pr-16 bg-slate-50 border rounded-lg font-bold text-amber-700 text-xs ${
+                        errors.reorderLevel ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
+                      }`}
+                    />
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 pointer-events-none">
+                      {primaryUnit || 'Piece'}
+                    </div>
+                  </div>
+                  {errors.reorderLevel ? (
+                    <p className="text-[11px] text-rose-600 mt-1">{errors.reorderLevel}</p>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Triggers &ldquo;Limited Stock&rdquo; status when available stock is &le; this limit. Clear input for Not Set.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Batch & Expiry Details Linked to this Warehouse Stock Batch */}
+              <div className="mt-4 pt-4 border-t border-slate-100 bg-slate-50/70 p-4 rounded-xl border space-y-3">
+                <div className="flex items-center gap-2 pb-2.5 border-b border-slate-200">
+                  <Calendar className="w-4 h-4 text-blue-600" />
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">Batch &amp; Expiry Details (Linked to Opening Stock Batch)</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Assigned to the opening batch of {numOpeningStock} {primaryUnit || 'Piece'} in {warehouses.find(w => w.id === warehouse || w.code === warehouse)?.name || 'the selected warehouse'}.
+                    </p>
                   </div>
                 </div>
-                {errors.reorderLevel ? (
-                  <p className="text-[11px] text-rose-600 mt-1">{errors.reorderLevel}</p>
-                ) : (
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Triggers &ldquo;Limited Stock&rdquo; status when available stock is &le; this limit. Clear input for Not Set.
-                  </p>
-                )}
-              </div>
 
-              {/* Opening Stock Quantity */}
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Opening Stock Quantity</label>
-                <input
-                  id="field-openingStock"
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={openingStock}
-                  onFocus={e => e.target.select()}
-                  onChange={e => {
-                    setOpeningStock(cleanNumberInput(e.target.value));
-                    if (errors.openingStock) setErrors(prev => ({ ...prev, openingStock: '' }));
-                  }}
-                  placeholder="0"
-                  className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-bold text-slate-900 text-xs ${
-                    errors.openingStock ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
-                  }`}
-                />
-                {errors.openingStock && <p className="text-[11px] text-rose-600 mt-1">{errors.openingStock}</p>}
-              </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Batch Number */}
+                  <div className="flex flex-col">
+                    <label htmlFor="field-batchNumber" className="block font-medium text-slate-700 mb-1">
+                      Batch Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      id="field-batchNumber"
+                      type="text"
+                      value={batchNumber}
+                      onChange={e => {
+                        setBatchNumber(e.target.value);
+                        if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
+                      }}
+                      placeholder="Enter batch number (e.g. BAT-2026-001)"
+                      className={`w-full px-3 py-2 bg-white border rounded-lg font-mono font-bold text-slate-900 text-xs ${
+                        errors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
+                      }`}
+                    />
+                    {errors.batchNumber ? (
+                      <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.batchNumber}</p>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Identification lot or batch code printed on the item package.
+                      </p>
+                    )}
+                  </div>
 
-              {/* Opening Stock Value */}
-              <div className="sm:col-span-2">
-                <label htmlFor="field-openingStockValue" className="block font-medium text-slate-700 mb-1">
-                  Opening Stock Value (₹)
-                </label>
-                <input
-                  id="field-openingStockValue"
-                  type="text"
-                  disabled
-                  value={formatCurrency(numOpeningStock * effectiveCostPrice)}
-                  className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-600 text-xs"
-                />
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Calculated as: Opening Stock ({numOpeningStock}) × {numCostPrice > 0 ? 'Total Cost per Item' : 'Buying Price'} ({formatCurrency(effectiveCostPrice)})
-                </span>
-              </div>
-            </div>
-
-            {/* Batch & Expiry Details */}
-            <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
-              <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
-                <Calendar className="w-4 h-4 text-blue-600" />
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900">Batch & Expiry Details</h3>
-                  <p className="text-[11px] text-slate-500">
-                    Mandatory batch/lot number and expiration tracking for inventory safety.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Batch Number */}
-                <div className="flex flex-col">
-                  <label htmlFor="field-batchNumber" className="block font-medium text-slate-700 mb-1">
-                    Batch Number <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    id="field-batchNumber"
-                    type="text"
-                    value={batchNumber}
-                    onChange={e => {
-                      setBatchNumber(e.target.value);
-                      if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
-                    }}
-                    placeholder="Enter batch number (e.g. BAT-2026-001)"
-                    className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-mono font-bold text-slate-900 text-xs ${
-                      errors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
-                    }`}
-                  />
-                  {errors.batchNumber ? (
-                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.batchNumber}</p>
-                  ) : (
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Identification lot or batch code printed on the item package.
-                    </p>
-                  )}
-                </div>
-
-                {/* Expiry Date */}
-                <div className="flex flex-col">
-                  <label htmlFor="field-expiryDate" className="block font-medium text-slate-700 mb-1">
-                    Expiry Date <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    id="field-expiryDate"
-                    type="date"
-                    value={expiryDate}
-                    onChange={e => {
-                      setExpiryDate(e.target.value);
-                      if (errors.expiryDate) setErrors(prev => ({ ...prev, expiryDate: '' }));
-                    }}
-                    className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-mono text-slate-900 text-xs cursor-pointer ${
-                      errors.expiryDate ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
-                    }`}
-                  />
-                  {errors.expiryDate ? (
-                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.expiryDate}</p>
-                  ) : (
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Final expiration date after which the item cannot be legally or safely sold.
-                    </p>
-                  )}
+                  {/* Expiry Date */}
+                  <div className="flex flex-col">
+                    <label htmlFor="field-expiryDate" className="block font-medium text-slate-700 mb-1">
+                      Expiry Date <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      id="field-expiryDate"
+                      type="date"
+                      value={expiryDate}
+                      onChange={e => {
+                        setExpiryDate(e.target.value);
+                        if (errors.expiryDate) setErrors(prev => ({ ...prev, expiryDate: '' }));
+                      }}
+                      className={`w-full px-3 py-2 bg-white border rounded-lg font-mono text-slate-900 text-xs cursor-pointer ${
+                        errors.expiryDate ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
+                      }`}
+                    />
+                    {errors.expiryDate ? (
+                      <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.expiryDate}</p>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Final expiration date after which the item cannot be legally or safely sold.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

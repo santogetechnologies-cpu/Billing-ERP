@@ -101,10 +101,40 @@ export const productService = {
 
   // Create new product atomically
   async createProduct(p: Omit<Product, 'id' | 'createdAt'>, companyId?: string): Promise<Product> {
-    // 0. Strict RBAC Enforcement: Only roles with 'products:create' can create new products
+    // 0. Strict RBAC Enforcement: Only authorized roles can create products or allocate stock
     await assertCallerPermission('products', 'create');
+    if (Number(p.openingStock) > 0) {
+      await assertCallerPermission('inventory', 'create');
+    }
 
-    // 1. Mandatory Batch Number and Expiry Date Validation
+    // 1. Mandatory Warehouse Validation
+    if (!p.warehouse || !p.warehouse.trim()) {
+      throw new Error('Warehouse selection is required.');
+    }
+
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const whIdOrCode = p.warehouse.trim();
+    const { data: whRec, error: whErr } = await supabase
+      .from('warehouses')
+      .select('id, code, name')
+      .eq('company_id', finalCompanyId)
+      .or(`id.eq.${whIdOrCode.length === 36 ? whIdOrCode : '00000000-0000-0000-0000-000000000000'},code.eq.${whIdOrCode}`)
+      .maybeSingle();
+
+    if (whErr || !whRec) {
+      throw new Error('Selected warehouse does not exist or is inactive.');
+    }
+
+    // 2. Mandatory Opening Stock Quantity Validation
+    if (p.openingStock === undefined || p.openingStock === null || isNaN(Number(p.openingStock))) {
+      throw new Error('Opening stock quantity is required.');
+    }
+    const openingStockQty = Number(p.openingStock);
+    if (openingStockQty < 0) {
+      throw new Error('Opening stock quantity cannot be negative.');
+    }
+
+    // 3. Mandatory Batch Number and Expiry Date Validation
     if (!p.batchNumber || !p.batchNumber.trim()) {
       throw new Error('Batch number is required.');
     }
@@ -115,7 +145,9 @@ export const productService = {
       throw new Error('Please select a valid expiry date.');
     }
 
-    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const effectiveCostPrice = Number(p.costPrice) || Number(p.purchasePrice) || 0;
+    const openingStockVal = openingStockQty * effectiveCostPrice;
+
     const dbPayload = {
       company_id: finalCompanyId,
       name: p.name,
@@ -138,13 +170,14 @@ export const productService = {
       mrp: p.mrp,
       min_selling_price: p.minSellingPrice,
       reorder_level: p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== ('' as any) ? Number(p.reorderLevel) : null,
-      opening_stock: p.openingStock,
-      opening_stock_value: p.openingStockValue,
-      current_stock: p.currentStock !== undefined ? p.currentStock : p.openingStock,
+      opening_stock: openingStockQty,
+      opening_stock_value: openingStockVal,
+      current_stock: p.currentStock !== undefined ? p.currentStock : openingStockQty,
       primary_unit: p.primaryUnit || 'Piece',
       secondary_unit: p.secondaryUnit || null,
       conversion_factor: p.conversionFactor || 1,
-      warehouse: p.warehouse || '',
+      warehouse: whRec.code,
+      default_warehouse_id: whRec.id,
       rack: p.rack || '',
       batch_tracking: true,
       serial_tracking: Boolean(p.serialTracking),
@@ -152,47 +185,41 @@ export const productService = {
       is_active: p.isActive !== false
     };
 
-    // Mandatory initial batch registration helper
+    // Mandatory initial batch & warehouse stock registration helper
     const registerInitialBatch = async (prodId: string) => {
-      if (!p.batchNumber || !p.expiryDate || !prodId) return;
+      if (!prodId) return;
 
-      let whId = p.warehouse;
-      if (whId) {
-        const { data: wh } = await supabase
-          .from('warehouses')
-          .select('id')
-          .eq('company_id', finalCompanyId)
-          .or(`id.eq.${whId.length === 36 ? whId : '00000000-0000-0000-0000-000000000000'},code.eq.${whId}`)
-          .maybeSingle();
-        if (wh) whId = wh.id;
-      }
-
-      if (!whId) {
-        const { data: defWh } = await supabase
-          .from('warehouses')
-          .select('id')
-          .eq('company_id', finalCompanyId)
-          .order('is_default', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (defWh) whId = defWh.id;
-      }
-
-      const batchStatus = calculateBatchStatus(p.expiryDate, p.openingStock);
-      const { error: batchErr } = await supabase.from('product_batches').insert({
+      // Ensure warehouse stock balance record is registered (even for 0 stock)
+      const { error: sbErr } = await supabase.from('stock_balances').upsert({
         company_id: finalCompanyId,
+        warehouse_id: whRec.id,
         product_id: prodId,
-        warehouse_id: whId || null,
-        batch_number: p.batchNumber.trim(),
-        expiry_date: p.expiryDate,
-        purchase_date: new Date().toISOString().split('T')[0],
-        cost: p.costPrice || p.purchasePrice || 0,
-        qty: p.openingStock || 0,
-        status: batchStatus
-      });
+        quantity: openingStockQty,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'warehouse_id,product_id' });
 
-      if (batchErr) {
-        console.warn('Could not register initial batch record:', batchErr);
+      if (sbErr) {
+        console.warn('Could not register warehouse stock balance:', sbErr);
+      }
+
+      // Link initial batch record to the warehouse
+      if (p.batchNumber && p.expiryDate) {
+        const batchStatus = calculateBatchStatus(p.expiryDate, openingStockQty);
+        const { error: batchErr } = await supabase.from('product_batches').insert({
+          company_id: finalCompanyId,
+          product_id: prodId,
+          warehouse_id: whRec.id,
+          batch_number: p.batchNumber.trim(),
+          expiry_date: p.expiryDate,
+          purchase_date: new Date().toISOString().split('T')[0],
+          cost: effectiveCostPrice,
+          qty: openingStockQty,
+          status: batchStatus
+        });
+
+        if (batchErr) {
+          console.warn('Could not register initial batch record:', batchErr);
+        }
       }
     };
 
@@ -220,6 +247,7 @@ export const productService = {
             id: prodId,
             sku: parsedRpc.sku || p.sku,
             barcode: parsedRpc.barcode || p.barcode,
+            warehouse: whRec.code,
             batchNumber: p.batchNumber.trim(),
             expiryDate: p.expiryDate,
             createdAt: parsedRpc.created_at || new Date().toISOString()
@@ -242,7 +270,7 @@ export const productService = {
     }
 
     try {
-      // 1. Initial Batch Registration (Mandatory batch tracking)
+      // 1. Initial Batch & Warehouse Balance Registration
       await registerInitialBatch(data.id);
 
       // 2. Barcode registration
@@ -256,43 +284,22 @@ export const productService = {
         });
       }
 
-      // 3. Stock balances & transactions if openingStock > 0
-      if (p.openingStock > 0 && data.id) {
-        let whId = p.warehouse;
-        if (whId) {
-          const { data: wh } = await supabase
-            .from('warehouses')
-            .select('id')
-            .eq('company_id', finalCompanyId)
-            .or(`id.eq.${whId.length === 36 ? whId : '00000000-0000-0000-0000-000000000000'},code.eq.${whId}`)
-            .maybeSingle();
-          if (wh) whId = wh.id;
-        }
-
-        if (whId) {
-          await supabase.from('stock_balances').upsert({
-            company_id: finalCompanyId,
-            warehouse_id: whId,
-            product_id: data.id,
-            quantity: p.openingStock,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'warehouse_id,product_id' });
-
-          await supabase.from('stock_transactions').insert({
-            company_id: finalCompanyId,
-            date: new Date().toISOString().split('T')[0],
-            type: 'Opening Stock',
-            product_id: data.id,
-            product_name: p.name,
-            warehouse_id: whId,
-            qty: p.openingStock,
-            unit: p.primaryUnit || 'Piece',
-            unit_cost: p.costPrice,
-            total_cost: p.openingStock * p.costPrice,
-            reference_type: 'Opening',
-            notes: 'Initial inventory intake'
-          });
-        }
+      // 3. Stock transactions if openingStock > 0 (Never record movement for 0 stock, never double record)
+      if (openingStockQty > 0 && data.id) {
+        await supabase.from('stock_transactions').insert({
+          company_id: finalCompanyId,
+          date: new Date().toISOString().split('T')[0],
+          type: 'Opening Stock',
+          product_id: data.id,
+          product_name: p.name,
+          warehouse_id: whRec.id,
+          qty: openingStockQty,
+          unit: p.primaryUnit || 'Piece',
+          unit_cost: effectiveCostPrice,
+          total_cost: openingStockVal,
+          reference_type: 'Opening',
+          notes: 'Initial inventory intake'
+        });
       }
 
       // 4. Unit conversion registration
@@ -313,16 +320,21 @@ export const productService = {
     return {
       ...p,
       id: data.id,
+      sku: data.sku,
+      barcode: data.barcode,
+      warehouse: whRec.code,
       batchNumber: p.batchNumber.trim(),
       expiryDate: p.expiryDate,
       createdAt: data.created_at
     };
   },
 
-  // Update product
   async updateProduct(id: string, updates: Partial<Product>, companyId?: string) {
     // 0. Strict RBAC Enforcement: Only roles with 'products:edit' can update products
     await assertCallerPermission('products', 'edit');
+    if (updates.currentStock !== undefined || updates.warehouse !== undefined) {
+      await assertCallerPermission('inventory', 'edit');
+    }
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const dbPayload: Record<string, any> = {
@@ -360,7 +372,22 @@ export const productService = {
     if (updates.primaryUnit !== undefined) dbPayload.primary_unit = updates.primaryUnit;
     if (updates.secondaryUnit !== undefined) dbPayload.secondary_unit = updates.secondaryUnit;
     if (updates.conversionFactor !== undefined) dbPayload.conversion_factor = updates.conversionFactor;
-    if (updates.warehouse !== undefined) dbPayload.warehouse = updates.warehouse;
+    if (updates.warehouse !== undefined) {
+      const whIdOrCode = updates.warehouse.trim();
+      dbPayload.warehouse = whIdOrCode;
+      if (whIdOrCode) {
+        const { data: whRec } = await supabase
+          .from('warehouses')
+          .select('id, code')
+          .eq('company_id', finalCompanyId)
+          .or(`id.eq.${whIdOrCode.length === 36 ? whIdOrCode : '00000000-0000-0000-0000-000000000000'},code.eq.${whIdOrCode}`)
+          .maybeSingle();
+        if (whRec) {
+          dbPayload.default_warehouse_id = whRec.id;
+          dbPayload.warehouse = whRec.code;
+        }
+      }
+    }
     if (updates.rack !== undefined) dbPayload.rack = updates.rack;
     if (updates.isActive !== undefined) dbPayload.is_active = updates.isActive;
 
