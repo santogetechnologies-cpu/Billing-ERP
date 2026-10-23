@@ -3,22 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import {
   Menu,
   Search,
-  Plus,
   Bell,
   Building,
   RotateCcw,
   Sparkles,
-  HelpCircle,
   CheckCircle,
-  FileText,
-  Package,
-  Users,
-  CreditCard,
-  Receipt,
-  Zap,
   ChevronDown,
-  UserCheck,
-  ShoppingBag
+  UserCheck
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -48,7 +39,6 @@ export const Header: React.FC<HeaderProps> = ({
   } = useERP();
   const { user, profile, signOut } = useAuth();
 
-  const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const navigate = useNavigate();
@@ -56,22 +46,6 @@ export const Header: React.FC<HeaderProps> = ({
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const canShowHeaderProfile = canAccessHeaderProfile(profile?.role);
-  const canCreateSales = hasPermission(profile?.role, 'sales', 'create');
-  const canUsePos = hasPermission(profile?.role, 'pos', 'view') && hasPermission(profile?.role, 'pos', 'create');
-  const canCreatePurchases = hasPermission(profile?.role, 'purchases', 'create');
-  const canCreateProducts = hasPermission(profile?.role, 'products', 'create');
-  const canCreateCustomers = hasPermission(profile?.role, 'customers', 'create');
-  const canCreatePayments = hasPermission(profile?.role, 'payments', 'create');
-  const canCreateExpenses = hasPermission(profile?.role, 'expenses', 'create');
-
-  const hasAnyQuickAction =
-    canCreateSales ||
-    canUsePos ||
-    canCreatePurchases ||
-    canCreateProducts ||
-    canCreateCustomers ||
-    canCreatePayments ||
-    canCreateExpenses;
 
   return (
     <header className="h-16 glass-header px-4 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
@@ -132,134 +106,6 @@ export const Header: React.FC<HeaderProps> = ({
           <Search className="w-5 h-5" />
         </button>
 
-        {/* Quick "+ New" Menu (Only rendered if user has at least one create permission) */}
-        {hasAnyQuickAction && (
-          <div className="relative">
-            <button
-              onClick={() => setShowQuickMenu(!showQuickMenu)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.98] rounded-lg shadow-2xs hover:shadow-sm transition-all cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">New Transaction</span>
-              <ChevronDown className="w-3 h-3 text-blue-200" />
-            </button>
-
-            {showQuickMenu && (
-              <div
-                className="absolute right-0 mt-1.5 w-56 glass-dropdown rounded-xl py-1.5 z-40 text-xs animate-fadeIn"
-                onClick={() => setShowQuickMenu(false)}
-              >
-                <div className="px-3 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Create New
-                </div>
-                {canCreateSales && (
-                  <button
-                    onClick={() => navigate('/sales/new')}
-                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <div className="p-1 rounded bg-blue-50 text-blue-600">
-                      <FileText className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-900 block">Sales Invoice</span>
-                      <span className="text-[10px] text-slate-500">Tax invoice with GST</span>
-                    </div>
-                  </button>
-                )}
-
-                {canUsePos && (
-                  <button
-                    onClick={() => navigate('/sales/pos')}
-                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <div className="p-1 rounded bg-amber-50 text-amber-600">
-                      <Zap className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-900 block">POS Fast Counter</span>
-                      <span className="text-[10px] text-slate-500">Touch & barcode billing</span>
-                    </div>
-                  </button>
-                )}
-
-                {canCreatePurchases && (
-                  <button
-                    onClick={() => navigate('/purchases/new')}
-                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <div className="p-1 rounded bg-indigo-50 text-indigo-600">
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-900 block">New Purchase Bill</span>
-                      <span className="text-[10px] text-slate-500">Supplier inventory & GRN</span>
-                    </div>
-                  </button>
-                )}
-
-                {canCreateProducts && (
-                  <button
-                    onClick={() => navigate('/products/new')}
-                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <div className="p-1 rounded bg-purple-50 text-purple-600">
-                      <Package className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-900 block">Add Product Master</span>
-                      <span className="text-[10px] text-slate-500">SKU, pricing & units</span>
-                    </div>
-                  </button>
-                )}
-
-                {canCreateCustomers && (
-                  <button
-                    onClick={() => navigate('/customers')}
-                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <div className="p-1 rounded bg-emerald-50 text-emerald-600">
-                      <Users className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-900 block">Add Customer</span>
-                      <span className="text-[10px] text-slate-500">Credit limits & terms</span>
-                    </div>
-                  </button>
-                )}
-
-                {canCreatePayments && (
-                  <button
-                    onClick={() => navigate('/payments')}
-                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <div className="p-1 rounded bg-cyan-50 text-cyan-600">
-                      <CreditCard className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-900 block">Record Payment</span>
-                      <span className="text-[10px] text-slate-500">Customer or Supplier</span>
-                    </div>
-                  </button>
-                )}
-
-                {canCreateExpenses && (
-                  <button
-                    onClick={() => navigate('/expenses')}
-                    className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
-                  >
-                    <div className="p-1 rounded bg-rose-50 text-rose-600">
-                      <Receipt className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="font-medium text-slate-900 block">Record Expense</span>
-                      <span className="text-[10px] text-slate-500">Rent, utility, salaries</span>
-                    </div>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Setup Wizard Button (Admin/Owner only) */}
         {hasPermission(profile?.role, 'settings', 'manage') && (
