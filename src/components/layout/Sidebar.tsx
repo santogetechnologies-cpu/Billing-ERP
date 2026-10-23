@@ -176,14 +176,8 @@ export function isNavItemActive(
   }
 
   // 9. Products (/products)
+  // Single-level sidebar item active on Product Master (/products), Add Product (/products/new), and edit (/products/edit/*)
   if (target === '/products') {
-    if (
-      current.startsWith('/units') ||
-      current.startsWith('/pricing') ||
-      current === '/products/new'
-    ) {
-      return false;
-    }
     return current === '/products' || current.startsWith('/products/');
   }
 
@@ -290,8 +284,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     Sales: true,
     Inventory: true,
-    Accounting: false,
-    Products: false
+    Accounting: false
   });
 
   const toggleSubmenu = (menuName: string) => {
@@ -343,13 +336,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       name: 'Products',
       path: '/products',
-      icon: Package,
-      children: [
-        { name: 'Product Master', path: '/products', end: true },
-        { name: 'Add Product', path: '/products/new', end: true },
-        { name: 'Unit Management', path: '/units', end: true },
-        { name: 'Pricing & Discounts', path: '/pricing', end: true }
-      ]
+      icon: Package
     },
     {
       name: 'Inventory',

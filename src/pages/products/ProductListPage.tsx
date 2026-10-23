@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Package,
   Plus,
@@ -30,12 +30,20 @@ import { ProductDeleteModal } from '../../components/products/ProductDeleteModal
 
 export const ProductListPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { profile } = useAuth();
   const { products, deleteProduct } = useERP();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const isWarehouseManager = profile?.role === 'Warehouse Manager';
+
+  React.useEffect(() => {
+    if (location.state?.message) {
+      setToastMessage(location.state.message);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   // Dynamic products with computed stockStatus for sorting, filtering & search
   const productsWithStatus = React.useMemo(() => {
@@ -213,9 +221,17 @@ export const ProductListPage: React.FC = () => {
           {hasPermission(profile?.role, 'products', 'manage') && (
             <button
               onClick={() => navigate('/units')}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
               Unit Conversions
+            </button>
+          )}
+          {hasPermission(profile?.role, 'products', 'manage') && (
+            <button
+              onClick={() => navigate('/pricing')}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+            >
+              Pricing Rules
             </button>
           )}
           {canManageBarcodeOverride(profile?.role) && (

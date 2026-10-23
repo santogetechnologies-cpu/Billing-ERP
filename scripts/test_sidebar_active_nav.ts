@@ -46,12 +46,10 @@ const adminPurchasesSubmenuItems: TestItem[] = [
   { name: 'Purchase Returns', path: '/purchases/returns', end: true }
 ];
 
-const adminProductsSubmenuItems: TestItem[] = [
-  { name: 'Product Master', path: '/products', end: true },
-  { name: 'Add Product', path: '/products/new', end: true },
-  { name: 'Unit Management', path: '/units', end: true },
-  { name: 'Pricing & Discounts', path: '/pricing', end: true }
-];
+const productsStandaloneItem: TestItem = {
+  name: 'Products',
+  path: '/products'
+};
 
 const warehousesStandaloneItem: TestItem = {
   name: 'Warehouses / Godowns',
@@ -248,32 +246,33 @@ function runTests() {
   }
 
   // =========================================================================
-  // 5. Products Submenu Item Mutual Exclusivity
+  // 5. Single-Level Products Sidebar Navigation & Active Highlighting
   // =========================================================================
-  console.log('\nTesting Products Submenu Mutual Exclusivity:');
-  const productsRoutes = [
-    { route: '/products', expectedActive: 'Product Master' },
-    { route: '/products/new', expectedActive: 'Add Product' },
-    { route: '/units', expectedActive: 'Unit Management' },
-    { route: '/pricing', expectedActive: 'Pricing & Discounts' }
-  ];
-
-  for (const { route, expectedActive } of productsRoutes) {
-    const activeSubItems = adminProductsSubmenuItems.filter(item =>
-      isNavItemActive(item, route, false)
-    );
-    const activeSubNames = activeSubItems.map(i => i.name);
-    assert(
-      activeSubItems.length === 1 && activeSubNames[0] === expectedActive,
-      `Products on "${route}": exactly ONE sub-item expected ("${expectedActive}"), got [${activeSubNames.join(', ')}]`
-    );
-
-    // Dashboard must NOT be active
-    assert(
-      isNavItemActive(rootDashboardItem, route, false) === false,
-      `Dashboard must NOT be active on "${route}"`
-    );
-  }
+  console.log('\nTesting Single-Level Products Sidebar Navigation:');
+  assert(
+    isNavItemActive(productsStandaloneItem, '/products', false) === true,
+    'Products must be ACTIVE on /products'
+  );
+  assert(
+    isNavItemActive(productsStandaloneItem, '/products/new', false) === true,
+    'Products must be ACTIVE on /products/new'
+  );
+  assert(
+    isNavItemActive(productsStandaloneItem, '/products/edit/p-123', false) === true,
+    'Products must be ACTIVE on /products/edit/p-123'
+  );
+  assert(
+    isNavItemActive(productsStandaloneItem, '/', false) === false,
+    'Products must NOT be active on /'
+  );
+  assert(
+    isNavItemActive(productsStandaloneItem, '/inventory', false) === false,
+    'Products must NOT be active on /inventory'
+  );
+  assert(
+    isNavItemActive(productsStandaloneItem, '/sales', false) === false,
+    'Products must NOT be active on /sales'
+  );
 
   // =========================================================================
   // 6. Admin Sales Submenu Item Mutual Exclusivity

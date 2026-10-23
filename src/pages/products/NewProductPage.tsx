@@ -504,7 +504,17 @@ export const NewProductPage: React.FC = () => {
         await addProduct(payload);
       }
 
-      navigate('/products');
+      if (refreshData) {
+        await refreshData();
+      }
+
+      navigate('/products', {
+        state: {
+          message: isEditMode
+            ? `Product "${payload.name}" updated successfully.`
+            : `Product "${payload.name}" added successfully.`
+        }
+      });
     } catch (err: any) {
       console.error('Final product submission error:', err);
       setSubmitError(err?.message || 'Database transaction failed. Product was not saved.');
