@@ -119,6 +119,12 @@ const InventoryDashboardInner: React.FC = () => {
   const openAdjustForProduct = (productId: string) => {
     setAdjustProductId(productId);
     setAdjustQty('');
+    if (opWarehouse && opWarehouse !== 'ALL') {
+      const wh = warehouses.find(w => w.id === opWarehouse || w.code === opWarehouse || w.name === opWarehouse);
+      if (wh) {
+        setAdjustWarehouse(wh.code || wh.name);
+      }
+    }
     setStockModal(null);
     setIsAdjustModalOpen(true);
   };
@@ -405,13 +411,21 @@ const InventoryDashboardInner: React.FC = () => {
   }, [filteredOperationalStock, opPage, opPageSize]);
 
   const displayMovementTransactions = useMemo(() => {
-    if (!movementProductFilter) return inventoryTransactions;
-    const q = movementProductFilter.toLowerCase();
-    return inventoryTransactions.filter(t =>
-      (t.productName && t.productName.toLowerCase().includes(q)) ||
-      (t.productId && t.productId.toLowerCase() === q)
-    );
-  }, [inventoryTransactions, movementProductFilter]);
+    let txs = inventoryTransactions;
+    if (movementProductFilter) {
+      const q = movementProductFilter.toLowerCase();
+      txs = txs.filter(t =>
+        (t.productName && t.productName.toLowerCase().includes(q)) ||
+        (t.productId && t.productId.toLowerCase() === q)
+      );
+    }
+    if (opWarehouse && opWarehouse !== 'ALL') {
+      const wh = warehouses.find(w => w.id === opWarehouse || w.code === opWarehouse || w.name === opWarehouse);
+      const targetCodes = [opWarehouse, wh?.code, wh?.name, wh?.id].filter(Boolean);
+      txs = txs.filter(t => targetCodes.includes(t.warehouse));
+    }
+    return txs;
+  }, [inventoryTransactions, movementProductFilter, opWarehouse, warehouses]);
 
   const handleAdjustSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -872,13 +886,21 @@ const InventoryDashboardInner: React.FC = () => {
             </button>
           </div>
 
-          {activeTab === 'movements' && movementProductFilter && (
+          {activeTab === 'movements' && (movementProductFilter || opWarehouse !== 'ALL') && (
             <div className="flex items-center gap-2 pb-2 text-xs">
               <span className="text-slate-600">
-                Filtered: <strong className="text-slate-900 font-semibold">{movementProductFilter}</strong>
+                Filtered: {movementProductFilter && <strong className="text-slate-900 font-semibold">{movementProductFilter} </strong>}
+                {opWarehouse !== 'ALL' && (
+                  <span className="text-slate-500 font-medium">
+                    (Hub: {warehouses.find(w => w.id === opWarehouse || w.code === opWarehouse)?.name || opWarehouse})
+                  </span>
+                )}
               </span>
               <button
-                onClick={() => setMovementProductFilter(null)}
+                onClick={() => {
+                  setMovementProductFilter(null);
+                  setOpWarehouse('ALL');
+                }}
                 className="text-blue-600 hover:text-blue-800 underline font-semibold cursor-pointer"
               >
                 Clear
@@ -992,10 +1014,10 @@ const InventoryDashboardInner: React.FC = () => {
                 <colgroup>
                   {isWarehouseManager ? (
                     <>
-                      <col className="w-[36%]" />
                       <col className="w-[38%]" />
+                      <col className="w-[40%]" />
                       <col className="w-[12%]" />
-                      <col className="w-[14%]" />
+                      <col className="w-[10%]" />
                     </>
                   ) : (
                     <>
@@ -1011,11 +1033,11 @@ const InventoryDashboardInner: React.FC = () => {
                 </colgroup>
                 <thead className="bg-slate-50/90 text-slate-600 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200">
                   <tr>
-                    <th className={`py-3 px-4 ${isWarehouseManager ? 'w-[36%] min-w-[240px]' : ''}`}>Product Name & SKU</th>
+                    <th className={`py-3 px-4 ${isWarehouseManager ? 'w-[38%] min-w-[240px]' : ''}`}>Product Name & SKU</th>
                     {!isWarehouseManager && (
                       <th className="py-3 px-3">Category</th>
                     )}
-                    <th className={`py-3 px-3 ${isWarehouseManager ? 'w-[38%] min-w-[260px]' : ''}`}>Warehouse Stock Breakdown</th>
+                    <th className={`py-3 px-3 ${isWarehouseManager ? 'w-[40%] min-w-[260px]' : ''}`}>Warehouse Stock Breakdown</th>
                     {!isWarehouseManager && (
                       <th className="py-3 px-3 text-right">Available Quantity</th>
                     )}
@@ -1023,7 +1045,7 @@ const InventoryDashboardInner: React.FC = () => {
                       <th className="py-3 px-3 text-center">Low-Stock Threshold</th>
                     )}
                     <th className={`py-3 px-3 text-center ${isWarehouseManager ? 'w-[12%] min-w-[120px]' : ''}`}>Stock Status</th>
-                    <th className={`py-3 px-4 text-right ${isWarehouseManager ? 'w-[14%] min-w-[140px]' : ''}`}>Actions</th>
+                    <th className={`py-3 px-4 text-right ${isWarehouseManager ? 'w-[10%] min-w-[100px]' : 'min-w-[95px]'}`}>Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1154,11 +1176,11 @@ const InventoryDashboardInner: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => openAdjustForProduct(item.product.id)}
-                                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
-                                title="Adjust physical stock balance"
+                                className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs"
+                                title="Adjust Stock"
+                                aria-label="Adjust Stock"
                               >
-                                <Plus className="w-3 h-3" />
-                                <span>Adjust</span>
+                                <Plus className="w-4 h-4" />
                               </button>
                               <button
                                 type="button"
@@ -1166,11 +1188,11 @@ const InventoryDashboardInner: React.FC = () => {
                                   setMovementProductFilter(item.product.name);
                                   setActiveTab('movements');
                                 }}
-                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
-                                title="View transaction ledger"
+                                className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border border-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs"
+                                title="View Stock Movements"
+                                aria-label="View Stock Movements"
                               >
-                                <ArrowRightLeft className="w-3 h-3 text-slate-500" />
-                                <span>Movements</span>
+                                <ArrowRightLeft className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
