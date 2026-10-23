@@ -49,6 +49,7 @@ interface DataTableProps<T> {
   hideHorizontalScroll?: boolean;
   tableFixed?: boolean;
   minTableWidth?: string;
+  actionsWidth?: string;
   selectable?: boolean;
 }
 
@@ -70,8 +71,10 @@ export function DataTable<T extends Record<string, any>>({
   hideHorizontalScroll = false,
   tableFixed = false,
   minTableWidth,
+  actionsWidth,
   selectable = true
 }: DataTableProps<T>) {
+  const effectiveActionsWidth = actionsWidth || '116px';
   const [searchTerm, setSearchTerm] = useState('');
   const [sortKey, setSortKey] = useState<string | undefined>(defaultSortKey || columns[0]?.key);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir);
@@ -446,8 +449,8 @@ export function DataTable<T extends Record<string, any>>({
                 ))}
               {actions && (
                 <th
-                  style={{ width: '68px', minWidth: '68px' }}
-                  className="w-17 min-w-[68px] px-2.5 py-3 text-right align-middle font-semibold text-[11px] tracking-normal uppercase text-slate-600"
+                  style={{ width: effectiveActionsWidth, minWidth: effectiveActionsWidth }}
+                  className="px-2.5 sm:px-3 py-3 text-right align-middle font-semibold text-[11px] tracking-normal uppercase text-slate-600 whitespace-nowrap"
                 >
                   Actions
                 </th>
@@ -516,8 +519,8 @@ export function DataTable<T extends Record<string, any>>({
                       ))}
                     {actions && (
                       <td
-                        style={{ width: '68px', minWidth: '68px' }}
-                        className="w-17 min-w-[68px] px-2.5 py-2.5 text-right font-medium align-middle"
+                        style={{ width: effectiveActionsWidth, minWidth: effectiveActionsWidth }}
+                        className="px-2.5 sm:px-3 py-2.5 text-right font-medium align-middle whitespace-nowrap"
                         onClick={e => e.stopPropagation()}
                       >
                         {actions(row)}

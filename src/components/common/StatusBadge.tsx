@@ -35,7 +35,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', c
     colorClasses = 'bg-indigo-50 text-indigo-700 border-indigo-200';
   }
 
-  const sizeClasses = size === 'sm' ? 'px-2.5 py-0.5 text-xs' : 'px-3 py-1 text-xs';
+  const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-[11px] leading-tight' : 'px-3 py-1 text-xs';
 
   return (
     <span

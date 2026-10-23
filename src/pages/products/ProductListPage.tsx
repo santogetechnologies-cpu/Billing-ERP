@@ -60,7 +60,8 @@ export const ProductListPage: React.FC = () => {
     {
       key: 'sku',
       header: 'SKU',
-      width: isWarehouseManager ? '15%' : undefined,
+      width: isWarehouseManager ? '14%' : '110px',
+      minWidth: '105px',
       render: row => (
         <span
           className="font-mono font-bold text-blue-600 hover:underline block truncate text-xs"
@@ -73,7 +74,8 @@ export const ProductListPage: React.FC = () => {
     {
       key: 'name',
       header: 'Product Name',
-      width: isWarehouseManager ? '25%' : undefined,
+      width: isWarehouseManager ? '24%' : '200px',
+      minWidth: '160px',
       render: row => (
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
@@ -95,7 +97,8 @@ export const ProductListPage: React.FC = () => {
     {
       key: 'category',
       header: 'Category',
-      width: isWarehouseManager ? '14%' : undefined,
+      width: isWarehouseManager ? '13%' : '120px',
+      minWidth: '110px',
       render: row => (
         <span
           className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 block truncate text-center"
@@ -142,7 +145,8 @@ export const ProductListPage: React.FC = () => {
       key: 'costPrice',
       header: isWarehouseManager ? 'Cost' : 'Cost (₹)',
       align: 'right',
-      width: isWarehouseManager ? '8%' : undefined,
+      width: isWarehouseManager ? '8%' : '95px',
+      minWidth: '85px',
       render: row => (
         <span className="text-slate-600 font-medium whitespace-nowrap text-xs">{formatCurrency(row.costPrice)}</span>
       )
@@ -151,7 +155,8 @@ export const ProductListPage: React.FC = () => {
       key: 'sellingPrice',
       header: isWarehouseManager ? 'Selling' : 'Selling Price (₹)',
       align: 'right',
-      width: isWarehouseManager ? '9%' : undefined,
+      width: isWarehouseManager ? '9%' : '105px',
+      minWidth: '95px',
       render: row => (
         <span className="font-bold text-slate-900 whitespace-nowrap text-xs">{formatCurrency(row.sellingPrice)}</span>
       )
@@ -160,7 +165,8 @@ export const ProductListPage: React.FC = () => {
       key: 'taxRate',
       header: isWarehouseManager ? 'Tax' : 'Tax Rate',
       align: 'center',
-      width: isWarehouseManager ? '7%' : undefined,
+      width: isWarehouseManager ? '6%' : '75px',
+      minWidth: '70px',
       render: row => (
         <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{row.taxRate}%</span>
       )
@@ -169,7 +175,8 @@ export const ProductListPage: React.FC = () => {
       key: 'stockStatus',
       header: 'Stock Status',
       align: 'center',
-      width: isWarehouseManager ? '12%' : undefined,
+      width: isWarehouseManager ? '14%' : '140px',
+      minWidth: '135px',
       render: row => {
         const stockStatus = calculateStockStatus(row.currentStock, row.reorderLevel);
         const currentQty = Math.max(0, row.currentStock !== null && row.currentStock !== undefined ? Number(row.currentStock) : 0);
@@ -284,8 +291,10 @@ export const ProductListPage: React.FC = () => {
         ]}
         onRowClick={row => setSelectedProduct(row)}
         hideHorizontalScroll={isWarehouseManager}
+        actionsWidth="120px"
+        minTableWidth={isWarehouseManager ? undefined : "1060px"}
         actions={row => (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center justify-end gap-1 shrink-0 whitespace-nowrap">
             {hasPermission(profile?.role, 'products', 'edit') && (
               <button
                 onClick={e => {
