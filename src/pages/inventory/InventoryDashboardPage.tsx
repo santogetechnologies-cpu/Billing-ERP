@@ -452,7 +452,6 @@ const InventoryDashboardInner: React.FC = () => {
       sortable: true,
       sortValue: row => new Date(row.date).getTime(),
       width: '11%',
-      minWidth: '115px',
       align: 'left',
       render: row => (
         <span
@@ -468,8 +467,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Type',
       sortable: true,
       sortValue: row => row.type,
-      width: '12%',
-      minWidth: '125px',
+      width: '13%',
       align: 'left',
       render: row => {
         const typeStyleMap: Record<string, { bg: string; text: string; border: string }> = {
@@ -523,10 +521,10 @@ const InventoryDashboardInner: React.FC = () => {
 
         return (
           <span
-            className={`inline-flex items-center justify-center px-2 py-0.5 min-h-[22px] rounded-md text-[11px] font-semibold border whitespace-nowrap tracking-wide leading-none ${style.bg} ${style.text} ${style.border}`}
+            className={`inline-flex items-center justify-center px-2 py-0.5 min-h-[22px] rounded-md text-[11px] font-semibold border whitespace-nowrap tracking-wide leading-none max-w-full truncate ${style.bg} ${style.text} ${style.border}`}
             title={row.type}
           >
-            {row.type}
+            <span className="truncate">{row.type}</span>
           </span>
         );
       }
@@ -536,8 +534,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Product',
       sortable: true,
       sortValue: row => row.productName?.toLowerCase(),
-      width: '19%',
-      minWidth: '160px',
+      width: '22%',
       align: 'left',
       render: row => (
         <span
@@ -563,8 +560,7 @@ const InventoryDashboardInner: React.FC = () => {
         return q;
       },
       align: 'center',
-      width: '12%',
-      minWidth: '100px',
+      width: '11%',
       render: row => {
         let rawQty = Number(row.qty) || 0;
         // Sales, Purchase Returns, and Stock Consumptions are outward stock movements
@@ -608,15 +604,14 @@ const InventoryDashboardInner: React.FC = () => {
         const wh = warehouses.find(w => w.id === row.warehouse || w.code === row.warehouse);
         return (wh ? wh.name : row.warehouse || 'Central').toLowerCase();
       },
-      width: '15%',
-      minWidth: '140px',
+      width: '14%',
       align: 'left',
       render: row => {
         const wh = warehouses.find(w => w.id === row.warehouse || w.code === row.warehouse);
         const whLabel = wh ? wh.name : row.warehouse || 'Central';
         return (
           <span
-            className="inline-flex items-center px-2.5 py-0.5 h-6 rounded-md bg-slate-100 text-slate-700 border border-slate-200/90 text-[11px] font-medium max-w-full truncate"
+            className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200/90 text-[11px] font-medium max-w-full truncate"
             title={wh ? `${wh.name} (${wh.code || ''})` : whLabel}
           >
             <span className="truncate">{whLabel}</span>
@@ -629,8 +624,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Reference',
       sortable: true,
       sortValue: row => (row.referenceDoc || '').toLowerCase(),
-      width: '14%',
-      minWidth: '145px',
+      width: '13%',
       align: 'left',
       render: row => (
         <span
@@ -646,8 +640,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Remarks',
       sortable: true,
       sortValue: row => (row.notes || '').toLowerCase(),
-      width: '17%',
-      minWidth: '150px',
+      width: '16%',
       align: 'left',
       render: row => (
         <span
@@ -1240,7 +1233,7 @@ const InventoryDashboardInner: React.FC = () => {
               defaultSortDir="desc"
               pageSize={10}
               tableFixed={true}
-              minTableWidth="980px"
+              hideHorizontalScroll={true}
               filters={[
                 {
                   key: 'type',
