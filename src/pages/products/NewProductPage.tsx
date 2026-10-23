@@ -281,8 +281,10 @@ export const NewProductPage: React.FC = () => {
   // Financial margin calculation
   const numSellingPrice = Number(sellingPrice) || 0;
   const numCostPrice = Number(costPrice) || 0;
+  const numPurchasePrice = Number(purchasePrice) || 0;
   const numOpeningStock = Number(openingStock) || 0;
-  const marginAmt = numSellingPrice - numCostPrice;
+  const effectiveCostPrice = numCostPrice > 0 ? numCostPrice : numPurchasePrice;
+  const marginAmt = numSellingPrice - effectiveCostPrice;
   const marginPct = numSellingPrice > 0 ? ((marginAmt / numSellingPrice) * 100).toFixed(1) : '0';
 
   // Per-Step Validation Engine
@@ -520,7 +522,7 @@ export const NewProductPage: React.FC = () => {
         minSellingPrice: Number(minSellingPrice) || 0,
         reorderLevel: finalReorderLevel,
         openingStock: numOpeningStock,
-        openingStockValue: numOpeningStock * numCostPrice,
+        openingStockValue: numOpeningStock * effectiveCostPrice,
         currentStock: isEditMode && existingProd ? existingProd.currentStock : numOpeningStock,
         primaryUnit: primaryUnit.trim() || 'Piece',
         secondaryUnit: secondaryUnit.trim() || undefined,
@@ -971,7 +973,7 @@ export const NewProductPage: React.FC = () => {
                   Gross Profit Margin: {marginPct}% ({formatCurrency(marginAmt)}/unit)
                 </span>
                 <span className="text-[11px] text-emerald-700">
-                  Formula: Selling Price ({formatCurrency(numSellingPrice)}) - Total Cost ({formatCurrency(numCostPrice)})
+                  Formula: Selling Price ({formatCurrency(numSellingPrice)}) - {numCostPrice > 0 ? 'Total Cost' : 'Buying Price'} ({formatCurrency(effectiveCostPrice)})
                 </span>
               </div>
               <div className="text-right">
@@ -1307,19 +1309,20 @@ export const NewProductPage: React.FC = () => {
                 {errors.openingStock && <p className="text-[11px] text-rose-600 mt-1">{errors.openingStock}</p>}
               </div>
 
-              {/* Opening Stock Value (Calculated) */}
+              {/* Opening Stock Value */}
               <div className="sm:col-span-2">
-                <label className="block font-medium text-slate-700 mb-1">
-                  Calculated Opening Stock Value (₹)
+                <label htmlFor="field-openingStockValue" className="block font-medium text-slate-700 mb-1">
+                  Opening Stock Value (₹)
                 </label>
                 <input
+                  id="field-openingStockValue"
                   type="text"
                   disabled
-                  value={formatCurrency(numOpeningStock * numCostPrice)}
+                  value={formatCurrency(numOpeningStock * effectiveCostPrice)}
                   className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-slate-600 text-xs"
                 />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Calculated as: Opening Stock ({numOpeningStock}) × Total Cost per Item ({formatCurrency(numCostPrice)})
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Calculated as: Opening Stock ({numOpeningStock}) × {numCostPrice > 0 ? 'Total Cost per Item' : 'Buying Price'} ({formatCurrency(effectiveCostPrice)})
                 </span>
               </div>
             </div>
