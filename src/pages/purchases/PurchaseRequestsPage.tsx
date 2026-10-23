@@ -1224,21 +1224,6 @@ export const PurchaseRequestsPage: React.FC = () => {
             </select>
           </div>
 
-          {/* Priority Filter */}
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shrink-0">
-            <Filter className="w-3.5 h-3.5 text-slate-500" />
-            <select
-              value={priorityFilter}
-              onChange={e => { setPriorityFilter(e.target.value); setCurrentPage(1); }}
-              className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer pr-1"
-            >
-              <option value="All">All Priorities</option>
-              <option value="Urgent">Urgent</option>
-              <option value="High">High</option>
-              <option value="Normal">Normal</option>
-            </select>
-          </div>
-
           {/* Search */}
           <div className="relative flex-1 min-w-[260px] max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1290,7 +1275,6 @@ export const PurchaseRequestsPage: React.FC = () => {
                 <th className="py-3 px-3.5 w-[120px] whitespace-nowrap">Date</th>
                 <th className="py-3 px-3.5 w-[160px] whitespace-nowrap">Warehouse</th>
                 <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap">Quantity</th>
-                <th className="py-3 px-3 w-[100px] text-center whitespace-nowrap">Priority</th>
                 <th className="py-3 px-3.5 w-[130px] text-center whitespace-nowrap">Status</th>
                 <th className="py-3 px-4 w-[90px] text-center whitespace-nowrap">Actions</th>
               </tr>
@@ -1298,7 +1282,7 @@ export const PurchaseRequestsPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {paginatedRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <ClipboardList className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-700">No purchase requests found</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1310,8 +1294,6 @@ export const PurchaseRequestsPage: React.FC = () => {
                 </tr>
               ) : (
                 paginatedRequests.map(req => {
-                  const isUrgent = req.priority === 'Urgent';
-                  const isHigh = req.priority === 'High';
                   const itemsCount = req.items?.length || 0;
                   const firstItem = req.items?.[0];
                   const otherItemsCount = itemsCount - 1;
@@ -1390,16 +1372,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                         )}
                       </td>
 
-                      {/* 6. Priority */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        <span
-                          className={"inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border " + (isUrgent ? "bg-rose-50 text-rose-700 border-rose-200" : isHigh ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-700 border-slate-200")}
-                        >
-                          {req.priority}
-                        </span>
-                      </td>
-
-                      {/* 7. Request Status */}
+                      {/* 6. Request Status */}
                       <td className="py-3.5 px-3.5 text-center whitespace-nowrap">
                         <StatusBadge status={req.status} size="sm" />
                       </td>
