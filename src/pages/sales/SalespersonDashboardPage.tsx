@@ -13,7 +13,6 @@ import {
   AlertCircle,
   Package,
   Boxes,
-  ChevronRight,
   DollarSign
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
@@ -247,118 +246,7 @@ export const SalespersonDashboardPage: React.FC = () => {
         />
       </div>
 
-      {/* 3. 4 Clear Quick Navigation Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Action 1: View Customers -> /customers */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate('/customers')}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigate('/customers');
-            }
-          }}
-          className="p-4 rounded-xl bg-white border border-slate-200/90 hover:border-purple-500 shadow-2xs hover:shadow-md transition-all group cursor-pointer flex items-center justify-between"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors">
-              <Users className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 group-hover:text-purple-600 transition-colors">
-                View Customers
-              </h3>
-              <p className="text-[11px] text-slate-500">Client directory &amp; profiles</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 group-hover:translate-x-0.5 transition-all" />
-        </div>
-
-        {/* Action 2: Add Customer -> /customers?action=new */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate('/customers?action=new')}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigate('/customers?action=new');
-            }
-          }}
-          className="p-4 rounded-xl bg-white border border-slate-200/90 hover:border-blue-500 shadow-2xs hover:shadow-md transition-all group cursor-pointer flex items-center justify-between"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-              <Plus className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                Add Customer
-              </h3>
-              <p className="text-[11px] text-slate-500">Register new client account</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
-        </div>
-
-        {/* Action 3: View My Sales -> /sales */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate('/sales')}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigate('/sales');
-            }
-          }}
-          className="p-4 rounded-xl bg-white border border-slate-200/90 hover:border-emerald-500 shadow-2xs hover:shadow-md transition-all group cursor-pointer flex items-center justify-between"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-              <ShoppingCart className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
-                View My Sales
-              </h3>
-              <p className="text-[11px] text-slate-500">Sales records &amp; status</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all" />
-        </div>
-
-        {/* Action 4: View Real-Time Inventory -> /inventory */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate('/inventory')}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigate('/inventory');
-            }
-          }}
-          className="p-4 rounded-xl bg-white border border-slate-200/90 hover:border-indigo-500 shadow-2xs hover:shadow-md transition-all group cursor-pointer flex items-center justify-between"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-              <Boxes className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                View Inventory
-              </h3>
-              <p className="text-[11px] text-slate-500">Live stock &amp; selling prices</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all" />
-        </div>
-      </div>
-
-      {/* 4. Recent Sales Records Table (View Only) */}
+      {/* 3. Recent Sales Records Table (View Only) */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div>
