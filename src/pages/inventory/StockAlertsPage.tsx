@@ -23,7 +23,8 @@ import {
   Square,
   RefreshCw,
   Building2,
-  Package
+  Package,
+  Eye
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -155,7 +156,7 @@ export const StockAlertsPage: React.FC = () => {
     userWarehouse ? userWarehouse.id : 'ALL'
   );
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OUT_OF_STOCK' | 'LIMITED_STOCK' | 'ACTIVE' | 'REPLENISHMENT_REQUIRED'>('REPLENISHMENT_REQUIRED');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OUT_OF_STOCK' | 'LIMITED_STOCK' | 'ACTIVE' | 'LOW_STOCK'>('LOW_STOCK');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [supplierFilter, setSupplierFilter] = useState<string>('ALL');
   const [sortField, setSortField] = useState<'stock' | 'warningLimit' | 'name' | 'suggestedQty' | 'movementDate'>('stock');
@@ -316,7 +317,7 @@ export const StockAlertsPage: React.FC = () => {
       if (statusFilter === 'OUT_OF_STOCK' && p.stockStatus !== 'Out of Stock') return false;
       if (statusFilter === 'LIMITED_STOCK' && p.stockStatus !== 'Limited Stock') return false;
       if (statusFilter === 'ACTIVE' && p.stockStatus !== 'Active') return false;
-      if (statusFilter === 'REPLENISHMENT_REQUIRED' && p.stockStatus !== 'Out of Stock' && p.stockStatus !== 'Limited Stock') return false;
+      if (statusFilter === 'LOW_STOCK' && p.stockStatus !== 'Out of Stock' && p.stockStatus !== 'Limited Stock') return false;
 
       // Category filter
       if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false;
@@ -820,14 +821,14 @@ export const StockAlertsPage: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
           <div className="flex items-center p-1 bg-slate-100 rounded-xl overflow-x-auto">
             <button
-              onClick={() => { setStatusFilter('REPLENISHMENT_REQUIRED'); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                statusFilter === 'REPLENISHMENT_REQUIRED'
-                  ? 'bg-white text-indigo-600 shadow-2xs'
+              onClick={() => { setStatusFilter('LOW_STOCK'); setCurrentPage(1); }}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                statusFilter === 'LOW_STOCK'
+                  ? 'bg-white text-indigo-600 shadow-2xs font-bold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Replenishment Required ({outOfStockCount + limitedStockCount})
+              Low Stock & Reorder ({outOfStockCount + limitedStockCount})
             </button>
             <button
               onClick={() => { setStatusFilter('OUT_OF_STOCK'); setCurrentPage(1); }}
@@ -894,19 +895,22 @@ export const StockAlertsPage: React.FC = () => {
                 <th className="py-3 px-4 min-w-[200px]">Product Name</th>
                 <th className="py-3 px-3 whitespace-nowrap">SKU / Code</th>
                 <th className="py-3 px-3 whitespace-nowrap">Warehouse</th>
-                <th className="py-3 px-3.5 whitespace-nowrap min-w-[140px] text-left">Stock Overview</th>
+                <th className="py-3 px-3.5 whitespace-nowrap text-right">Available Stock</th>
+                <th className="py-3 px-3 whitespace-nowrap text-right">Warning Limit</th>
+                <th className="py-3 px-3 text-center whitespace-nowrap">Stock Status</th>
+                <th className="py-3 px-3 text-center whitespace-nowrap">Priority</th>
                 <th className="py-3 px-3 text-right whitespace-nowrap">Suggested Reorder</th>
-                <th className="py-3 px-4 text-right whitespace-nowrap">Action</th>
+                <th className="py-3 px-4 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginatedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Boxes className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-700">No products match current criteria</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      {statusFilter === 'REPLENISHMENT_REQUIRED'
+                      {statusFilter === 'LOW_STOCK'
                         ? 'All products currently have healthy stock above their warning limits.'
                         : 'Try adjusting your search query, warehouse, or category filters.'}
                     </p>
@@ -980,45 +984,80 @@ export const StockAlertsPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* Stock Overview (Status on Top, Quantity + Unit Centered Below Badge) */}
-                      <td className="py-3 px-3.5 align-middle">
-                        <div className="inline-flex flex-col items-center gap-1">
-                          <StatusBadge status={product.stockStatus} size="sm" />
-                          <span
-                            className={`font-mono font-bold text-xs tabular-nums text-center leading-tight whitespace-nowrap ${
-                              isZeroOrNegative
-                                ? 'text-rose-600'
-                                : isLimited
-                                ? 'text-amber-600'
-                                : 'text-emerald-600'
-                            }`}
-                          >
-                            {formatNumber(Math.max(0, product.effectiveStock))} {product.primaryUnit || 'Piece'}
+                      {/* Current Available Stock & Unit */}
+                      <td className="py-3.5 px-3.5 text-right whitespace-nowrap">
+                        <span
+                          className={`font-mono font-bold text-xs tabular-nums ${
+                            isZeroOrNegative
+                              ? 'text-rose-600 font-extrabold'
+                              : isLimited
+                              ? 'text-amber-600'
+                              : 'text-emerald-600'
+                          }`}
+                        >
+                          {formatNumber(Math.max(0, product.effectiveStock))} {product.primaryUnit || 'Piece'}
+                        </span>
+                      </td>
+
+                      {/* Low-Stock Threshold */}
+                      <td className="py-3.5 px-3 text-right font-mono text-xs text-slate-600 whitespace-nowrap">
+                        {product.effectiveLimit !== null && product.effectiveLimit !== undefined ? (
+                          <span className="font-semibold text-slate-800">
+                            {formatNumber(product.effectiveLimit)} {product.primaryUnit || 'Piece'}
                           </span>
-                        </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px]">Not set</span>
+                        )}
+                      </td>
+
+                      {/* Stock Status */}
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                        <StatusBadge status={product.stockStatus} size="sm" />
+                      </td>
+
+                      {/* Priority */}
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          isZeroOrNegative
+                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                            : isLimited
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          {isZeroOrNegative ? 'Critical' : isLimited ? 'High' : 'Normal'}
+                        </span>
                       </td>
 
                       {/* Suggested Reorder Qty */}
                       <td className="py-3.5 px-3 text-right font-mono whitespace-nowrap">
                         {product.suggestedReorderQty > 0 ? (
                           <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
-                            +{formatNumber(product.suggestedReorderQty)}
+                            +{formatNumber(product.suggestedReorderQty)} {product.primaryUnit || 'Piece'}
                           </span>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
 
-                      {/* Quick Action: Request Replenishment */}
+                      {/* Actions: View Product & Create Purchase Request */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => handleOpenSingleProductRequest(product)}
-                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 hover:border-indigo-600 rounded-lg text-xs font-semibold flex items-center gap-1 ml-auto transition-colors cursor-pointer"
-                          title="Create replenishment request for this product"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Request</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => navigate('/products?search=' + encodeURIComponent(product.sku || product.name))}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            title="View product in catalog"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleOpenSingleProductRequest(product)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 hover:border-indigo-600 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Create purchase request for this product"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Request</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

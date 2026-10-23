@@ -1123,8 +1123,22 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                   </th>
                   <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3">SKU</th>
                   <th style={{ width: '180px', minWidth: '150px' }} className="px-3 py-3">Warehouse</th>
-                  <th style={{ width: '100px', minWidth: '80px' }} className="px-2 py-3 text-center">Unit</th>
-                  <th style={{ width: '160px', minWidth: '140px' }} className="px-3 py-3 text-right">
+                                    <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right">
+                    <button
+                      onClick={() => {
+                        setSortField('stock');
+                        setSortOrder(s => s === 'asc' ? 'desc' : 'asc');
+                      }}
+                      className="flex items-center justify-end gap-1 hover:text-slate-900 w-full"
+                    >
+                      <span>Available Stock</span>
+                      {sortField === 'stock' && <span>{sortOrder === 'asc' ? '▲' : '▼'}</span>}
+                    </button>
+                  </th>
+                  <th style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right">Warning Limit</th>
+                  <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-center">Status</th>
+                  <th style={{ width: '90px', minWidth: '80px' }} className="px-2 py-3 text-center">Priority</th>
+                  <th style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-right">
                     <button
                       onClick={() => {
                         setSortField('suggestedQty');
@@ -1133,23 +1147,11 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       className="flex items-center justify-end gap-1 hover:text-slate-900 w-full"
                     >
                       <span>Suggested Reorder</span>
-                      {sortField === 'suggestedQty' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
+                      {sortField === 'suggestedQty' && <span>{sortOrder === 'asc' ? '▲' : '▼'}</span>}
                     </button>
                   </th>
-                  <th style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-center">
-                    <button
-                      onClick={() => {
-                        setSortField('stock');
-                        setSortOrder(s => s === 'asc' ? 'desc' : 'asc');
-                      }}
-                      className="inline-flex items-center justify-center gap-1 hover:text-slate-900 w-full"
-                    >
-                      <span>Status</span>
-                      {sortField === 'stock' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
-                    </button>
-                  </th>
-                  <th style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right">Action</th>
-                </tr>
+                  <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right">Actions</th>
+                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paginatedLowStock.map(p => {
@@ -1193,57 +1195,79 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* Unit */}
-                      <td style={{ width: '100px', minWidth: '80px' }} className="px-2 py-3 text-center align-middle">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-semibold">
-                          {p.unit}
+                                            {/* Available Stock */}
+                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right align-middle">
+                        <span className={`text-xs font-mono font-bold whitespace-nowrap ${
+                          safeStock <= 0 ? 'text-rose-600 font-extrabold' : p.stockStatus === 'Limited Stock' ? 'text-amber-700' : 'text-slate-700'
+                        }`}>
+                          {formatNumber(safeStock)} {p.unit}
+                        </span>
+                      </td>
+
+                      {/* Low-Stock Threshold */}
+                      <td style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right align-middle">
+                        <span className="text-xs font-mono text-slate-700 font-semibold whitespace-nowrap">
+                          {p.warningLimit !== null ? `${formatNumber(p.warningLimit)} ${p.unit}` : <span className="text-slate-400 italic font-normal text-[11px]">Not set</span>}
+                        </span>
+                      </td>
+
+                      {/* Stock Status */}
+                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-center align-middle">
+                        {p.stockStatus === 'Out of Stock' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+                            Out of Stock
+                          </span>
+                        ) : p.stockStatus === 'Limited Stock' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                            Limited Stock
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                            Active
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Priority */}
+                      <td style={{ width: '90px', minWidth: '80px' }} className="px-2 py-3 text-center align-middle">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          safeStock <= 0 ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          {safeStock <= 0 ? 'Critical' : 'High'}
                         </span>
                       </td>
 
                       {/* Suggested Reorder */}
-                      <td style={{ width: '160px', minWidth: '140px' }} className="px-3 py-3 text-right font-mono font-bold text-indigo-600 align-middle">
+                      <td style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-right font-mono font-bold text-indigo-600 align-middle">
                         +{formatNumber(p.suggestedQty)} {p.unit}
                       </td>
 
-                      {/* Status with Badge and Stock Quantity underneath */}
-                      <td style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-center align-middle">
-                        <div className="flex flex-col items-center justify-center gap-1 min-w-0">
-                          {p.stockStatus === 'Out of Stock' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-                              Out of Stock
-                            </span>
-                          ) : p.stockStatus === 'Limited Stock' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-                              Limited Stock
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                              Active
-                            </span>
-                          )}
-                          <span className={`text-[11px] font-mono font-bold whitespace-nowrap ${
-                            safeStock <= 0 ? 'text-rose-600' : p.stockStatus === 'Limited Stock' ? 'text-amber-700' : 'text-slate-700'
-                          }`}>
-                            {formatNumber(safeStock)} {p.unit}
-                          </span>
+                      {/* Actions: View Product & Request */}
+                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right align-middle">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => navigate('/products?search=' + encodeURIComponent(p.sku || p.name))}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            title="View product in catalog"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSingleRequestModal(p.product)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-transparent font-semibold text-[11px] transition-all cursor-pointer"
+                            title={`Create purchase request for ${p.name}`}
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Request</span>
+                          </button>
                         </div>
                       </td>
-
-                      {/* Action */}
-                      <td style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right align-middle">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenSingleRequestModal(p.product)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-transparent font-semibold text-[11px] transition-all cursor-pointer"
-                          title={`Create purchase request for ${p.name}`}
-                        >
-                          <Send className="w-3 h-3" />
-                          <span>Request</span>
-                        </button>
-                      </td>
+                      
                     </tr>
                   );
                 })}
