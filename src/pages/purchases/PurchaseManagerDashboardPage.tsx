@@ -1080,7 +1080,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
                   <th className="py-3 px-4">Request # & Date</th>
                   <th className="py-3 px-4">Requested Product & Qty</th>
-                  <th className="py-3 px-4">Requester / Hub</th>
+                  <th className="py-3 px-4">Warehouse Hub</th>
                   <th className="py-3 px-4 text-center">Priority</th>
                   <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4 text-right">Estimated Cost</th>
@@ -1126,12 +1126,9 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                         )}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="font-semibold text-slate-800 block truncate max-w-[180px]">
-                          {req.requesterName || 'Warehouse Staff'}
-                        </span>
-                        <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                          <WarehouseIcon className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[160px]">{req.warehouseName || 'All Hubs'}</span>
+                        <span className="text-slate-800 font-medium flex items-center gap-1.5">
+                          <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate max-w-[180px]">{req.warehouseName || 'All Hubs'}</span>
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">

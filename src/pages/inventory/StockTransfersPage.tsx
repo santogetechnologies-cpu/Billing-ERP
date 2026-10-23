@@ -665,12 +665,13 @@ export const StockTransfersPage: React.FC = () => {
                       {/* Actions (View Details) */}
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <button
+                          type="button"
                           onClick={() => handleOpenDetails(trf)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                          className="w-8 h-8 inline-flex items-center justify-center text-slate-600 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 border border-slate-200 rounded-lg transition-colors cursor-pointer shadow-2xs hover:shadow-xs"
                           title="View Details"
+                          aria-label="View Details"
                         >
-                          <Eye className="w-3.5 h-3.5 text-slate-600" />
-                          <span>View Details</span>
+                          <Eye className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>

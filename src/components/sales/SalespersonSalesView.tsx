@@ -431,11 +431,11 @@ export const SalespersonSalesView: React.FC = () => {
                             setSelectedInvoice(record);
                             setIsPrintOpen(true);
                           }}
-                          className="px-2.5 py-1 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                          className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-2xs hover:shadow-xs"
                           title="View Sales Details & Slip"
+                          aria-label="View Sales Details & Slip"
                         >
-                          <Eye className="w-3.5 h-3.5 inline mr-1" />
-                          <span>View Details</span>
+                          <Eye className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>
