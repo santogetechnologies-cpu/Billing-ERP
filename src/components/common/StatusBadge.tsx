@@ -15,7 +15,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', c
 
   if (['active', 'in stock'].includes(normalized)) {
     colorClasses = 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]';
-  } else if (['limited stock', 'warning', 'low stock'].includes(normalized)) {
+  } else if (['limited', 'limited stock', 'warning', 'low stock'].includes(normalized)) {
     colorClasses = 'bg-[#FFF7ED] text-[#EA580C] border-[#FDBA74]';
   } else if (['out of stock'].includes(normalized)) {
     colorClasses = 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]';
@@ -42,7 +42,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', c
       className={`inline-flex items-center align-middle font-medium rounded-full border ${colorClasses} ${sizeClasses} ${className}`}
     >
       <span className="w-1.5 h-1.5 rounded-full mr-1.5 shrink-0 bg-current" />
-      <span className="whitespace-nowrap">{status}</span>
+      <span className="whitespace-nowrap">{normalized === 'limited stock' ? 'Limited' : status}</span>
     </span>
   );
 };

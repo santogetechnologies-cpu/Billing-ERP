@@ -283,7 +283,7 @@ export const ProductListPage: React.FC = () => {
             label: 'Stock Status',
             options: [
               { label: 'Active', value: 'Active' },
-              { label: 'Limited Stock', value: 'Limited Stock' },
+              { label: 'Limited', value: 'Limited Stock' },
               { label: 'Out of Stock', value: 'Out of Stock' },
               { label: 'Not Set', value: 'Not Set' }
             ]

@@ -325,7 +325,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         outPct: 0,
         slices: [
           { label: 'Active', count: 0, pct: 0, color: '#10b981', textColor: 'text-emerald-700', bgDot: 'bg-emerald-500', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-          { label: 'Limited Stock', count: 0, pct: 0, color: '#f59e0b', textColor: 'text-amber-700', bgDot: 'bg-amber-500', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200' },
+          { label: 'Limited', count: 0, pct: 0, color: '#f59e0b', textColor: 'text-amber-700', bgDot: 'bg-amber-500', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200' },
           { label: 'Out of Stock', count: 0, pct: 0, color: '#f43f5e', textColor: 'text-rose-700', bgDot: 'bg-rose-500', badgeBg: 'bg-rose-50 text-rose-700 border-rose-200' }
         ]
       };
@@ -337,7 +337,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
 
     const slices = [
       { label: 'Active', count: metrics.activeHealthyCount, pct: activePct, color: '#10b981', textColor: 'text-emerald-700', bgDot: 'bg-emerald-500', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-      { label: 'Limited Stock', count: metrics.lowStockCount, pct: limitedPct, color: '#f59e0b', textColor: 'text-amber-700', bgDot: 'bg-amber-500', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200' },
+      { label: 'Limited', count: metrics.lowStockCount, pct: limitedPct, color: '#f59e0b', textColor: 'text-amber-700', bgDot: 'bg-amber-500', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200' },
       { label: 'Out of Stock', count: metrics.outOfStockCount, pct: outPct, color: '#f43f5e', textColor: 'text-rose-700', bgDot: 'bg-rose-500', badgeBg: 'bg-rose-50 text-rose-700 border-rose-200' }
     ];
 
@@ -1221,7 +1221,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         ) : p.stockStatus === 'Limited Stock' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-                            Limited Stock
+                            Limited
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">

@@ -1428,7 +1428,7 @@ export const NewProductPage: React.FC = () => {
                     <p className="text-[11px] text-rose-600 mt-1">{errors.reorderLevel}</p>
                   ) : (
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Triggers &ldquo;Limited Stock&rdquo; status when available stock is &le; this limit. Clear input for Not Set.
+                      Triggers &ldquo;Limited&rdquo; status when available stock is &le; this limit. Clear input for Not Set.
                     </p>
                   )}
                 </div>

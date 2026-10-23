@@ -655,7 +655,7 @@ export const StockAlertsPage: React.FC = () => {
           badgeTooltip="Filter by Out of Stock products"
         />
         <SummaryCard
-          title="LIMITED STOCK"
+          title="LIMITED"
           count={limitedStockCount}
           description="At or below warning threshold"
           icon={AlertTriangle}
@@ -667,7 +667,7 @@ export const StockAlertsPage: React.FC = () => {
             setStatusFilter(prev => prev === 'LIMITED_STOCK' ? 'ALL' : 'LIMITED_STOCK');
             setCurrentPage(1);
           }}
-          badgeTooltip="Filter by Limited Stock products"
+          badgeTooltip="Filter by Limited products"
         />
         <SummaryCard
           title="ACTIVE STOCK"
@@ -848,7 +848,7 @@ export const StockAlertsPage: React.FC = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Limited Stock ({limitedStockCount})
+              Limited ({limitedStockCount})
             </button>
             <button
               onClick={() => { setStatusFilter('ACTIVE'); setCurrentPage(1); }}
