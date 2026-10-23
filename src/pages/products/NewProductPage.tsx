@@ -22,6 +22,8 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
+import { Modal } from '../../components/common/Modal';
+import { BASE_PRODUCT_CATEGORIES } from '../../services/categoryService';
 import { BarcodeCanvas } from '../../components/barcode/BarcodeCanvas';
 import { formatCurrency } from '../../utils/formatters';
 import { UNIVERSAL_BUILTIN_UNITS, normalizeUnitKey } from '../../data/unitsData';
@@ -47,7 +49,41 @@ export const NewProductPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
-  const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData } = useERP();
+  const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory } = useERP();
+
+  // Custom Category Modal State
+  const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryModalError, setCategoryModalError] = useState<string | null>(null);
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+
+  const handleSaveCategory = async () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) {
+      setCategoryModalError('Please enter a category name.');
+      return;
+    }
+
+    setIsSavingCategory(true);
+    setCategoryModalError(null);
+    try {
+      const saved = await addCustomCategory(trimmed);
+      setCategory(saved);
+      if (errors.category) setErrors(prev => ({ ...prev, category: '' }));
+      setIsAddCategoryModalOpen(false);
+      setNewCategoryName('');
+    } catch (err: any) {
+      setCategoryModalError(err?.message || 'Failed to save category.');
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
+
+  const handleCancelAddCategory = () => {
+    setIsAddCategoryModalOpen(false);
+    setNewCategoryName('');
+    setCategoryModalError(null);
+  };
 
   // Wizard Navigation State
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -749,15 +785,23 @@ export const NewProductPage: React.FC = () => {
                 </label>
                 <select
                   id="field-category"
-                  value={category}
+                  value={category === 'General' ? 'General Merchandise' : category}
                   onChange={e => {
-                    setCategory(e.target.value);
+                    const val = e.target.value;
+                    if (val === '__ADD_CUSTOM__') {
+                      setIsAddCategoryModalOpen(true);
+                      return;
+                    }
+                    setCategory(val);
                     if (errors.category) setErrors(prev => ({ ...prev, category: '' }));
                   }}
                   className={`w-full px-3 py-2 bg-slate-50 border rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer text-xs ${
                     errors.category ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-200'
                   }`}
                 >
+                  <option value="__ADD_CUSTOM__" className="font-bold text-blue-600 bg-blue-50/80">
+                    + Add Custom Category
+                  </option>
                   <option value="Building Materials">Building Materials</option>
                   <option value="Grains & Foodstuff">Grains & Foodstuff</option>
                   <option value="Metals & Structural">Metals & Structural</option>
@@ -769,7 +813,21 @@ export const NewProductPage: React.FC = () => {
                   <option value="Tools & Machinery">Tools & Machinery</option>
                   <option value="Packaging Supplies">Packaging Supplies</option>
                   <option value="Safety & PPE">Safety & PPE</option>
-                  <option value="General">General Merchandise</option>
+                  <option value="General Merchandise">General Merchandise</option>
+                  {customCategories.map(cat => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                  {category &&
+                    category !== 'General' &&
+                    category !== 'General Merchandise' &&
+                    !BASE_PRODUCT_CATEGORIES.includes(category) &&
+                    !customCategories.includes(category) && (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    )}
                 </select>
                 {errors.category && <p className="text-[11px] text-rose-600 mt-1">{errors.category}</p>}
               </div>
@@ -1447,6 +1505,75 @@ export const NewProductPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Custom Category Creation Modal */}
+      <Modal
+        isOpen={isAddCategoryModalOpen}
+        onClose={handleCancelAddCategory}
+        title="Add Custom Category"
+        subtitle="Create a new product category for your inventory catalog"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="new-category-input" className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Category Name <span className="text-rose-500">*</span>
+            </label>
+            <input
+              id="new-category-input"
+              type="text"
+              autoFocus
+              value={newCategoryName}
+              onChange={e => {
+                setNewCategoryName(e.target.value);
+                if (categoryModalError) setCategoryModalError(null);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSaveCategory();
+                }
+              }}
+              placeholder="e.g. Sanitaryware, Automotive, Electrical Tools..."
+              className={`w-full px-3 py-2 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                categoryModalError ? 'border-rose-300 bg-rose-50/30' : 'border-slate-200 bg-white'
+              }`}
+            />
+            {categoryModalError && (
+              <p className="text-[11px] font-medium text-rose-600 mt-1.5">
+                {categoryModalError}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={handleCancelAddCategory}
+              disabled={isSavingCategory}
+              className="px-3.5 py-1.5 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveCategory}
+              disabled={isSavingCategory}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              {isSavingCategory ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <span>Save Category</span>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

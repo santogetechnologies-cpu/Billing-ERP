@@ -43,6 +43,7 @@ import { salesService } from '../services/salesService';
 import { purchaseService } from '../services/purchaseService';
 import { purchaseRequestService } from '../services/purchaseRequestService';
 import { inventoryService } from '../services/inventoryService';
+import { categoryService } from '../services/categoryService';
 import { expenseService } from '../services/expenseService';
 import { paymentService } from '../services/paymentService';
 import { accountingService } from '../services/accountingService';
@@ -110,6 +111,8 @@ export interface ERPContextType {
   deleteProduct: (id: string) => Promise<void>;
   generateSKU: (category: string, productName: string) => string;
   generateBarcode: (sku: string) => string;
+  customCategories: string[];
+  addCustomCategory: (name: string) => Promise<string>;
 
   // Customers
   customers: Customer[];
@@ -282,6 +285,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Core Entity States - Strictly empty on initialization; populated live from Supabase PostgreSQL
   const [products, setProducts] = useState<Product[]>([]);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
@@ -382,7 +386,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         permsData,
         auditData,
         notifData,
-        requestsData
+        requestsData,
+        categoriesData
       ] = await Promise.all([
         companyService.getCompany(targetCompId),
         productService.getProducts(undefined, targetCompId),
@@ -407,7 +412,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         userService.getPermissions(),
         auditService.getAuditLogs(targetCompId),
         notificationService.getNotifications(targetCompId, user?.id, profile?.role || (user as any)?.role),
-        purchaseRequestService.getPurchaseRequests(undefined, targetCompId, profile?.role || (user as any)?.role, user?.id)
+        purchaseRequestService.getPurchaseRequests(undefined, targetCompId, profile?.role || (user as any)?.role, user?.id),
+        categoryService.getCustomCategories(targetCompId)
       ]);
 
       // Verify request is still current before updating in-memory state
@@ -427,6 +433,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCompany(companyData);
       }
       setProducts(dedupeById(productsData || []));
+      setCustomCategories(categoriesData || []);
       setCustomers(dedupeById(customersData || []));
       setSuppliers(dedupeById(suppliersData || []));
       setSalesInvoices(dedupeById(salesData || []));
@@ -672,6 +679,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Products
+  const addCustomCategory = async (catName: string): Promise<string> => {
+    const created = await categoryService.createCategory(catName, activeCompanyId);
+    setCustomCategories(prev => {
+      if (prev.some(c => c.toLowerCase() === created.toLowerCase())) return prev;
+      return [...prev, created];
+    });
+    return created;
+  };
+
   const addProduct = async (productData: Omit<Product, 'id' | 'createdAt'>): Promise<Product> => {
     const newProduct = await productService.createProduct(productData, company.id);
     setProducts(prev => [newProduct, ...prev.filter(p => p.id !== newProduct.id)]);
@@ -1608,6 +1624,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteProduct,
     generateSKU,
     generateBarcode,
+    customCategories,
+    addCustomCategory,
     customers,
     addCustomer,
     updateCustomer,
