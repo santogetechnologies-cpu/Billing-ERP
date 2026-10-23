@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='20' height='14' x='2' y='5' rx='2'/><line x1='2' x2='22' y1='10' y2='10'/></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Universal ERP — Billing, Inventory & Financial Accounting</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('universal_billing_theme_active') || 'blue';
+          var presets = {
+            blue: {
+              p: '#1760F5', h: '#114ed1', a: '#0d3ea8', l: '#eff5ff', b: 'rgba(23,96,245,0.25)', r: 'rgba(23,96,245,0.35)',
+              s: '#0B172E', sh: '#081020', sa: '#173570', sab: 'rgba(96,165,250,0.50)'
+            },
+            green: {
+              p: '#2EAF87', h: '#249572', a: '#1c7a5c', l: '#effaf6', b: 'rgba(46,175,135,0.25)', r: 'rgba(46,175,135,0.35)',
+              s: '#081E17', sh: '#051510', sa: '#124233', sab: 'rgba(74,222,128,0.50)'
+            },
+            red: {
+              p: '#DC2626', h: '#b91c1c', a: '#991b1b', l: '#fef2f2', b: 'rgba(220,38,38,0.25)', r: 'rgba(220,38,38,0.35)',
+              s: '#1F0D11', sh: '#14070A', sa: '#44141E', sab: 'rgba(248,113,113,0.50)'
+            },
+            dark_grey: {
+              p: '#4B5565', h: '#374151', a: '#1f2937', l: '#f1f5f9', b: 'rgba(75,85,101,0.25)', r: 'rgba(75,85,101,0.35)',
+              s: '#0F141E', sh: '#090D14', sa: '#232E40', sab: 'rgba(148,163,184,0.50)'
+            }
+          };
+          if (saved === 'purple' || saved === 'pink') saved = 'red';
+          var c = presets[saved] || presets.blue;
+          var r = document.documentElement;
+          r.style.setProperty('--primary', c.p);
+          r.style.setProperty('--primary-foreground', '#ffffff');
+          r.style.setProperty('--primary-accent', c.p);
+          r.style.setProperty('--primary-accent-hover', c.h);
+          r.style.setProperty('--primary-accent-light', c.l);
+          r.style.setProperty('--sidebar-background', c.s);
+          r.style.setProperty('--sidebar-header', c.sh);
+          r.style.setProperty('--sidebar-active', c.sa);
+          r.style.setProperty('--sidebar-active-border', c.sab);
+          r.style.setProperty('--sidebar-foreground', '#ffffff');
+          r.style.setProperty('--sidebar-muted', '#94A3B8');
+          r.style.setProperty('--color-blue-600', c.p);
+          r.style.setProperty('--color-blue-700', c.h);
+          r.style.setProperty('--color-blue-500', c.p);
+          r.style.setProperty('--color-blue-50', c.l);
+          r.setAttribute('data-theme-color', saved);
+        } catch(e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-blue-600 selection:text-white font-sans min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

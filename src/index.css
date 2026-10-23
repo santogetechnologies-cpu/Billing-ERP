@@ -1,0 +1,484 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  * {
+    border-color: var(--color-slate-200, #e2e8f0);
+  }
+  
+  html, body, #root {
+    height: 100%;
+    overscroll-behavior-y: none;
+    overscroll-behavior: none;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: #0f172a;
+    background-color: #f8fafc;
+    overflow-x: hidden;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* ==========================================================================
+   CENTRALIZED APPLICATION THEME SYSTEM (CSS CUSTOM PROPERTIES)
+   ========================================================================== */
+:root {
+  --primary: #1760F5;
+  --primary-foreground: #ffffff;
+  --primary-accent: #1760F5;
+  --primary-accent-hover: #114ed1;
+  --primary-accent-active: #0d3ea8;
+  --primary-accent-light: #eff5ff;
+  --primary-accent-subtle: rgba(23, 96, 245, 0.08);
+  --primary-accent-border: rgba(23, 96, 245, 0.25);
+  --primary-accent-ring: rgba(23, 96, 245, 0.35);
+  --primary-accent-foreground: #ffffff;
+
+  /* Coordinated Darker Sidebar Theme Palette */
+  --sidebar-background: #0B172E;
+  --sidebar-header: #081020;
+  --sidebar-border: rgba(255, 255, 255, 0.12);
+  --sidebar-active: #173570;
+  --sidebar-active-border: rgba(96, 165, 250, 0.50);
+  --sidebar-active-text: #ffffff;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-foreground: #ffffff;
+  --sidebar-muted: #94a3b8;
+
+  /* Dynamically map Tailwind v4 blue utility tokens to active brand color */
+  --color-blue-600: var(--primary-accent);
+  --color-blue-700: var(--primary-accent-hover);
+  --color-blue-800: var(--primary-accent-active);
+  --color-blue-500: var(--primary-accent);
+  --color-blue-400: var(--primary-accent-hover);
+  --color-blue-50: var(--primary-accent-light);
+  --color-blue-100: var(--primary-accent-subtle);
+  --color-blue-200: var(--primary-accent-border);
+}
+
+/* Theme Utilities */
+.bg-primary-accent {
+  background-color: var(--primary-accent) !important;
+}
+.text-primary-accent {
+  color: var(--primary-accent) !important;
+}
+.border-primary-accent {
+  border-color: var(--primary-accent) !important;
+}
+.ring-primary-accent {
+  --tw-ring-color: var(--primary-accent-ring) !important;
+}
+
+/* Custom compact ERP scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Sidebar navigation scrollbar - completely eliminate horizontal scrollbar */
+aside,
+aside *,
+.sidebar-nav-scroll {
+  overflow-x: hidden !important;
+}
+
+aside::-webkit-scrollbar:horizontal,
+aside *::-webkit-scrollbar:horizontal,
+.sidebar-nav-scroll::-webkit-scrollbar:horizontal,
+.sidebar-nav-scroll::-webkit-scrollbar-thumb:horizontal,
+.sidebar-nav-scroll::-webkit-scrollbar-track:horizontal {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+
+.sidebar-nav-scroll {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+.sidebar-nav-scroll::-webkit-scrollbar {
+  width: 4px !important;
+  height: 0px !important;
+}
+
+.sidebar-nav-scroll::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.sidebar-nav-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25) !important;
+  border-radius: 9999px !important;
+}
+
+.sidebar-nav-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45) !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+/* Print Styles for Invoices and Barcodes */
+@media print {
+  @page {
+    margin: 8mm;
+    size: auto;
+  }
+
+  html, body, #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-page {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  /* When printing an invoice modal, isolate the document and hide the rest of the application */
+  body.invoice-modal-open aside,
+  body.invoice-modal-open header,
+  body.invoice-modal-open nav,
+  body.invoice-modal-open main > *:not(.invoice-modal-backdrop),
+  body:has(.invoice-modal-backdrop) aside,
+  body:has(.invoice-modal-backdrop) header,
+  body:has(.invoice-modal-backdrop) nav {
+    display: none !important;
+  }
+
+  body.invoice-modal-open main,
+  body:has(.invoice-modal-backdrop) main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  .invoice-modal-backdrop {
+    position: static !important;
+    inset: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    z-index: auto !important;
+  }
+
+  .invoice-modal-container {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+
+  .invoice-preview-viewport {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .invoice-document-paper {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    min-height: auto !important;
+    background: #ffffff !important;
+  }
+
+  .invoice-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+
+/* Prevent unwanted browser autofill background tints */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px white inset !important;
+  box-shadow: 0 0 0 1000px white inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Hide native Edge / IE / Chromium password reveal and clear buttons to prevent duplicate eye icons */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* ==========================================================================
+   DASHBOARD INSIGHT GRID (COMPACT 4-CARD RESPONSIVE GRID)
+   ========================================================================== */
+
+.dashboard-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-insight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .dashboard-insight-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ==========================================================================
+   GLASSMORPHISM DESIGN SYSTEM (TOKENS & UTILITY CLASSES)
+   ========================================================================== */
+
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-bg-subtle: rgba(255, 255, 255, 0.65);
+  --glass-bg-hover: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(226, 232, 240, 0.85);
+  --glass-border-hover: rgba(147, 197, 253, 0.85);
+  --glass-blur: 12px;
+  --glass-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.02);
+  --glass-shadow-hover: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: 0.875rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-interactive {
+  cursor: pointer;
+  user-select: none;
+}
+
+.glass-card-interactive:hover {
+  transform: translateY(-2px);
+  background: var(--glass-bg-hover);
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--glass-shadow-hover);
+}
+
+.glass-card-interactive:focus-visible {
+  outline: none;
+  border-color: var(--primary-accent);
+  box-shadow: 0 0 0 2px var(--primary-accent-ring), var(--glass-shadow-hover);
+}
+
+.glass-card-interactive:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.glass-header {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+}
+
+.glass-sidebar {
+  background: var(--sidebar-background, #0B172E);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid var(--sidebar-border, rgba(255, 255, 255, 0.12));
+  padding-right: 0 !important;
+}
+
+/* Sidebar Right-Side Padding Optimization (Pure CSS) */
+.glass-sidebar.w-56 > div:first-child,
+aside.glass-sidebar:not(.w-18) > div:first-child {
+  padding-right: 0.5rem !important;
+}
+
+.glass-sidebar.w-56 > div:nth-child(2),
+aside.glass-sidebar:not(.w-18) > div:nth-child(2) {
+  padding-right: 0.5rem !important;
+}
+
+.sidebar-nav-scroll {
+  padding-right: 0.25rem !important;
+}
+
+.sidebar-nav-scroll button:not([class*="justify-center"]),
+.sidebar-nav-scroll a:not([class*="justify-center"]) {
+  padding-right: 0.5rem !important;
+}
+
+.sidebar-nav-scroll .animate-fadeIn {
+  padding-right: 0.25rem !important;
+}
+
+.glass-sidebar.w-56 > div.border-t,
+aside.glass-sidebar:not(.w-18) > div.border-t {
+  padding-right: 0.5rem !important;
+}
+
+.glass-sidebar.w-56 > div.border-t a,
+aside.glass-sidebar:not(.w-18) > div.border-t a {
+  padding-right: 0.5rem !important;
+}
+
+.glass-modal {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+}
+
+.glass-dropdown {
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 12px 30px -4px rgba(15, 23, 42, 0.12), 0 4px 6px -2px rgba(15, 23, 42, 0.04);
+}
+
+.glass-table-row {
+  transition: background-color 0.15s ease;
+}
+
+.glass-table-row:hover {
+  background-color: rgba(241, 245, 249, 0.75);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-input:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(203, 213, 225, 1);
+}
+
+.glass-input:focus {
+  background: #ffffff;
+  border-color: var(--primary-accent);
+  box-shadow: 0 0 0 3px var(--primary-accent-ring);
+}
+
+.glass-button-secondary {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-button-secondary:hover {
+  background: rgba(255, 255, 255, 1);
+  border-color: rgba(203, 213, 225, 1);
+  box-shadow: 0 2px 6px -1px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.glass-button-secondary:active {
+  transform: translateY(0);
+}
+
+/* Fallback for browsers without backdrop-filter support */
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-panel,
+  .glass-card-interactive,
+  .glass-header,
+  .glass-modal,
+  .glass-dropdown {
+    background-color: #ffffff !important;
+  }
+  .glass-sidebar {
+    background-color: var(--sidebar-background, #0B172E) !important;
+  }
+}
+
+/* Respect user reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .glass-card-interactive,
+  .glass-card-interactive:hover,
+  .glass-panel,
+  .glass-table-row {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+
