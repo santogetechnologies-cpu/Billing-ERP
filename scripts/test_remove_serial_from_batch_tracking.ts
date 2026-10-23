@@ -28,9 +28,9 @@ console.log('  ✓ PASS: Serial Numbers button and link completely removed from 
 
 console.log('\n--- 2. Clean Imports & No Unused References ---');
 assert(
-  !pageCode.includes("import { Link } from 'react-router-dom';") &&
-  !pageCode.includes("from 'react-router-dom'"),
-  'Unused Link import from react-router-dom must be removed'
+  !pageCode.includes("Link") &&
+  !pageCode.includes("<Link"),
+  'Unused Link import and component must be removed'
 );
 assert(
   !pageCode.includes('Hash') &&
