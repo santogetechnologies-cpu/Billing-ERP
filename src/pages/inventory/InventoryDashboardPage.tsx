@@ -761,8 +761,8 @@ const InventoryDashboardInner: React.FC = () => {
         </div>
       )}
 
-      {/* 6 Inventory KPI Summary Cards - Interactive Action Buttons (Prompt #18) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 items-stretch">
+      {/* Inventory KPI Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
         <StatCard
           title="Total Stock"
           value={`${formatNumber(totalStockUnits)} Units`}
@@ -780,24 +780,6 @@ const InventoryDashboardInner: React.FC = () => {
           iconBgColor="bg-emerald-50"
           iconTextColor="text-emerald-600"
           onClick={() => setStockModal('stock_value')}
-        />
-        <StatCard
-          title="Low Stock"
-          value={`${lowStockCount} Products`}
-          subtitle="Below safety buffer"
-          icon={AlertTriangle}
-          iconBgColor="bg-amber-50"
-          iconTextColor="text-amber-600"
-          onClick={() => setStockModal('low_stock')}
-        />
-        <StatCard
-          title="Out of Stock"
-          value={`${outOfStockCount} Products`}
-          subtitle="Zero on-hand balance"
-          icon={AlertTriangle}
-          iconBgColor="bg-rose-50"
-          iconTextColor="text-rose-600"
-          onClick={() => setStockModal('out_of_stock')}
         />
         <StatCard
           title="Overstocked"
