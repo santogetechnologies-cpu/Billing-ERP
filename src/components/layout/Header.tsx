@@ -95,7 +95,7 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
-      {/* Right: Quick Actions, Setup Wizard, Notifications & User */}
+      {/* Right: Setup Wizard, Notifications & User */}
       <div className="flex items-center gap-2">
         {/* Mobile search trigger */}
         <button
