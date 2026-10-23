@@ -851,7 +851,7 @@ const InventoryDashboardInner: React.FC = () => {
               }`}
             >
               <Boxes className="w-4 h-4" />
-              <span>Physical Stock & Availability</span>
+              <span>Current Stock</span>
               <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono ${
                 activeTab === 'stock' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
               }`}>
@@ -869,7 +869,7 @@ const InventoryDashboardInner: React.FC = () => {
               }`}
             >
               <ArrowRightLeft className="w-4 h-4" />
-              <span>Stock Movement Ledger</span>
+              <span>Stock History</span>
               <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono ${
                 activeTab === 'movements' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
               }`}>
@@ -901,7 +901,7 @@ const InventoryDashboardInner: React.FC = () => {
           )}
         </div>
 
-        {/* Tab 1: Physical Stock & Availability */}
+        {/* Tab 1: Current Stock */}
         {activeTab === 'stock' && (
           <div className="p-4 sm:p-5 space-y-4">
             {/* Filters Toolbar */}
@@ -1226,7 +1226,7 @@ const InventoryDashboardInner: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 2: Stock Movement Ledger */}
+        {/* Tab 2: Stock History */}
         {activeTab === 'movements' && (
           <div className="p-4 sm:p-5">
             <DataTable
