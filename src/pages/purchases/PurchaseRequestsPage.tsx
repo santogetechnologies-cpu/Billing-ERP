@@ -1350,7 +1350,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                 <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap">Quantity</th>
                 <th className="py-3 px-3 w-[100px] text-center whitespace-nowrap">Priority</th>
                 <th className="py-3 px-3.5 w-[130px] text-center whitespace-nowrap">Status</th>
-                <th className="py-3 px-4 w-[110px] text-right whitespace-nowrap">Actions</th>
+                <th className="py-3 px-4 w-[90px] text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1483,11 +1483,11 @@ export const PurchaseRequestsPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleViewDetails(req.id)}
-                            className="px-3 py-1.5 text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            className="p-1.5 text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg transition-colors cursor-pointer flex items-center justify-center shadow-2xs hover:shadow-xs"
                             title="View Details"
+                            aria-label="View Details"
                           >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>View Details</span>
+                            <Eye className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
