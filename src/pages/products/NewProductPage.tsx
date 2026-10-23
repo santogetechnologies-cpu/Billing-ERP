@@ -1601,24 +1601,6 @@ export const NewProductPage: React.FC = () => {
                   )}
                 </div>
               </div>
-
-              {/* Step 4 Next Pointer Note */}
-              <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs bg-slate-50/70 p-3 rounded-xl border border-slate-200">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                    <Layers className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <span className="font-bold text-slate-800">Batch Code, Expiry &amp; Serial Number Tracking</span>
-                    <p className="text-[11px] text-slate-500">
-                      Configured in dedicated <strong>Step 4: Batch, Expiry &amp; Serial Details</strong> directly after warehouse setup.
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shrink-0 self-start sm:self-auto">
-                  Configured in Step 4 →
-                </span>
-              </div>
             </div>
           </div>
         )}
