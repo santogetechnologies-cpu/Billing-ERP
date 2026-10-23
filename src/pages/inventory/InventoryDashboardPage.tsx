@@ -657,39 +657,39 @@ export const InventoryDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
-        <div>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
+        <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <Boxes className="w-5 h-5 text-blue-600" />
-            Stock Overview & Operational Inventory
+            <Boxes className="w-5 h-5 text-blue-600 shrink-0" />
+            <span className="truncate">Stock Overview & Operational Inventory</span>
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
             Real-time physical stock levels, multi-warehouse availability, reorder thresholds, and movement audit ledger.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
           <button
             onClick={() => navigate('/inventory/valuation')}
-            className="px-3.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
           >
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+            <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span>Stock Valuation</span>
           </button>
 
           <button
             onClick={() => navigate('/inventory/warehouses')}
-            className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
+            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
-            <Building className="w-3.5 h-3.5 text-blue-600" />
+            <Building className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>Warehouses ({warehouses.length})</span>
           </button>
 
           <button
             onClick={() => navigate('/inventory/transfers')}
-            className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
+            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
-            <ArrowRightLeft className="w-3.5 h-3.5 text-slate-500" />
+            <ArrowRightLeft className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <span>Stock Transfers</span>
           </button>
 
@@ -698,9 +698,9 @@ export const InventoryDashboardPage: React.FC = () => {
               setAdjustQty('');
               setIsAdjustModalOpen(true);
             }}
-            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors"
+            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>Stock Adjustment</span>
           </button>
         </div>
@@ -1012,6 +1012,26 @@ export const InventoryDashboardPage: React.FC = () => {
             {/* Operational Inventory Table */}
             <div className="overflow-x-auto scrollbar-thin rounded-xl border border-slate-200">
               <table className="w-full text-left text-xs border-collapse">
+                <colgroup>
+                  {isWarehouseManager ? (
+                    <>
+                      <col className="w-[36%]" />
+                      <col className="w-[38%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[14%]" />
+                    </>
+                  ) : (
+                    <>
+                      <col className="w-[24%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[24%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                    </>
+                  )}
+                </colgroup>
                 <thead className="bg-slate-50/90 text-slate-600 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200">
                   <tr>
                     <th className={`py-3 px-4 ${isWarehouseManager ? 'w-[36%] min-w-[240px]' : ''}`}>Product Name & SKU</th>
@@ -1138,7 +1158,8 @@ export const InventoryDashboardPage: React.FC = () => {
 
                           {/* Stock Status */}
                           <td className="py-3 px-3 text-center align-middle">
-                            <StatusBadge
+                            <div className="flex justify-center">
+                              <StatusBadge
                               status={
                                 item.status === 'Active'
                                   ? 'In Stock'
@@ -1147,6 +1168,7 @@ export const InventoryDashboardPage: React.FC = () => {
                                   : 'Out of Stock'
                               }
                             />
+                            </div>
                           </td>
 
                           {/* Actions */}
