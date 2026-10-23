@@ -1822,8 +1822,18 @@ export const PurchaseRequestsPage: React.FC = () => {
                 </label>
                 <input
                   type="date"
+                  min="2000-01-01"
+                  max="2099-12-31"
                   value={poExpectedDate}
-                  onChange={e => setPoExpectedDate(e.target.value)}
+                  onChange={e => {
+                    let val = e.target.value;
+                    if (val) {
+                      const parts = val.split('-');
+                      if (parts[0] && parts[0].length > 4) parts[0] = parts[0].slice(0, 4);
+                      val = parts.join('-');
+                    }
+                    setPoExpectedDate(val);
+                  }}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -2044,8 +2054,18 @@ export const PurchaseRequestsPage: React.FC = () => {
                 </label>
                 <input
                   type="date"
+                  min="2000-01-01"
+                  max="2099-12-31"
                   value={newReqDate}
-                  onChange={e => setNewReqDate(e.target.value)}
+                  onChange={e => {
+                    let val = e.target.value;
+                    if (val) {
+                      const parts = val.split('-');
+                      if (parts[0] && parts[0].length > 4) parts[0] = parts[0].slice(0, 4);
+                      val = parts.join('-');
+                    }
+                    setNewReqDate(val);
+                  }}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>

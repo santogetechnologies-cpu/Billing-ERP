@@ -221,9 +221,19 @@ export const BatchManagementPage: React.FC = () => {
               <label className="block font-medium text-slate-700 mb-1">Manufacturing Date</label>
               <input
                 type="date"
+                min="1900-01-01"
+                max="2099-12-31"
                 value={mfgDate}
-                onChange={e => setMfgDate(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
+                onChange={e => {
+                  let val = e.target.value;
+                  if (val) {
+                    const parts = val.split('-');
+                    if (parts[0] && parts[0].length > 4) parts[0] = parts[0].slice(0, 4);
+                    val = parts.join('-');
+                  }
+                  setMfgDate(val);
+                }}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs"
               />
             </div>
 
@@ -231,9 +241,19 @@ export const BatchManagementPage: React.FC = () => {
               <label className="block font-medium text-slate-700 mb-1">Expiry Date</label>
               <input
                 type="date"
+                min="1900-01-01"
+                max="2099-12-31"
                 value={expiryDate}
-                onChange={e => setExpiryDate(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-amber-700"
+                onChange={e => {
+                  let val = e.target.value;
+                  if (val) {
+                    const parts = val.split('-');
+                    if (parts[0] && parts[0].length > 4) parts[0] = parts[0].slice(0, 4);
+                    val = parts.join('-');
+                  }
+                  setExpiryDate(val);
+                }}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold text-amber-700 text-xs"
               />
             </div>
           </div>

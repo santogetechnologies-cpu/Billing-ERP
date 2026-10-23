@@ -127,6 +127,16 @@ export const NewProductPage: React.FC = () => {
   const [openingStock, setOpeningStock] = useState<string>('');
   const [batchNumber, setBatchNumber] = useState<string>('');
   const [expiryDate, setExpiryDate] = useState<string>('');
+
+  const setExpiryPreset = (months: number) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + months);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    setExpiryDate(`${yyyy}-${mm}-${dd}`);
+    if (errors.expiryDate) setErrors(prev => ({ ...prev, expiryDate: '' }));
+  };
   const [reorderLevel, setReorderLevel] = useState<string>('');
   const [warehouse, setWarehouse] = useState('');
   const [rack, setRack] = useState('');
@@ -398,14 +408,22 @@ export const NewProductPage: React.FC = () => {
           errs.expiryDate = 'Expiry date is required.';
         } else if (isNaN(new Date(expiryDate).getTime())) {
           errs.expiryDate = 'Please select a valid expiry date.';
+        } else {
+          const year = parseInt(expiryDate.split('-')[0], 10);
+          if (isNaN(year) || year < 1900 || year > 2099) {
+            errs.expiryDate = 'Please enter a valid 4-digit year (1900–2099).';
+          }
         }
       } else {
         if (batchNumber.trim() && !expiryDate.trim()) {
           errs.expiryDate = 'Expiry date is required when batch number is provided.';
         } else if (!batchNumber.trim() && expiryDate.trim()) {
           errs.batchNumber = 'Batch number is required when expiry date is provided.';
-        } else if (expiryDate.trim() && isNaN(new Date(expiryDate).getTime())) {
-          errs.expiryDate = 'Please select a valid expiry date.';
+        } else if (expiryDate.trim()) {
+          const year = parseInt(expiryDate.split('-')[0], 10);
+          if (isNaN(new Date(expiryDate).getTime()) || isNaN(year) || year < 1900 || year > 2099) {
+            errs.expiryDate = 'Please select a valid expiry date with a 4-digit year (1900–2099).';
+          }
         }
       }
     }
@@ -1476,25 +1494,88 @@ export const NewProductPage: React.FC = () => {
 
                   {/* Expiry Date */}
                   <div className="flex flex-col">
-                    <label htmlFor="field-expiryDate" className="block font-medium text-slate-700 mb-1">
-                      Expiry Date <span className="text-rose-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label htmlFor="field-expiryDate" className="block font-medium text-slate-700">
+                        Expiry Date <span className="text-rose-500">*</span>
+                      </label>
+                      {expiryDate && (
+                        <button
+                          type="button"
+                          onClick={() => setExpiryDate('')}
+                          className="text-[10px] font-semibold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                     <input
                       id="field-expiryDate"
                       type="date"
+                      min="1900-01-01"
+                      max="2099-12-31"
                       value={expiryDate}
                       onChange={e => {
-                        setExpiryDate(e.target.value);
+                        let val = e.target.value;
+                        if (val) {
+                          const parts = val.split('-');
+                          // Strictly enforce 4-digit year limit
+                          if (parts[0] && parts[0].length > 4) {
+                            parts[0] = parts[0].slice(0, 4);
+                            val = parts.join('-');
+                          }
+                          const y = parseInt(parts[0], 10);
+                          if (!isNaN(y) && y > 2099) {
+                            parts[0] = '2099';
+                            val = parts.join('-');
+                          }
+                        }
+                        setExpiryDate(val);
                         if (errors.expiryDate) setErrors(prev => ({ ...prev, expiryDate: '' }));
                       }}
-                      className={`w-full px-3 py-2 bg-white border rounded-lg font-mono text-slate-900 text-xs cursor-pointer ${
-                        errors.expiryDate ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
+                      className={`w-full px-3 py-2 bg-white border rounded-lg font-mono text-slate-900 text-xs cursor-pointer transition-colors ${
+                        errors.expiryDate ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
                       }`}
                     />
+                    {/* Quick Expiry Date Shortcuts */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[10px] text-slate-400 font-medium">Quick set:</span>
+                      <button
+                        type="button"
+                        onClick={() => setExpiryPreset(6)}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        title="Set expiry date to 6 months from today"
+                      >
+                        +6 Months
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpiryPreset(12)}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        title="Set expiry date to 1 year from today"
+                      >
+                        +1 Year
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpiryPreset(24)}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        title="Set expiry date to 2 years from today"
+                      >
+                        +2 Years
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpiryPreset(36)}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        title="Set expiry date to 3 years from today"
+                      >
+                        +3 Years
+                      </button>
+                    </div>
                     {errors.expiryDate ? (
-                      <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.expiryDate}</p>
+                      <p className="text-[11px] text-rose-600 mt-1.5 font-medium">{errors.expiryDate}</p>
                     ) : (
-                      <p className="text-[11px] text-slate-500 mt-1">
+                      <p className="text-[11px] text-slate-500 mt-1.5">
                         Final expiration date after which the item cannot be legally or safely sold.
                       </p>
                     )}

@@ -208,7 +208,7 @@ async function runTestSuite() {
         primaryUnit: 'Bag',
         category: 'Paints'
       }
-    ];
+    ] as unknown as Product[];
 
     // Compute low stock items exactly as in PurchaseManagerDashboardPage metrics
     const lowStockItems = sampleProducts.filter(p => {

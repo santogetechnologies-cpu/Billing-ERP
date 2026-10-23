@@ -1191,8 +1191,18 @@ export const StockAlertsPage: React.FC = () => {
               </label>
               <input
                 type="date"
+                min="2000-01-01"
+                max="2099-12-31"
                 value={deliveryDate}
-                onChange={e => setDeliveryDate(e.target.value)}
+                onChange={e => {
+                  let val = e.target.value;
+                  if (val) {
+                    const parts = val.split('-');
+                    if (parts[0] && parts[0].length > 4) parts[0] = parts[0].slice(0, 4);
+                    val = parts.join('-');
+                  }
+                  setDeliveryDate(val);
+                }}
                 className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>

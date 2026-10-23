@@ -390,14 +390,18 @@ export interface StockBalance {
   updatedAt?: string;
 }
 
-export type TransferStatus = 'Requested' | 'Approved' | 'Sent' | 'Received' | 'Cancelled' | 'Rejected';
+export type TransferStatus = 'Completed' | 'Requested' | 'Approved' | 'Sent' | 'Received' | 'Cancelled' | 'Rejected';
 
 export interface StockTransferItem {
   id?: string;
   productId: string;
   productName: string;
+  sku?: string;
   qty: number;
   unit: string;
+  batchNumber?: string;
+  expiryDate?: string;
+  serialNumber?: string;
 }
 
 export interface StockTransfer {
