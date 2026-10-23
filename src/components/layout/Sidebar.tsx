@@ -351,8 +351,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { name: 'Stock Overview', path: '/inventory', end: true },
             { name: 'Low Stock & Reorder', path: '/inventory/alerts', icon: AlertTriangle, end: true },
             { name: 'Purchase Requests', path: '/inventory/purchase-requests', icon: ClipboardList, end: true },
-            { name: 'Stock Transfers', path: '/inventory/transfers', end: true },
-            { name: 'Stock Adjustments', path: '/inventory/adjustments', end: true },
             { name: 'Batch Tracking', path: '/inventory/batches', end: true },
             { name: 'Stock Valuation', path: '/inventory/valuation', end: true }
           ]
