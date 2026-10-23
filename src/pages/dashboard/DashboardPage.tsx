@@ -683,7 +683,7 @@ export const DashboardPage: React.FC = () => {
                   <div className="mt-1">
                     <div className="flex items-baseline gap-1.5">
                       <h3 className="text-xl font-bold font-mono text-emerald-600">0</h3>
-                      <span className="text-xs font-semibold text-emerald-700">Healthy Stock</span>
+                      <span className="text-xs font-semibold text-emerald-700">Active Stock</span>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">All items above reorder level</p>
                   </div>

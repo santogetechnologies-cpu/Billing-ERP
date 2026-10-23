@@ -670,7 +670,7 @@ export const StockAlertsPage: React.FC = () => {
           badgeTooltip="Filter by Limited Stock products"
         />
         <SummaryCard
-          title="HEALTHY STOCK"
+          title="ACTIVE STOCK"
           count={activeStockCount}
           description="Adequate stock above limit"
           icon={CheckCircle2}
@@ -682,7 +682,7 @@ export const StockAlertsPage: React.FC = () => {
             setStatusFilter(prev => prev === 'ACTIVE' ? 'ALL' : 'ACTIVE');
             setCurrentPage(1);
           }}
-          badgeTooltip="Filter by Healthy Stock products"
+          badgeTooltip="Filter by Active Stock products"
         />
         <SummaryCard
           title="PENDING PURCHASE REQUESTS"
@@ -911,7 +911,7 @@ export const StockAlertsPage: React.FC = () => {
                     <p className="font-semibold text-slate-700">No products match current criteria</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
                       {statusFilter === 'LOW_STOCK'
-                        ? 'All products currently have healthy stock above their warning limits.'
+                        ? 'All products currently have active stock above their warning limits.'
                         : 'Try adjusting your search query, warehouse, or category filters.'}
                     </p>
                   </td>
