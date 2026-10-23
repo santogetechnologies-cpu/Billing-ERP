@@ -1331,8 +1331,20 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Stock Transfer
   const createStockTransfer = async (transferData: Omit<StockTransfer, 'id' | 'createdAt'>): Promise<StockTransfer> => {
     const newTransfer = await inventoryService.createStockTransfer(transferData, company.id);
-    setStockTransfers(prev => [newTransfer, ...prev.filter(t => t.id !== newTransfer.id)]);
-    addAuditLog('Stock Transfer', 'Inventory', newTransfer.transferNumber, newTransfer.fromWarehouse, `${newTransfer.toWarehouse} (${newTransfer.items.length} items)`);
+
+    // Refresh stock balances, transfers, transactions & products in context immediately
+    const [freshTransfers, freshBalances, freshTxns, freshProducts] = await Promise.all([
+      inventoryService.getStockTransfers(company.id),
+      inventoryService.getStockBalances(company.id),
+      inventoryService.getStockTransactions(company.id),
+      productService.getProducts(undefined, company.id)
+    ]);
+    setStockTransfers(freshTransfers);
+    setStockBalances(freshBalances);
+    setInventoryTransactions(freshTxns);
+    setProducts(freshProducts);
+    checkStockAlerts(freshProducts);
+    addAuditLog('Stock Transfer', 'Inventory', newTransfer.transferNumber, newTransfer.fromWarehouse, `${newTransfer.toWarehouse} (${newTransfer.items.length} items) - Completed`);
     return newTransfer;
   };
 

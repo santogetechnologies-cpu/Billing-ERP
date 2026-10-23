@@ -354,7 +354,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { name: 'Stock Transfers', path: '/inventory/transfers', end: true },
             { name: 'Stock Adjustments', path: '/inventory/adjustments', end: true },
             { name: 'Batch Tracking', path: '/inventory/batches', end: true },
-            { name: 'Serial Numbers', path: '/inventory/serials', end: true },
             { name: 'Stock Valuation', path: '/inventory/valuation', end: true }
           ]
     },

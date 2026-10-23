@@ -108,49 +108,6 @@ export function DataTable<T extends Record<string, any>>({
     }
   }, [isContinuous, searchTerm, activeFilters, sortKey, sortDir, batchSize]);
 
-  // Infinite scroll trigger via IntersectionObserver
-  useEffect(() => {
-    if (!isContinuous) return;
-    if (visibleCount >= sortedData.length) return;
-
-    const sentinel = bottomSentinelRef.current;
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
-      entries => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount(prev => Math.min(prev + batchSize, sortedData.length));
-        }
-      },
-      { root: null, rootMargin: '300px', threshold: 0.01 }
-    );
-
-    observer.observe(sentinel);
-    return () => {
-      observer.disconnect();
-    };
-  }, [isContinuous, visibleCount, sortedData.length, batchSize]);
-
-  // Window scroll fallback for natural page scrolling
-  useEffect(() => {
-    if (!isContinuous) return;
-    if (visibleCount >= sortedData.length) return;
-
-    const handleWindowScroll = () => {
-      const scrollPosition = window.innerHeight + window.scrollY;
-      const scrollHeight = document.documentElement.scrollHeight;
-      if (scrollPosition >= scrollHeight - 400) {
-        setVisibleCount(prev => Math.min(prev + batchSize, sortedData.length));
-      }
-    };
-
-    window.addEventListener('scroll', handleWindowScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleWindowScroll);
-  }, [isContinuous, visibleCount, sortedData.length, batchSize]);
-
-  const [showColMenu, setShowColMenu] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-
   // Filtered & Searched Data
   const filteredData = useMemo(() => {
     return data.filter(item => {
@@ -201,6 +158,51 @@ export function DataTable<T extends Record<string, any>>({
       return aId.localeCompare(bId);
     });
   }, [filteredData, sortKey, sortDir, columns]);
+
+  // Infinite scroll trigger via IntersectionObserver
+  useEffect(() => {
+    if (!isContinuous) return;
+    if (visibleCount >= sortedData.length) return;
+
+    const sentinel = bottomSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount(prev => Math.min(prev + batchSize, sortedData.length));
+        }
+      },
+      { root: null, rootMargin: '300px', threshold: 0.01 }
+    );
+
+    observer.observe(sentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [isContinuous, visibleCount, sortedData.length, batchSize]);
+
+  // Window scroll fallback for natural page scrolling
+  useEffect(() => {
+    if (!isContinuous) return;
+    if (visibleCount >= sortedData.length) return;
+
+    const handleWindowScroll = () => {
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const scrollHeight = document.documentElement.scrollHeight;
+      if (scrollPosition >= scrollHeight - 400) {
+        setVisibleCount(prev => Math.min(prev + batchSize, sortedData.length));
+      }
+    };
+
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleWindowScroll);
+  }, [isContinuous, visibleCount, sortedData.length, batchSize]);
+
+  const [showColMenu, setShowColMenu] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+
 
   // Displayed Data (Paginated or Continuous)
   const totalPages = Math.max(1, Math.ceil(sortedData.length / pageSize));

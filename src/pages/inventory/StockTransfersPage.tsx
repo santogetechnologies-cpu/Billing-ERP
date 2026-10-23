@@ -3,31 +3,19 @@ import {
   ArrowRightLeft,
   Plus,
   CheckCircle,
-  Truck,
-  Building,
-  Clock,
   ArrowRight,
-  Package,
   Loader2,
   Search,
-  Filter,
   Eye,
-  XCircle,
   AlertTriangle,
-  FileText,
   Calendar,
   Trash2,
-  Check,
-  Ban,
   User,
-  ShieldCheck,
-  Boxes,
-  HelpCircle
+  X
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { StatusBadge } from '../../components/common/StatusBadge';
-import { formatDate } from '../../utils/formatters';
-import { StockTransfer, StockTransferItem, TransferStatus } from '../../types';
+import { StockTransfer, StockTransferItem } from '../../types';
 import { Modal } from '../../components/common/Modal';
 
 interface TransferLineForm {
@@ -44,7 +32,6 @@ export const StockTransfersPage: React.FC = () => {
     warehouses,
     products,
     createStockTransfer,
-    updateTransferStatus,
     getWarehouseStock
   } = useERP();
 
@@ -60,21 +47,61 @@ export const StockTransfersPage: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // Modals state
+  // Modals & Feedback state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Transfer Form State
   const [fromWarehouseId, setFromWarehouseId] = useState('');
   const [toWarehouseId, setToWarehouseId] = useState('');
-  const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transferDate, setTransferDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [referenceDoc, setReferenceDoc] = useState('');
   const [notes, setNotes] = useState('');
   const [transferLines, setTransferLines] = useState<TransferLineForm[]>([]);
-  const [formError, setFormError] = useState<string | null>(null);
+
+  // Helpers to resolve human-readable display names & SKUs
+  const getWarehouseDisplayName = React.useCallback((idOrName: string) => {
+    if (!idOrName) return '—';
+    const match = warehouses.find(
+      w => w.id === idOrName || w.code.toLowerCase() === idOrName.toLowerCase() || w.name.toLowerCase() === idOrName.toLowerCase()
+    );
+    return match ? `${match.name} (${match.code})` : idOrName;
+  }, [warehouses]);
+
+  const getProductSku = React.useCallback((productId: string) => {
+    const match = products.find(p => p.id === productId);
+    return match?.sku || match?.code || '—';
+  }, [products]);
+
+  const formatDateTime = (dateStr?: string, fallbackDate?: string): string => {
+    const target = dateStr || fallbackDate;
+    if (!target) return '—';
+    try {
+      const d = new Date(target);
+      if (isNaN(d.getTime())) return target;
+      const dateFormatted = d.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+      const hasTime = target.includes('T') || target.includes(':');
+      if (hasTime) {
+        const timeFormatted = d.toLocaleTimeString('en-IN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
+        return `${dateFormatted}, ${timeFormatted}`;
+      }
+      return dateFormatted;
+    } catch {
+      return target;
+    }
+  };
 
   // Open Create Modal
   const handleOpenCreateModal = () => {
@@ -170,7 +197,6 @@ export const StockTransfersPage: React.FC = () => {
         copy[index].qty = '';
       } else {
         const valStr = String(rawVal);
-        // Strip leading zeros if followed by other digits (e.g., "05" -> "5")
         const cleaned = valStr.replace(/^0+(?=\d)/, '');
         if (cleaned === '') {
           copy[index].qty = '';
@@ -190,7 +216,7 @@ export const StockTransfersPage: React.FC = () => {
     setTransferLines(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Submit new transfer
+  // Submit direct transfer: Immediate Completed status, atomic stock balance updates
   const handleCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
@@ -210,7 +236,7 @@ export const StockTransfersPage: React.FC = () => {
       return;
     }
 
-    // Validate quantities and stock
+    // Validate quantities and available stock
     for (const line of transferLines) {
       const qtyNum = Number(line.qty);
       if (!qtyNum || qtyNum <= 0) {
@@ -219,7 +245,7 @@ export const StockTransfersPage: React.FC = () => {
       }
       if (qtyNum > line.availableStock) {
         setFormError(
-          `Transfer quantity for "${line.productName}" (${qtyNum} ${line.unit}) exceeds available stock at source warehouse (${line.availableStock} ${line.unit}).`
+          `Transfer quantity for "${line.productName}" (${qtyNum} ${line.unit}) exceeds available stock in source warehouse (${line.availableStock} ${line.unit}).`
         );
         return;
       }
@@ -229,7 +255,6 @@ export const StockTransfersPage: React.FC = () => {
     setFormError(null);
 
     try {
-      // Find source & destination warehouse names/codes
       const srcWh = warehouses.find(w => w.id === fromWarehouseId);
       const destWh = warehouses.find(w => w.id === toWarehouseId);
 
@@ -244,13 +269,18 @@ export const StockTransfersPage: React.FC = () => {
       });
       const transferNumber = `TRF-2026-${maxSeq + 1}`;
 
-      const items: StockTransferItem[] = transferLines.map(l => ({
-        productId: l.productId,
-        productName: l.productName,
-        qty: Number(l.qty),
-        unit: l.unit
-      }));
+      const items: StockTransferItem[] = transferLines.map(l => {
+        const matchedProduct = products.find(p => p.id === l.productId);
+        return {
+          productId: l.productId,
+          productName: l.productName,
+          sku: matchedProduct?.sku || matchedProduct?.code || '',
+          qty: Number(l.qty),
+          unit: l.unit
+        };
+      });
 
+      // Execute Direct Stock Transfer: Marked as Completed immediately, atomic inventory movement
       await createStockTransfer({
         transferNumber,
         date: transferDate,
@@ -259,31 +289,18 @@ export const StockTransfersPage: React.FC = () => {
         toWarehouse: destWh?.name || destWh?.code || toWarehouseId,
         toWarehouseId: toWarehouseId,
         items,
-        status: 'Requested',
+        status: 'Completed',
         referenceDoc: referenceDoc.trim() || undefined,
-        notes: notes.trim() || `Inter-warehouse transfer from ${srcWh?.name} to ${destWh?.name}`
+        notes: notes.trim() || `Direct transfer from ${srcWh?.name} to ${destWh?.name}`
       });
 
+      // Display required success message
+      setSuccessMessage('Stock transferred successfully.');
       setIsCreateModalOpen(false);
     } catch (err: any) {
-      setFormError(err?.message || 'Failed to create stock transfer.');
+      setFormError(err?.message || 'Failed to transfer stock.');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  // Status transitions
-  const handleStatusTransition = async (transferId: string, nextStatus: TransferStatus) => {
-    setActionLoadingId(transferId);
-    try {
-      await updateTransferStatus(transferId, nextStatus);
-      if (selectedTransfer && selectedTransfer.id === transferId) {
-        setSelectedTransfer(prev => prev ? { ...prev, status: nextStatus } : null);
-      }
-    } catch (err: any) {
-      alert(`Status transition error: ${err?.message || 'Failed to update transfer status'}`);
-    } finally {
-      setActionLoadingId(null);
     }
   };
 
@@ -301,13 +318,21 @@ export const StockTransfersPage: React.FC = () => {
       const matchesSearch =
         !searchTerm ||
         t.transferNumber.toLowerCase().includes(search) ||
-        t.fromWarehouse.toLowerCase().includes(search) ||
-        t.toWarehouse.toLowerCase().includes(search) ||
+        (t.fromWarehouse && t.fromWarehouse.toLowerCase().includes(search)) ||
+        (t.toWarehouse && t.toWarehouse.toLowerCase().includes(search)) ||
         (t.referenceDoc && t.referenceDoc.toLowerCase().includes(search)) ||
-        t.items.some(i => i.productName.toLowerCase().includes(search));
+        t.items.some(
+          i =>
+            i.productName.toLowerCase().includes(search) ||
+            (i.sku && i.sku.toLowerCase().includes(search)) ||
+            getProductSku(i.productId).toLowerCase().includes(search)
+        );
 
       // Status
-      const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
+      const matchesStatus =
+        statusFilter === 'All' ||
+        t.status === statusFilter ||
+        (statusFilter === 'Completed' && (t.status === 'Completed' || t.status === 'Received'));
 
       // Warehouse
       const matchesWarehouse =
@@ -324,15 +349,24 @@ export const StockTransfersPage: React.FC = () => {
 
       return matchesSearch && matchesStatus && matchesWarehouse && matchesDate;
     });
-  }, [stockTransfers, searchTerm, statusFilter, warehouseFilter, startDate, endDate]);
+  }, [stockTransfers, searchTerm, statusFilter, warehouseFilter, startDate, endDate, getProductSku]);
 
-  // Aggregate transfer stats
+  // Sort transfers: newest first
+  const sortedTransfers = useMemo(() => {
+    return [...filteredTransfers].sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.date).getTime();
+      const timeB = new Date(b.createdAt || b.date).getTime();
+      return timeB - timeA;
+    });
+  }, [filteredTransfers]);
+
+  // Simplified Dashboard Stats: Total Transfers & Completed Transfers only
   const transferStats = useMemo(() => {
     const total = stockTransfers.length;
-    const requested = stockTransfers.filter(t => t.status === 'Requested').length;
-    const inTransit = stockTransfers.filter(t => t.status === 'Sent').length;
-    const completed = stockTransfers.filter(t => t.status === 'Received').length;
-    return { total, requested, inTransit, completed };
+    const completed = stockTransfers.filter(
+      t => t.status === 'Completed' || t.status === 'Received'
+    ).length;
+    return { total, completed };
   }, [stockTransfers]);
 
   return (
@@ -352,7 +386,7 @@ export const StockTransfersPage: React.FC = () => {
                 </span>
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Dispatch, track, approve, and receive inventory between warehouses with in-transit stock controls.
+                Directly transfer inventory between warehouses with real-time stock balance updates and complete transfer history.
               </p>
             </div>
           </div>
@@ -360,49 +394,52 @@ export const StockTransfersPage: React.FC = () => {
 
         <button
           onClick={handleOpenCreateModal}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all self-start sm:self-auto"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>New Stock Transfer</span>
         </button>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium">Total Transfer Orders</span>
-            <ArrowRightLeft className="w-4 h-4 text-blue-500" />
+      {/* Success Notification Alert */}
+      {successMessage && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-semibold flex items-center justify-between shadow-2xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successMessage}</span>
           </div>
-          <div className="text-2xl font-bold text-slate-900">{transferStats.total}</div>
-          <p className="text-[11px] text-slate-500">All recorded movements</p>
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="p-1 hover:bg-emerald-100 rounded-lg text-emerald-700 transition-colors cursor-pointer"
+            title="Dismiss notification"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Simplified Dashboard Metrics: Total & Completed Transfers only */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-semibold text-slate-600">Total Transfers</span>
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+              <ArrowRightLeft className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-3xl font-extrabold text-slate-900 tracking-tight">{transferStats.total}</div>
+          <p className="text-xs text-slate-500">All recorded stock movements</p>
         </div>
 
-        <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium">Pending Approval</span>
-            <Clock className="w-4 h-4 text-amber-500" />
+            <span className="text-xs font-semibold text-slate-600">Completed Transfers</span>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <CheckCircle className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-bold text-amber-600">{transferStats.requested}</div>
-          <p className="text-[11px] text-slate-500">Awaiting manager authorization</p>
-        </div>
-
-        <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium">In-Transit Shipments</span>
-            <Truck className="w-4 h-4 text-indigo-500" />
-          </div>
-          <div className="text-2xl font-bold text-indigo-600">{transferStats.inTransit}</div>
-          <p className="text-[11px] text-indigo-600 font-medium">Dispatched, pending receiving</p>
-        </div>
-
-        <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium">Completed Transfers</span>
-            <CheckCircle className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="text-2xl font-bold text-emerald-700">{transferStats.completed}</div>
-          <p className="text-[11px] text-slate-500">Stock successfully settled</p>
+          <div className="text-3xl font-extrabold text-emerald-700 tracking-tight">{transferStats.completed}</div>
+          <p className="text-xs text-slate-500">Direct transfers settled immediately</p>
         </div>
       </div>
 
@@ -416,8 +453,8 @@ export const StockTransfersPage: React.FC = () => {
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search by transfer #, ref document, warehouse, or product..."
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white"
+              placeholder="Search by transfer #, ref document, warehouse, product, or SKU..."
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
 
@@ -426,14 +463,12 @@ export const StockTransfersPage: React.FC = () => {
             <select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700"
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
-              <option value="All">All Transfer Statuses</option>
-              <option value="Requested">1. Requested</option>
-              <option value="Approved">2. Approved</option>
-              <option value="Sent">3. Sent (In-Transit)</option>
-              <option value="Received">4. Received (Settled)</option>
-              <option value="Cancelled">Cancelled / Rejected</option>
+              <option value="All">All Transfers</option>
+              <option value="Completed">Completed</option>
+              <option value="Requested">Requested (Historical)</option>
+              <option value="Cancelled">Cancelled (Historical)</option>
             </select>
           </div>
 
@@ -442,9 +477,9 @@ export const StockTransfersPage: React.FC = () => {
             <select
               value={warehouseFilter}
               onChange={e => setWarehouseFilter(e.target.value)}
-              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700"
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
-              <option value="All">All Warehouses (Route)</option>
+              <option value="All">All Warehouses</option>
               {warehouses.map(w => (
                 <option key={w.id} value={w.id}>
                   {w.name} ({w.code})
@@ -486,7 +521,7 @@ export const StockTransfersPage: React.FC = () => {
                 setStartDate('');
                 setEndDate('');
               }}
-              className="text-xs text-rose-600 hover:underline font-semibold ml-auto"
+              className="text-xs text-rose-600 hover:underline font-semibold ml-auto cursor-pointer"
             >
               Reset Filters
             </button>
@@ -494,18 +529,27 @@ export const StockTransfersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Transfer History Table */}
+      {/* Single Stock Transfer History Table */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        {filteredTransfers.length === 0 ? (
+        <div className="px-5 py-4 border-b border-slate-200/80 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            Stock Transfer History
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              {sortedTransfers.length} {sortedTransfers.length === 1 ? 'record' : 'records'}
+            </span>
+          </h2>
+        </div>
+
+        {sortedTransfers.length === 0 ? (
           <div className="p-12 text-center">
             <ArrowRightLeft className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <h3 className="text-base font-bold text-slate-800">No Stock Transfers Found</h3>
             <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              No transfer orders match the selected criteria. Transfer inventory between warehouses to keep stock balances synchronized.
+              No transfer records match your search or filter criteria. Initiate a transfer to directly move stock between locations.
             </p>
             <button
               onClick={handleOpenCreateModal}
-              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs"
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Create First Transfer</span>
@@ -516,72 +560,100 @@ export const StockTransfersPage: React.FC = () => {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-500 font-semibold uppercase text-[10px] tracking-wider">
-                  <th className="py-3 px-4">Transfer #</th>
-                  <th className="py-3 px-3">Date</th>
-                  <th className="py-3 px-4">Route (Source → Destination)</th>
-                  <th className="py-3 px-4">Dispatched Items</th>
+                  <th className="py-3 px-4">Transfer ID</th>
+                  <th className="py-3 px-3">Date and Time</th>
+                  <th className="py-3 px-3">Source Warehouse</th>
+                  <th className="py-3 px-3">Destination Warehouse</th>
+                  <th className="py-3 px-3">Product Name</th>
+                  <th className="py-3 px-3">SKU / Product Code</th>
+                  <th className="py-3 px-3 text-right">Transferred Quantity and Unit</th>
+                  <th className="py-3 px-3">Transferred By</th>
                   <th className="py-3 px-3 text-center">Status</th>
-                  <th className="py-3 px-3">Created / Approved</th>
-                  <th className="py-3 px-4 text-right">Workflow Action</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredTransfers.map(trf => {
-                  const isLoading = actionLoadingId === trf.id;
-
+                {sortedTransfers.map(trf => {
                   return (
                     <tr key={trf.id} className="hover:bg-slate-50/70 transition-colors">
-                      {/* Transfer # */}
+                      {/* Transfer ID */}
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col">
                           <button
                             onClick={() => handleOpenDetails(trf)}
-                            className="font-mono font-bold text-blue-600 hover:underline hover:text-blue-800 text-left"
+                            className="font-mono font-bold text-blue-600 hover:underline hover:text-blue-800 text-left cursor-pointer"
                           >
                             {trf.transferNumber}
                           </button>
                           {trf.referenceDoc && (
-                            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 font-mono">
+                            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 font-mono mt-0.5 inline-block self-start">
                               Ref: {trf.referenceDoc}
                             </span>
                           )}
                         </div>
                       </td>
 
-                      {/* Date */}
+                      {/* Date and Time */}
                       <td className="py-3 px-3 text-slate-600 whitespace-nowrap">
-                        {formatDate(trf.date)}
-                      </td>
-
-                      {/* Route */}
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1.5 font-medium text-slate-800 flex-wrap">
-                          <span className="font-mono bg-slate-100 text-slate-800 px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-200">
-                            {trf.fromWarehouse}
-                          </span>
-                          <ArrowRight className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                          <span className="font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[11px] font-bold border border-blue-200/60">
-                            {trf.toWarehouse}
-                          </span>
+                        <div className="font-medium text-slate-800">
+                          {formatDateTime(trf.createdAt, trf.date)}
                         </div>
                       </td>
 
-                      {/* Items */}
-                      <td className="py-3 px-4">
-                        <div className="space-y-0.5 max-w-[240px]">
-                          {trf.items.slice(0, 2).map((item, i) => (
-                            <div key={i} className="text-slate-800 font-semibold truncate flex items-center justify-between gap-2">
-                              <span>{item.productName}</span>
-                              <span className="text-indigo-600 font-bold shrink-0">
-                                {item.qty} {item.unit}
-                              </span>
+                      {/* Source Warehouse */}
+                      <td className="py-3 px-3">
+                        <span className="font-mono bg-slate-100 text-slate-800 px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-200 inline-block">
+                          {getWarehouseDisplayName(trf.fromWarehouseId || trf.fromWarehouse)}
+                        </span>
+                      </td>
+
+                      {/* Destination Warehouse */}
+                      <td className="py-3 px-3">
+                        <span className="font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[11px] font-bold border border-blue-200/60 inline-block">
+                          {getWarehouseDisplayName(trf.toWarehouseId || trf.toWarehouse)}
+                        </span>
+                      </td>
+
+                      {/* Product Name (multi-product rows supported clearly) */}
+                      <td className="py-3 px-3">
+                        <div className="space-y-1 max-w-[200px]">
+                          {trf.items.map((it, idx) => (
+                            <div key={idx} className="font-semibold text-slate-800 truncate" title={it.productName}>
+                              {it.productName}
                             </div>
                           ))}
-                          {trf.items.length > 2 && (
-                            <div className="text-[10px] text-slate-500 italic">
-                              +{trf.items.length - 2} more product(s)...
+                        </div>
+                      </td>
+
+                      {/* SKU / Product Code */}
+                      <td className="py-3 px-3">
+                        <div className="space-y-1 font-mono text-slate-600 text-[11px]">
+                          {trf.items.map((it, idx) => (
+                            <div key={idx} className="truncate">
+                              {it.sku || getProductSku(it.productId)}
                             </div>
-                          )}
+                          ))}
+                        </div>
+                      </td>
+
+                      {/* Transferred Quantity and Unit */}
+                      <td className="py-3 px-3 text-right">
+                        <div className="space-y-1">
+                          {trf.items.map((it, idx) => (
+                            <div key={idx} className="font-bold text-indigo-700">
+                              {it.qty} <span className="font-normal text-slate-500 text-[11px]">{it.unit}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+
+                      {/* Transferred By */}
+                      <td className="py-3 px-3 text-slate-700 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="font-medium text-slate-800 text-[11px]">
+                            {trf.createdBy || 'Warehouse Manager'}
+                          </span>
                         </div>
                       </td>
 
@@ -590,99 +662,16 @@ export const StockTransfersPage: React.FC = () => {
                         <StatusBadge status={trf.status} size="sm" />
                       </td>
 
-                      {/* Created / Approved by */}
-                      <td className="py-3 px-3 text-slate-500 text-[11px] whitespace-nowrap">
-                        <div>By: {trf.createdBy || 'Staff'}</div>
-                        {trf.approvedBy && (
-                          <div className="text-emerald-600 font-medium">Appr: {trf.approvedBy}</div>
-                        )}
-                      </td>
-
-                      {/* Action buttons */}
+                      {/* Actions (View Details) */}
                       <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* View details */}
-                          <button
-                            onClick={() => handleOpenDetails(trf)}
-                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                            title="View Transfer Details & Audit History"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Stage progression workflows */}
-                          {trf.status === 'Requested' && (
-                            <>
-                              <button
-                                disabled={isLoading}
-                                onClick={() => handleStatusTransition(trf.id, 'Approved')}
-                                className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-50"
-                              >
-                                {isLoading ? '...' : 'Approve'}
-                              </button>
-                              <button
-                                disabled={isLoading}
-                                onClick={() => handleStatusTransition(trf.id, 'Cancelled')}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="Reject / Cancel"
-                              >
-                                <Ban className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
-
-                          {trf.status === 'Approved' && (
-                            <>
-                              <button
-                                disabled={isLoading}
-                                onClick={() => handleStatusTransition(trf.id, 'Sent')}
-                                className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 disabled:opacity-50"
-                              >
-                                <Truck className="w-3 h-3" />
-                                <span>{isLoading ? '...' : 'Dispatch (Sent)'}</span>
-                              </button>
-                              <button
-                                disabled={isLoading}
-                                onClick={() => handleStatusTransition(trf.id, 'Cancelled')}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="Cancel Transfer"
-                              >
-                                <Ban className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
-
-                          {trf.status === 'Sent' && (
-                            <>
-                              <button
-                                disabled={isLoading}
-                                onClick={() => handleStatusTransition(trf.id, 'Received')}
-                                className="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 disabled:opacity-50"
-                              >
-                                <Check className="w-3 h-3" />
-                                <span>{isLoading ? '...' : 'Confirm Received'}</span>
-                              </button>
-                              <button
-                                disabled={isLoading}
-                                onClick={() => handleStatusTransition(trf.id, 'Cancelled')}
-                                className="px-2 py-1 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-lg text-[10px] font-semibold transition-colors"
-                                title="Revert dispatch back to source warehouse"
-                              >
-                                Revert
-                              </button>
-                            </>
-                          )}
-
-                          {trf.status === 'Received' && (
-                            <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
-                              <CheckCircle className="w-3.5 h-3.5" /> Received
-                            </span>
-                          )}
-
-                          {trf.status === 'Cancelled' && (
-                            <span className="text-[11px] text-slate-400 font-medium">Cancelled</span>
-                          )}
-                        </div>
+                        <button
+                          onClick={() => handleOpenDetails(trf)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                          title="View Details"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-600" />
+                          <span>View Details</span>
+                        </button>
                       </td>
                     </tr>
                   );
@@ -693,12 +682,12 @@ export const StockTransfersPage: React.FC = () => {
         )}
       </div>
 
-      {/* New Stock Transfer Modal */}
+      {/* New Stock Transfer Modal (Direct Transfer) */}
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Initiate Inter-Warehouse Stock Transfer"
-        subtitle="Transfer goods between locations with real-time source stock verification"
+        title="New Stock Transfer"
+        subtitle="Directly transfer inventory between locations with real-time source stock verification"
         size="lg"
         footer={
           <div className="flex justify-end gap-2.5">
@@ -706,7 +695,7 @@ export const StockTransfersPage: React.FC = () => {
               type="button"
               disabled={isSubmitting}
               onClick={() => setIsCreateModalOpen(false)}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl disabled:opacity-50 transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl disabled:opacity-50 transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -714,15 +703,18 @@ export const StockTransfersPage: React.FC = () => {
               type="button"
               disabled={isSubmitting}
               onClick={handleCreateTransfer}
-              className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60 flex items-center gap-1.5 shadow-xs transition-colors"
+              className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60 flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Submitting Transfer...</span>
+                  <span>Transferring Stock...</span>
                 </>
               ) : (
-                <span>Request Transfer Order</span>
+                <>
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  <span>Transfer Stock</span>
+                </>
               )}
             </button>
           </div>
@@ -753,7 +745,7 @@ export const StockTransfersPage: React.FC = () => {
                   </option>
                 ))}
               </select>
-              <p className="text-[10px] text-slate-500 mt-1">Stock will be deducted from this location upon dispatch.</p>
+              <p className="text-[10px] text-slate-500 mt-1">Stock will be directly deducted from this location.</p>
             </div>
 
             <div>
@@ -771,7 +763,7 @@ export const StockTransfersPage: React.FC = () => {
                   </option>
                 ))}
               </select>
-              <p className="text-[10px] text-slate-500 mt-1">Stock will be credited to this location upon receiving.</p>
+              <p className="text-[10px] text-slate-500 mt-1">Stock will be directly credited to this location.</p>
             </div>
           </div>
 
@@ -807,7 +799,7 @@ export const StockTransfersPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleAddLineItem}
-                className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold flex items-center gap-1 border border-blue-200 transition-colors"
+                className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold flex items-center gap-1 border border-blue-200 transition-colors cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Product</span>
@@ -890,7 +882,7 @@ export const StockTransfersPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleRemoveLineItem(idx)}
-                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
                             title="Remove Line"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -911,106 +903,81 @@ export const StockTransfersPage: React.FC = () => {
               type="text"
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. Stock replenishment for weekend sales demand"
+              placeholder="e.g. Direct inter-warehouse stock replenishment"
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium"
             />
           </div>
         </form>
       </Modal>
 
-      {/* Transfer Details & Audit Timeline Modal */}
+      {/* Transfer Details Modal */}
       <Modal
         isOpen={isDetailsModalOpen}
         onClose={() => setIsDetailsModalOpen(false)}
         title={`Stock Transfer: ${selectedTransfer?.transferNumber || ''}`}
-        subtitle={`Requested Date: ${selectedTransfer ? formatDate(selectedTransfer.date) : ''}`}
+        subtitle={`Transferred on: ${selectedTransfer ? formatDateTime(selectedTransfer.createdAt, selectedTransfer.date) : ''}`}
         size="lg"
         footer={
           selectedTransfer ? (
-            <div className="flex items-center w-full">
+            <div className="flex items-center justify-between w-full">
               <StatusBadge status={selectedTransfer.status} size="sm" />
+              <button
+                type="button"
+                onClick={() => setIsDetailsModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           ) : null
         }
       >
         {selectedTransfer && (
           <div className="space-y-4 text-xs">
-            {/* Route & Doc Info */}
-            <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            {/* Route & Metadata Info */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Dispatch Route</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Transfer Route</span>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="font-semibold text-slate-900">{selectedTransfer.fromWarehouse}</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-blue-500" />
-                  <span className="font-semibold text-blue-700">{selectedTransfer.toWarehouse}</span>
+                  <span className="font-semibold text-slate-900">
+                    {getWarehouseDisplayName(selectedTransfer.fromWarehouseId || selectedTransfer.fromWarehouse)}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <span className="font-semibold text-blue-700">
+                    {getWarehouseDisplayName(selectedTransfer.toWarehouseId || selectedTransfer.toWarehouse)}
+                  </span>
                 </div>
               </div>
 
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Reference Doc</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Transferred By</span>
+                <div className="flex items-center gap-1.5 mt-1 font-semibold text-slate-800">
+                  <User className="w-3.5 h-3.5 text-slate-400" />
+                  <span>{selectedTransfer.createdBy || 'Warehouse Manager'}</span>
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Date and Time</span>
+                <span className="font-medium text-slate-800 block mt-1">
+                  {formatDateTime(selectedTransfer.createdAt, selectedTransfer.date)}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Reference Document</span>
                 <span className="font-mono text-slate-800 font-semibold block mt-1">
                   {selectedTransfer.referenceDoc || 'None provided'}
                 </span>
               </div>
             </div>
 
-            {/* Workflow Progression Timeline */}
-            <div className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200 space-y-2">
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">Audit Progression Timeline</span>
-              <div className="grid grid-cols-4 gap-2 pt-1 text-center">
-                {/* 1. Requested */}
-                <div className="p-2 bg-white rounded-lg border border-slate-200">
-                  <div className="text-[10px] font-bold text-blue-600">1. Requested</div>
-                  <div className="text-[11px] font-semibold text-slate-800 mt-1">
-                    {selectedTransfer.createdBy || 'Staff'}
-                  </div>
-                  <div className="text-[10px] text-slate-400">{formatDate(selectedTransfer.date)}</div>
-                </div>
-
-                {/* 2. Approved */}
-                <div
-                  className={`p-2 rounded-lg border ${
-                    selectedTransfer.status === 'Approved' ||
-                    selectedTransfer.status === 'Sent' ||
-                    selectedTransfer.status === 'Received'
-                      ? 'bg-blue-50/50 border-blue-200'
-                      : 'bg-white border-slate-200 opacity-60'
-                  }`}
-                >
-                  <div className="text-[10px] font-bold text-blue-700">2. Approved</div>
-                  <div className="text-[11px] font-semibold text-slate-800 mt-1">
-                    {selectedTransfer.approvedBy || (selectedTransfer.status !== 'Requested' ? 'Authorized' : 'Pending')}
-                  </div>
-                </div>
-
-                {/* 3. Sent */}
-                <div
-                  className={`p-2 rounded-lg border ${
-                    selectedTransfer.status === 'Sent' || selectedTransfer.status === 'Received'
-                      ? 'bg-amber-50/50 border-amber-200'
-                      : 'bg-white border-slate-200 opacity-60'
-                  }`}
-                >
-                  <div className="text-[10px] font-bold text-amber-700">3. Dispatched</div>
-                  <div className="text-[10px] text-slate-500 mt-1">
-                    {selectedTransfer.sentDate ? formatDate(selectedTransfer.sentDate) : 'Source Stock Deducted'}
-                  </div>
-                </div>
-
-                {/* 4. Received */}
-                <div
-                  className={`p-2 rounded-lg border ${
-                    selectedTransfer.status === 'Received'
-                      ? 'bg-emerald-50/50 border-emerald-200'
-                      : 'bg-white border-slate-200 opacity-60'
-                  }`}
-                >
-                  <div className="text-[10px] font-bold text-emerald-700">4. Received</div>
-                  <div className="text-[10px] text-slate-500 mt-1">
-                    {selectedTransfer.receivedDate ? formatDate(selectedTransfer.receivedDate) : 'Destination Stock Added'}
-                  </div>
-                </div>
-              </div>
+            {/* Direct Settlement Integrity Info */}
+            <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-emerald-800 flex items-center gap-2.5">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>Direct Settlement:</strong> Stock balances immediately updated between source and destination warehouses with full ledger movement tracking.
+              </span>
             </div>
 
             {/* Line items table */}
@@ -1019,7 +986,8 @@ export const StockTransfersPage: React.FC = () => {
                 <thead className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase font-semibold text-slate-500">
                   <tr>
                     <th className="py-2.5 px-3">Product Name</th>
-                    <th className="py-2.5 px-3 text-right">Transfer Qty</th>
+                    <th className="py-2.5 px-3">SKU / Code</th>
+                    <th className="py-2.5 px-3 text-right">Transferred Qty</th>
                     <th className="py-2.5 px-3">Unit</th>
                   </tr>
                 </thead>
@@ -1027,6 +995,7 @@ export const StockTransfersPage: React.FC = () => {
                   {selectedTransfer.items.map((item, idx) => (
                     <tr key={idx}>
                       <td className="py-2 px-3 font-semibold text-slate-900">{item.productName}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{item.sku || getProductSku(item.productId)}</td>
                       <td className="py-2 px-3 text-right font-bold text-indigo-700">{item.qty}</td>
                       <td className="py-2 px-3 text-slate-600">{item.unit}</td>
                     </tr>
@@ -1037,7 +1006,7 @@ export const StockTransfersPage: React.FC = () => {
 
             {selectedTransfer.notes && (
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-600">
-                <span className="font-semibold text-slate-700 block mb-0.5">Notes:</span>
+                <span className="font-semibold text-slate-700 block mb-0.5">Transfer Notes:</span>
                 {selectedTransfer.notes}
               </div>
             )}

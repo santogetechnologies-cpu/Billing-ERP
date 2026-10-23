@@ -21,18 +21,24 @@ import {
   Layers,
   Calendar,
   Warehouse as WarehouseIcon,
-  HelpCircle
+  HelpCircle,
+  ShieldCheck,
+  Hash,
+  Plus,
+  Trash2,
+  X
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { Modal } from '../../components/common/Modal';
 import { BASE_PRODUCT_CATEGORIES } from '../../services/categoryService';
 import { BarcodeCanvas } from '../../components/barcode/BarcodeCanvas';
 import { formatCurrency } from '../../utils/formatters';
+import { Product } from '../../types';
 import { UNIVERSAL_BUILTIN_UNITS, normalizeUnitKey } from '../../data/unitsData';
 
 interface WizardStep {
   id: number;
-  key: 'basic' | 'pricing' | 'inventory' | 'units' | 'tax';
+  key: 'basic' | 'pricing' | 'inventory' | 'batch_expiry_serial' | 'units' | 'tax';
   title: string;
   shortTitle: string;
   description: string;
@@ -42,9 +48,10 @@ interface WizardStep {
 const STEPS: WizardStep[] = [
   { id: 1, key: 'basic', title: '1. Basic Information', shortTitle: 'Basic Info', description: 'Name, Category, Brand, SKU & Code', icon: Package },
   { id: 2, key: 'pricing', title: '2. Product Prices', shortTitle: 'Pricing', description: 'Buying Cost & Customer Selling Prices', icon: DollarSign },
-  { id: 3, key: 'inventory', title: '3. Warehouse & Opening Stock Details', shortTitle: 'Warehouse & Stock', description: 'Warehouse, Opening Stock, Unit & Batch Tracking', icon: WarehouseIcon },
-  { id: 4, key: 'units', title: '4. Units & Conversion', shortTitle: 'Units', description: 'Primary, Secondary & Multipliers', icon: Ruler },
-  { id: 5, key: 'tax', title: '5. Tax & HSN', shortTitle: 'Tax & HSN', description: 'GST Slabs & HSN / SAC Codes', icon: Percent }
+  { id: 3, key: 'inventory', title: '3. Warehouse & Opening Stock Details', shortTitle: 'Warehouse & Stock', description: 'Warehouse, Opening Stock, Unit & Storage Rack', icon: WarehouseIcon },
+  { id: 4, key: 'batch_expiry_serial', title: '4. Batch, Expiry & Serial Details', shortTitle: 'Batch & Serials', description: 'Batch Code, Expiration Dates & Serial Tracking', icon: Layers },
+  { id: 5, key: 'units', title: '5. Units & Conversion', shortTitle: 'Units', description: 'Primary, Secondary & Multipliers', icon: Ruler },
+  { id: 6, key: 'tax', title: '6. Tax & HSN', shortTitle: 'Tax & HSN', description: 'GST Slabs & HSN / SAC Codes', icon: Percent }
 ];
 
 export const NewProductPage: React.FC = () => {
@@ -52,7 +59,7 @@ export const NewProductPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
   const { profile } = useAuth();
-  const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory, batches } = useERP();
+  const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory, batches, serialNumbers, addSerialNumber } = useERP();
 
   // Custom Category Modal State
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
@@ -141,7 +148,80 @@ export const NewProductPage: React.FC = () => {
   const [warehouse, setWarehouse] = useState('');
   const [rack, setRack] = useState('');
 
+  // Step 4: Serial Numbers
+  const [serialTracking, setSerialTracking] = useState(false);
+  const [serialNumbersList, setSerialNumbersList] = useState<string[]>([]);
+  const [singleSerialInput, setSingleSerialInput] = useState('');
+  const [bulkSerialInput, setBulkSerialInput] = useState('');
+  const [serialWarrantyMonths, setSerialWarrantyMonths] = useState<string>('12');
+
+  const handleAddSingleSerial = () => {
+    const trimmed = singleSerialInput.trim();
+    if (!trimmed) return;
+    if (serialNumbersList.map(s => s.toLowerCase()).includes(trimmed.toLowerCase())) {
+      setErrors(prev => ({ ...prev, serialNumbers: `Serial number "${trimmed}" is already added in this list.` }));
+      return;
+    }
+    setSerialNumbersList(prev => [...prev, trimmed]);
+    setSingleSerialInput('');
+    if (errors.serialNumbers) setErrors(prev => ({ ...prev, serialNumbers: '' }));
+  };
+
+  const handleImportBulkSerials = () => {
+    if (!bulkSerialInput.trim()) return;
+    const splitSerials = bulkSerialInput
+      .split(/[\r\n,]+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    const existingLower = new Set(serialNumbersList.map(s => s.toLowerCase()));
+    const newItems: string[] = [];
+    for (const s of splitSerials) {
+      if (!existingLower.has(s.toLowerCase()) && !newItems.map(x => x.toLowerCase()).includes(s.toLowerCase())) {
+        newItems.push(s);
+      }
+    }
+    setSerialNumbersList(prev => [...prev, ...newItems]);
+    setBulkSerialInput('');
+    if (errors.serialNumbers) setErrors(prev => ({ ...prev, serialNumbers: '' }));
+  };
+
   // Step 4: Units
+
+  const handleRemoveSerial = (indexToRemove: number) => {
+    setSerialNumbersList(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    if (errors.serialNumbers) setErrors(prev => ({ ...prev, serialNumbers: '' }));
+  };
+
+  const handleClearAllSerials = () => {
+    setSerialNumbersList([]);
+    if (errors.serialNumbers) setErrors(prev => ({ ...prev, serialNumbers: '' }));
+  };
+
+  const handleAutoGenerateSerials = () => {
+    const qty = Math.min(Math.max(1, Math.floor(Number(openingStock) || 1)), 500);
+    const prefix = sku ? sku.trim().toUpperCase() : 'SN';
+    const timestamp = Date.now().toString().slice(-4);
+    const existingLower = new Set(serialNumbersList.map(s => s.toLowerCase()));
+    const generated: string[] = [];
+    for (let i = 1; i <= qty; i++) {
+      const candidate = `${prefix}-${timestamp}-${String(i).padStart(3, '0')}`;
+      if (!existingLower.has(candidate.toLowerCase()) && !generated.includes(candidate)) {
+        generated.push(candidate);
+      }
+    }
+    setSerialNumbersList(prev => [...prev, ...generated]);
+    if (errors.serialNumbers) setErrors(prev => ({ ...prev, serialNumbers: '' }));
+  };
+
+  const handleAutoGenerateBatchNumber = () => {
+    const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+    const rand = Math.floor(100 + Math.random() * 900);
+    const newBatch = `BAT-${dateStr}-${rand}`;
+    setBatchNumber(newBatch);
+    if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
+  };
+
   const [primaryUnit, setPrimaryUnit] = useState('Piece');
   const [secondaryUnit, setSecondaryUnit] = useState('');
   const [conversionFactor, setConversionFactor] = useState<string>('1');
@@ -200,7 +280,6 @@ export const NewProductPage: React.FC = () => {
 
   // Step 6: Tracking
   const [batchTracking, setBatchTracking] = useState(false);
-  const [serialTracking, setSerialTracking] = useState(false);
   const [expiryTracking, setExpiryTracking] = useState(false);
 
   // Note: Warehouse auto-selection is intentionally disabled for new products to require explicit user choice.
@@ -260,11 +339,20 @@ export const NewProductPage: React.FC = () => {
         setSerialTracking(Boolean(existing.serialTracking));
         setExpiryTracking(Boolean(existing.expiryTracking));
 
+        if (existing.serialTracking && serialNumbers) {
+          const existingSerials = serialNumbers
+            .filter(s => s.productId === existing.id)
+            .map(s => s.serialNumber);
+          if (existingSerials.length > 0) {
+            setSerialNumbersList(existingSerials);
+          }
+        }
+
         // Mark all steps as initially completed in edit mode
         setCompletedSteps(new Set([1, 2, 3, 4, 5, 6]));
       }
     }
-  }, [id, isEditMode, products, warehouses, batches]);
+  }, [id, isEditMode, products, warehouses, batches, serialNumbers]);
 
   // Auto-generate SKU & Barcode when Name or Category changes (only in create mode when empty)
   useEffect(() => {
@@ -398,7 +486,10 @@ export const NewProductPage: React.FC = () => {
       if (reorderLevel !== '' && (isNaN(Number(reorderLevel)) || Number(reorderLevel) < 0)) {
         errs.reorderLevel = 'Warning limit must be a valid non-negative number.';
       }
+    }
 
+    // STEP 4: Batch, Expiry & Serial Details
+    if (stepNumber === 4) {
       // Mandatory Batch Number & Expiry Date for new products
       if (!isEditMode) {
         if (!batchNumber || !batchNumber.trim()) {
@@ -426,10 +517,40 @@ export const NewProductPage: React.FC = () => {
           }
         }
       }
+
+      // Serial tracking validation
+      if (serialTracking) {
+        if (serialNumbersList.length === 0) {
+          errs.serialNumbers = 'Serial tracking is enabled. Please enter or auto-generate at least one serial number.';
+        } else {
+          const uniqueSet = new Set<string>();
+          for (const s of serialNumbersList) {
+            const lower = s.trim().toLowerCase();
+            if (uniqueSet.has(lower)) {
+              errs.serialNumbers = `Duplicate serial number "${s}" in list. Every serial number must be unique.`;
+              break;
+            }
+            uniqueSet.add(lower);
+          }
+          if (!errs.serialNumbers) {
+            for (const s of serialNumbersList) {
+              const conflict = serialNumbers.find(
+                existing =>
+                  existing.serialNumber.trim().toLowerCase() === s.trim().toLowerCase() &&
+                  (!isEditMode || existing.productId !== id)
+              );
+              if (conflict) {
+                errs.serialNumbers = `Serial number "${s}" is already registered for product "${conflict.productName}".`;
+                break;
+              }
+            }
+          }
+        }
+      }
     }
 
-    // STEP 4: Units & Conversion
-    if (stepNumber === 4) {
+    // STEP 5: Units & Conversion
+    if (stepNumber === 5) {
       if (!primaryUnit.trim()) {
         errs.primaryUnit = 'Primary base unit is mandatory.';
       }
@@ -447,8 +568,8 @@ export const NewProductPage: React.FC = () => {
       }
     }
 
-    // STEP 5: Tax & HSN
-    if (stepNumber === 5) {
+    // STEP 6: Tax & HSN
+    if (stepNumber === 6) {
       if (taxRate === undefined || taxRate === null || Number(taxRate) < 0 || Number(taxRate) > 100) {
         errs.taxRate = 'Please select a valid GST tax slab rate (0% - 28%).';
       }
@@ -476,7 +597,7 @@ export const NewProductPage: React.FC = () => {
     setErrors({});
     setSubmitError(null);
     setCompletedSteps(prev => new Set([...prev, currentStep]));
-    if (currentStep < 5) {
+    if (currentStep < STEPS.length) {
       setCurrentStep(prev => prev + 1);
     }
   };
@@ -527,7 +648,7 @@ export const NewProductPage: React.FC = () => {
     if (isSubmitting) return;
 
     // Validate ALL 5 steps sequentially
-    for (let s = 1; s <= 5; s++) {
+    for (let s = 1; s <= STEPS.length; s++) {
       const sErrs = validateStep(s);
       if (Object.keys(sErrs).length > 0) {
         setErrors(sErrs);
@@ -577,16 +698,45 @@ export const NewProductPage: React.FC = () => {
         rack: rack.trim(),
         batchNumber: batchNumber.trim(),
         expiryDate: expiryDate.trim(),
-        batchTracking: true,
-        serialTracking,
-        expiryTracking: true,
+        batchTracking: Boolean(batchTracking || batchNumber.trim()),
+        serialTracking: Boolean(serialTracking),
+        expiryTracking: Boolean(expiryTracking || expiryDate.trim()),
         isActive
       };
 
+      let savedProduct: Product;
       if (isEditMode && id) {
         await updateProduct(id, payload);
+        savedProduct = { ...existingProd!, ...payload };
       } else {
-        await addProduct(payload);
+        savedProduct = await addProduct(payload);
+      }
+
+      // Register serial numbers if serial tracking is enabled
+      if (serialTracking && serialNumbersList.length > 0 && savedProduct?.id) {
+        const prodId = savedProduct.id;
+        const prodName = savedProduct.name;
+        const alreadyRegistered = new Set(
+          serialNumbers.filter(s => s.productId === prodId).map(s => s.serialNumber.trim().toLowerCase())
+        );
+
+        for (const sn of serialNumbersList) {
+          const cleanSN = sn.trim();
+          if (cleanSN && !alreadyRegistered.has(cleanSN.toLowerCase())) {
+            try {
+              await addSerialNumber({
+                productId: prodId,
+                productName: prodName,
+                serialNumber: cleanSN,
+                purchaseDate: new Date().toISOString().split('T')[0],
+                warrantyMonths: Number(serialWarrantyMonths) || 12,
+                warrantyStatus: 'In Stock'
+              });
+            } catch (snErr) {
+              console.warn(`Could not register serial ${cleanSN}:`, snErr);
+            }
+          }
+        }
       }
 
       if (refreshData) {
@@ -627,7 +777,7 @@ export const NewProductPage: React.FC = () => {
                 {isEditMode ? `Edit Product: ${name || 'Master'}` : 'New Master Product Wizard'}
               </h1>
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                Step {currentStep} of 5
+                Step {currentStep} of {STEPS.length}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -644,7 +794,7 @@ export const NewProductPage: React.FC = () => {
           >
             Cancel
           </button>
-          {(isEditMode || currentStep === 5) && (
+          {(isEditMode || currentStep === STEPS.length) && (
             <button
               type="button"
               disabled={isSubmitting}
@@ -670,7 +820,7 @@ export const NewProductPage: React.FC = () => {
       {/* Wizard Step Progress Tracker */}
       <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200/90 shadow-2xs space-y-3">
         {/* Step Icons & Tabs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {STEPS.map(step => {
             const Icon = step.icon;
             const isCurrent = currentStep === step.id;
@@ -755,7 +905,7 @@ export const NewProductPage: React.FC = () => {
         <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
           <div
             className="bg-blue-600 h-1.5 rounded-full transition-all duration-300 ease-out"
-            style={{ width: `${(currentStep / 5) * 100}%` }}
+            style={{ width: `${(currentStep / STEPS.length) * 100}%` }}
           />
         </div>
       </div>
@@ -784,7 +934,7 @@ export const NewProductPage: React.FC = () => {
             </p>
           </div>
           <span className="text-xs font-semibold text-slate-400">
-            Step {currentStep} of 5
+            Step {currentStep} of {STEPS.length}
           </span>
         </div>
 
@@ -1452,97 +1602,200 @@ export const NewProductPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Batch & Expiry Details Linked to this Warehouse Stock Batch */}
-              <div className="mt-4 pt-4 border-t border-slate-100 bg-slate-50/70 p-4 rounded-xl border space-y-3">
-                <div className="flex items-center gap-2 pb-2.5 border-b border-slate-200">
-                  <Calendar className="w-4 h-4 text-blue-600" />
+              {/* Step 4 Next Pointer Note */}
+              <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs bg-slate-50/70 p-3 rounded-xl border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                    <Layers className="w-3.5 h-3.5" />
+                  </div>
                   <div>
-                    <h3 className="text-xs font-bold text-slate-900">Batch &amp; Expiry Details (Linked to Opening Stock Batch)</h3>
+                    <span className="font-bold text-slate-800">Batch Code, Expiry &amp; Serial Number Tracking</span>
                     <p className="text-[11px] text-slate-500">
-                      Assigned to the opening batch of {numOpeningStock} {primaryUnit || 'Piece'} in {warehouses.find(w => w.id === warehouse || w.code === warehouse)?.name || 'the selected warehouse'}.
+                      Configured in dedicated <strong>Step 4: Batch, Expiry &amp; Serial Details</strong> directly after warehouse setup.
                     </p>
                   </div>
                 </div>
+                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shrink-0 self-start sm:self-auto">
+                  Configured in Step 4 →
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Batch Number */}
-                  <div className="flex flex-col">
-                    <label htmlFor="field-batchNumber" className="block font-medium text-slate-700 mb-1">
-                      Batch Number <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      id="field-batchNumber"
-                      type="text"
-                      value={batchNumber}
-                      onChange={e => {
-                        setBatchNumber(e.target.value);
-                        if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
-                      }}
-                      placeholder="Enter batch number (e.g. BAT-2026-001)"
-                      className={`w-full px-3 py-2 bg-white border rounded-lg font-mono font-bold text-slate-900 text-xs ${
-                        errors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
-                      }`}
-                    />
-                    {errors.batchNumber ? (
-                      <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.batchNumber}</p>
-                    ) : (
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        Identification lot or batch code printed on the item package.
-                      </p>
-                    )}
+        {/* =========================================================================
+            STEP 4: BATCH, EXPIRY & SERIAL DETAILS
+        ========================================================================= */}
+        {currentStep === 4 && (
+          <div className="space-y-5 animate-fadeIn text-xs">
+            {/* Context Info Banner */}
+            <div className="p-3.5 bg-blue-50/60 border border-blue-200/80 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-blue-900">Batch &amp; Expiry Details (FEFO &amp; Serialized Asset Controls)</h4>
+                  <p className="text-[11px] text-blue-700">
+                    Linked to warehouse opening stock of <strong>{numOpeningStock} {primaryUnit || 'Piece'}</strong> in{' '}
+                    <strong>{warehouses.find(w => w.id === warehouse || w.code === warehouse)?.name || 'the selected warehouse'}</strong>.
+                  </p>
+                </div>
+              </div>
+              <span className="hidden sm:inline-block text-[11px] font-semibold text-blue-700 bg-white px-2.5 py-1 rounded-md border border-blue-200 shadow-2xs">
+                FEFO &amp; Traceability
+              </span>
+            </div>
+
+            {/* Subsection A: Batch Details */}
+            <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-4 shadow-2xs">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                    A
                   </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">Batch Details</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Manufacturing lot code, supplier batch identification, and quantity allocation.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoGenerateBatchNumber}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Auto-generate a unique batch lot code"
+                >
+                  <Sparkles className="w-3 h-3 text-indigo-600" />
+                  <span>Auto-Generate Lot</span>
+                </button>
+              </div>
 
-                  {/* Expiry Date */}
-                  <div className="flex flex-col">
-                    <div className="flex items-center justify-between mb-1">
-                      <label htmlFor="field-expiryDate" className="block font-medium text-slate-700">
-                        Expiry Date <span className="text-rose-500">*</span>
-                      </label>
-                      {expiryDate && (
-                        <button
-                          type="button"
-                          onClick={() => setExpiryDate('')}
-                          className="text-[10px] font-semibold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      id="field-expiryDate"
-                      type="date"
-                      min="1900-01-01"
-                      max="2099-12-31"
-                      value={expiryDate}
-                      onChange={e => {
-                        let val = e.target.value;
-                        if (val) {
-                          const parts = val.split('-');
-                          // Strictly enforce 4-digit year limit
-                          if (parts[0] && parts[0].length > 4) {
-                            parts[0] = parts[0].slice(0, 4);
-                            val = parts.join('-');
-                          }
-                          const y = parseInt(parts[0], 10);
-                          if (!isNaN(y) && y > 2099) {
-                            parts[0] = '2099';
-                            val = parts.join('-');
-                          }
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Batch Number */}
+                <div className="flex flex-col">
+                  <label htmlFor="field-batchNumber" className="block font-medium text-slate-700 mb-1">
+                    Batch Number <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="field-batchNumber"
+                    type="text"
+                    value={batchNumber}
+                    onChange={e => {
+                      setBatchNumber(e.target.value);
+                      if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
+                    }}
+                    placeholder="e.g. BAT-2026-001 or LOT-A92"
+                    className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-mono font-bold text-slate-900 text-xs transition-colors ${
+                      errors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200 focus:bg-white focus:border-blue-500'
+                    }`}
+                  />
+                  {errors.batchNumber ? (
+                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.batchNumber}</p>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Identification lot or batch code printed on the item package.
+                    </p>
+                  )}
+                </div>
+
+                {/* Batch-specific Stock Quantity Allocation */}
+                <div className="flex flex-col">
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Batch Stock Quantity Allocation
+                  </label>
+                  <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-800 text-xs flex items-center justify-between">
+                    <span className="font-mono font-bold text-slate-900">
+                      {numOpeningStock} {primaryUnit || 'Piece'}
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                      Linked to Opening Stock
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Opening physical inventory from Step 3 allocated directly to this batch code upon creation.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Subsection B: Expiry Details */}
+            <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-4 shadow-2xs">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-xs">
+                    B
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">Expiry Details</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Shelf-life date, consumer safety window, and FEFO picking priority.
+                    </p>
+                  </div>
+                </div>
+                {expiryDate && (
+                  <button
+                    type="button"
+                    onClick={() => setExpiryDate('')}
+                    className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                  >
+                    Clear Date
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Expiry Date */}
+                <div className="flex flex-col">
+                  <label htmlFor="field-expiryDate" className="block font-medium text-slate-700 mb-1">
+                    Expiry Date <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="field-expiryDate"
+                    type="date"
+                    min="1900-01-01"
+                    max="2099-12-31"
+                    value={expiryDate}
+                    onChange={e => {
+                      let val = e.target.value;
+                      if (val) {
+                        const parts = val.split('-');
+                        if (parts[0] && parts[0].length > 4) {
+                          parts[0] = parts[0].slice(0, 4);
+                          val = parts.join('-');
                         }
-                        setExpiryDate(val);
-                        if (errors.expiryDate) setErrors(prev => ({ ...prev, expiryDate: '' }));
-                      }}
-                      className={`w-full px-3 py-2 bg-white border rounded-lg font-mono text-slate-900 text-xs cursor-pointer transition-colors ${
-                        errors.expiryDate ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
-                      }`}
-                    />
-                    {/* Quick Expiry Date Shortcuts */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                      <span className="text-[10px] text-slate-400 font-medium">Quick set:</span>
+                        const y = parseInt(parts[0], 10);
+                        if (!isNaN(y) && y > 2099) {
+                          parts[0] = '2099';
+                          val = parts.join('-');
+                        }
+                      }
+                      setExpiryDate(val);
+                      if (errors.expiryDate) setErrors(prev => ({ ...prev, expiryDate: '' }));
+                    }}
+                    className={`w-full px-3 py-2 bg-white border rounded-lg font-mono text-slate-900 text-xs cursor-pointer transition-colors ${
+                      errors.expiryDate ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                    }`}
+                  />
+                  {errors.expiryDate ? (
+                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.expiryDate}</p>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Final expiration date after which the item cannot be legally or safely sold.
+                    </p>
+                  )}
+                </div>
+
+                {/* Expiry Presets & Dispatch Strategy */}
+                <div className="flex flex-col justify-between">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1.5">Quick Presets</label>
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => setExpiryPreset(6)}
-                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md transition-colors cursor-pointer"
                         title="Set expiry date to 6 months from today"
                       >
                         +6 Months
@@ -1550,7 +1803,7 @@ export const NewProductPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setExpiryPreset(12)}
-                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md transition-colors cursor-pointer"
                         title="Set expiry date to 1 year from today"
                       >
                         +1 Year
@@ -1558,7 +1811,7 @@ export const NewProductPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setExpiryPreset(24)}
-                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md transition-colors cursor-pointer"
                         title="Set expiry date to 2 years from today"
                       >
                         +2 Years
@@ -1566,30 +1819,243 @@ export const NewProductPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setExpiryPreset(36)}
-                        className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md transition-colors cursor-pointer"
                         title="Set expiry date to 3 years from today"
                       >
                         +3 Years
                       </button>
                     </div>
-                    {errors.expiryDate ? (
-                      <p className="text-[11px] text-rose-600 mt-1.5 font-medium">{errors.expiryDate}</p>
-                    ) : (
-                      <p className="text-[11px] text-slate-500 mt-1.5">
-                        Final expiration date after which the item cannot be legally or safely sold.
-                      </p>
-                    )}
+                  </div>
+
+                  <div className="mt-2 p-2 bg-emerald-50/60 rounded-lg border border-emerald-200/70 text-[11px] text-emerald-800 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Automatic FEFO (First-Expired, First-Out) picking prioritized for sales billing.</span>
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Subsection C: Serial Number Details */}
+            <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-4 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2.5 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-xs">
+                    C
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">Serial Number Details</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Per-unit serialized tracking, barcode/IMEI verification, and warranty management.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Tracking Toggle Switch */}
+                <label className="relative inline-flex items-center cursor-pointer select-none">
+                  <input
+                    id="field-serialTracking"
+                    type="checkbox"
+                    checked={serialTracking}
+                    onChange={e => {
+                      const enabled = e.target.checked;
+                      setSerialTracking(enabled);
+                      if (!enabled) {
+                        if (errors.serialNumbers) setErrors(prev => ({ ...prev, serialNumbers: '' }));
+                      }
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-purple-600"></div>
+                  <span className="ml-2.5 text-xs font-bold text-slate-800">
+                    {serialTracking ? 'Serial Tracking Enabled' : 'Serial Tracking Disabled'}
+                  </span>
+                </label>
+              </div>
+
+              {/* Conditional Content based on Toggle */}
+              {serialTracking ? (
+                <div className="space-y-4 pt-1 animate-fadeIn">
+                  <div className="p-3 bg-purple-50/60 border border-purple-200/80 rounded-xl flex items-start gap-2.5 text-xs text-purple-900">
+                    <Hash className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">Individual Per-Unit Identification</span>
+                      <p className="text-[11px] text-purple-700 mt-0.5">
+                        Each individual unit placed in stock or sold requires a unique serial number. Enter single serials below, paste in bulk, or auto-generate matching the opening stock of {numOpeningStock} units.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Serial Number Error Alert */}
+                  {errors.serialNumbers && (
+                    <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg flex items-center gap-2 text-rose-800 text-xs">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span className="font-medium">{errors.serialNumbers}</span>
+                    </div>
+                  )}
+
+                  {/* Entry and Auto-Generation Grid */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {/* Single Serial Number Input */}
+                    <div className="lg:col-span-2 space-y-2">
+                      <label className="block font-medium text-slate-700">Add Single Serial Number</label>
+                      <div className="flex gap-2">
+                        <input
+                          id="field-singleSerial"
+                          type="text"
+                          value={singleSerialInput}
+                          onChange={e => setSingleSerialInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddSingleSerial();
+                            }
+                          }}
+                          placeholder="e.g. SN-DELL-892301"
+                          className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddSingleSerial}
+                          disabled={!singleSerialInput.trim()}
+                          className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add</span>
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400">Press Enter or click Add to register the serial number.</p>
+                    </div>
+
+                    {/* Warranty Period Setting */}
+                    <div className="space-y-2">
+                      <label htmlFor="field-warrantyMonths" className="block font-medium text-slate-700">
+                        Default Warranty (Months)
+                      </label>
+                      <input
+                        id="field-warrantyMonths"
+                        type="number"
+                        min="0"
+                        max="120"
+                        value={serialWarrantyMonths}
+                        onChange={e => setSerialWarrantyMonths(e.target.value)}
+                        placeholder="12"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      />
+                      <p className="text-[10px] text-slate-400">Warranty duration applied to registered serials.</p>
+                    </div>
+
+                    {/* Bulk Import Section */}
+                    <div className="lg:col-span-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block font-medium text-slate-700">Bulk Paste Serial Numbers</label>
+                        {numOpeningStock > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleAutoGenerateSerials}
+                            className="text-[11px] font-semibold text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded border border-purple-200 transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Sparkles className="w-3 h-3 text-purple-600" />
+                            <span>Auto-Generate {numOpeningStock} Serials</span>
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <textarea
+                          id="field-bulkSerials"
+                          rows={2}
+                          value={bulkSerialInput}
+                          onChange={e => setBulkSerialInput(e.target.value)}
+                          placeholder="Paste serial numbers separated by commas or newlines (e.g. SN001, SN002, SN003)..."
+                          className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleImportBulkSerials}
+                          disabled={!bulkSerialInput.trim()}
+                          className="sm:self-stretch px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Import Serials</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Registered Serials List & Chips Preview */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 text-xs">Registered Serials List</span>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                          {serialNumbersList.length} Registered
+                        </span>
+                        {numOpeningStock > 0 && (
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                              serialNumbersList.length === numOpeningStock
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                : 'bg-amber-100 text-amber-800 border-amber-200'
+                            }`}
+                          >
+                            Target: {numOpeningStock} Units
+                          </span>
+                        )}
+                      </div>
+
+                      {serialNumbersList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearAllSerials}
+                          className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3 text-rose-600" />
+                          <span>Clear All</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {serialNumbersList.length === 0 ? (
+                      <div className="p-4 text-center border border-dashed border-slate-300 rounded-lg text-slate-400 text-xs">
+                        No serial numbers registered yet. Enter serial numbers above or click "Auto-Generate Serials".
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto p-1">
+                        {serialNumbersList.map((sn, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-semibold bg-white border border-slate-200 text-slate-800 shadow-2xs hover:border-slate-300 transition-colors"
+                          >
+                            <span>{sn}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSerial(idx)}
+                              className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                              title={`Remove serial number ${sn}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 text-xs space-y-1">
+                  <span className="font-semibold text-slate-700 block">Serial tracking is currently disabled for this product.</span>
+                  <p className="text-[11px] text-slate-400">
+                    Units of this product will be managed in bulk by batch and warehouse quantity. If you need individual unit serial numbers (e.g. for electronics, machinery, appliances, or serialized medical equipment), toggle "Serial Tracking Enabled" above.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* =========================================================================
-            STEP 4: UNITS & CONVERSION
+            STEP 5: UNITS & CONVERSION
         ========================================================================= */}
-        {currentStep === 4 && (
+        {currentStep === 5 && (
           <div className="space-y-4 animate-fadeIn text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {/* Primary Unit */}
@@ -1691,9 +2157,9 @@ export const NewProductPage: React.FC = () => {
         )}
 
         {/* =========================================================================
-            STEP 5: TAX & HSN
+            STEP 6: TAX & HSN
         ========================================================================= */}
-        {currentStep === 5 && (
+        {currentStep === 6 && (
           <div className="space-y-4 animate-fadeIn text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* HSN / SAC */}
@@ -1777,7 +2243,7 @@ export const NewProductPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            {currentStep < 5 ? (
+            {currentStep < STEPS.length ? (
               <button
                 type="button"
                 onClick={handleNext}

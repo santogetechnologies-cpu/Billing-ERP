@@ -21,7 +21,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', c
     colorClasses = 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]';
   } else if (['not set', 'alert not set'].includes(normalized)) {
     colorClasses = 'bg-slate-100 text-slate-600 border-slate-200';
-  } else if (['paid', 'approved', 'received'].includes(normalized)) {
+  } else if (['paid', 'approved', 'received', 'completed'].includes(normalized)) {
     colorClasses = 'bg-emerald-50 text-emerald-700 border-emerald-200';
   } else if (['partially paid', 'sent', 'expiring soon', 'requested'].includes(normalized)) {
     colorClasses = 'bg-amber-50 text-amber-700 border-amber-200';

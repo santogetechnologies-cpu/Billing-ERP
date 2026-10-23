@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Package,
   Plus,
@@ -15,7 +15,9 @@ import {
   Sparkles,
   CheckCircle2,
   Calendar,
-  X
+  X,
+  ArrowRight,
+  Hash
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { DataTable, Column } from '../../components/common/DataTable';
@@ -494,6 +496,26 @@ export const ProductListPage: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {/* Serial Numbers Shortcut */}
+            {selectedProduct.serialTracking && (
+              <div className="p-3 bg-purple-50/50 rounded-lg border border-purple-200/80 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-purple-900 block text-xs flex items-center gap-1">
+                    <Hash className="w-3.5 h-3.5 text-purple-600" />
+                    Serial Tracking Enabled
+                  </span>
+                  <p className="text-[11px] text-purple-700">Track and inspect registered unit serials and warranty status.</p>
+                </div>
+                <Link
+                  to="/inventory/serials"
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1.5"
+                >
+                  <span>View Serials</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            )}
 
             {/* Batch & Expiry Information */}
             {(selectedProduct.batchNumber || selectedProduct.expiryDate || selectedProduct.batchTracking) && (

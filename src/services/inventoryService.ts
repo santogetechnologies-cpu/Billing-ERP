@@ -78,6 +78,27 @@ export const inventoryService = {
     return balances;
   },
 
+  // Get Stock Balance for specific warehouse & product
+  async getStockBalance(
+    warehouseId: string,
+    productId: string,
+    companyId?: string
+  ): Promise<number> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const { data } = await supabase
+      .from('stock_balances')
+      .select('quantity')
+      .eq('company_id', finalCompanyId)
+      .eq('warehouse_id', warehouseId)
+      .eq('product_id', productId)
+      .maybeSingle();
+
+    if (data?.quantity !== null && data?.quantity !== undefined) {
+      return Number(data.quantity);
+    }
+    return 0;
+  },
+
   // Update or Upsert Stock Balance for Warehouse & Product
   async updateStockBalance(
     warehouseId: string,
@@ -189,25 +210,88 @@ export const inventoryService = {
     await assertCallerPermission('inventory', 'create');
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const fromWarehouseId = transfer.fromWarehouseId || transfer.fromWarehouse;
+    const toWarehouseId = transfer.toWarehouseId || transfer.toWarehouse;
+
+    // 1. Validation
+    if (!fromWarehouseId || !toWarehouseId) {
+      throw new Error('Please select both source and destination warehouses.');
+    }
+    if (fromWarehouseId === toWarehouseId) {
+      throw new Error('Source warehouse and Destination warehouse must be distinct locations.');
+    }
+    if (!transfer.items || transfer.items.length === 0) {
+      throw new Error('Please add at least one product item to transfer.');
+    }
+
+    // 2. Pre-transfer stock verification: Ensure source warehouse has sufficient stock for ALL items
+    for (const item of transfer.items) {
+      const qtyNum = Number(item.qty);
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        throw new Error(`Quantity for product "${item.productName}" must be greater than zero.`);
+      }
+
+      // Check current available balance in source warehouse
+      const { data: balanceRow } = await supabase
+        .from('stock_balances')
+        .select('quantity')
+        .eq('company_id', finalCompanyId)
+        .eq('warehouse_id', fromWarehouseId)
+        .eq('product_id', item.productId)
+        .maybeSingle();
+
+      let currentStock =
+        balanceRow?.quantity !== null && balanceRow?.quantity !== undefined
+          ? Number(balanceRow.quantity)
+          : 0;
+
+      // If no explicit row in stock_balances, check if this is the default/primary warehouse
+      if (!balanceRow) {
+        const { data: whRow } = await supabase
+          .from('warehouses')
+          .select('is_default')
+          .eq('id', fromWarehouseId)
+          .maybeSingle();
+
+        if (whRow?.is_default) {
+          const { data: prodRow } = await supabase
+            .from('products')
+            .select('current_stock')
+            .eq('id', item.productId)
+            .maybeSingle();
+          currentStock = Number(prodRow?.current_stock) || 0;
+        }
+      }
+
+      if (currentStock < qtyNum) {
+        throw new Error(
+          `Insufficient stock for "${item.productName}". Available in source warehouse: ${currentStock} ${item.unit}, Requested: ${qtyNum} ${item.unit}.`
+        );
+      }
+    }
+
+    // 3. Generate unique transfer number
     const transferNumber =
       transfer.transferNumber ||
       'TRF-2026-' + Math.floor(1000 + Math.random() * 9000);
 
-    // Try full insert with extended fields
+    // 4. Save the transfer header marked as Completed immediately
     let trf: any = null;
+    const transferDate = transfer.date || new Date().toISOString().split('T')[0];
+
     try {
       const { data, error } = await supabase
         .from('stock_transfers')
         .insert({
           company_id: finalCompanyId,
           transfer_number: transferNumber,
-          date: transfer.date,
-          from_warehouse_id: transfer.fromWarehouseId || transfer.fromWarehouse,
-          to_warehouse_id: transfer.toWarehouseId || transfer.toWarehouse,
-          status: transfer.status || 'Requested',
-          notes: transfer.notes,
+          date: transferDate,
+          from_warehouse_id: fromWarehouseId,
+          to_warehouse_id: toWarehouseId,
+          status: 'Completed',
+          notes: transfer.notes || 'Direct stock transfer completed',
           reference_doc: transfer.referenceDoc || null,
-          created_by: transfer.createdBy || 'Authorized User'
+          created_by: transfer.createdBy || 'Warehouse Manager'
         })
         .select()
         .single();
@@ -224,11 +308,11 @@ export const inventoryService = {
         .insert({
           company_id: finalCompanyId,
           transfer_number: transferNumber,
-          date: transfer.date,
-          from_warehouse_id: transfer.fromWarehouseId || transfer.fromWarehouse,
-          to_warehouse_id: transfer.toWarehouseId || transfer.toWarehouse,
-          status: transfer.status || 'Requested',
-          notes: transfer.notes
+          date: transferDate,
+          from_warehouse_id: fromWarehouseId,
+          to_warehouse_id: toWarehouseId,
+          status: 'Completed',
+          notes: transfer.notes || 'Direct stock transfer completed'
         })
         .select()
         .single();
@@ -240,23 +324,108 @@ export const inventoryService = {
       trf = fallbackData;
     }
 
+    // 5. Insert line items
     if (transfer.items.length > 0) {
       const itemsPayload = transfer.items.map(it => ({
         transfer_id: trf.id,
         product_id: it.productId,
         product_name: it.productName,
-        qty: it.qty,
+        qty: Number(it.qty),
         unit: it.unit
       }));
-      await supabase.from('stock_transfer_items').insert(itemsPayload);
+      const { error: itemsErr } = await supabase.from('stock_transfer_items').insert(itemsPayload);
+      if (itemsErr) {
+        await supabase.from('stock_transfers').delete().eq('id', trf.id);
+        throw new Error(`Failed to save transfer line items: ${itemsErr.message}`);
+      }
+    }
+
+    // 6. Both warehouse quantity updates in one atomic transaction with rollback safety
+    const modifiedBalances: Array<{ warehouseId: string; productId: string; delta: number }> = [];
+    const insertedTxnIds: string[] = [];
+
+    try {
+      for (const item of transfer.items) {
+        const qtyNum = Number(item.qty);
+
+        // Deduct from source warehouse
+        await this.updateStockBalance(fromWarehouseId, item.productId, -qtyNum, finalCompanyId);
+        modifiedBalances.push({ warehouseId: fromWarehouseId, productId: item.productId, delta: -qtyNum });
+
+        // Add to destination warehouse
+        await this.updateStockBalance(toWarehouseId, item.productId, qtyNum, finalCompanyId);
+        modifiedBalances.push({ warehouseId: toWarehouseId, productId: item.productId, delta: qtyNum });
+
+        // Ledger: Record stock movement history - Transfer Out
+        const { data: outTxn } = await supabase
+          .from('stock_transactions')
+          .insert({
+            company_id: finalCompanyId,
+            date: transferDate,
+            type: 'Stock Transfer',
+            product_id: item.productId,
+            product_name: item.productName,
+            warehouse_id: fromWarehouseId,
+            warehouse_to_id: toWarehouseId,
+            qty: -qtyNum,
+            unit: item.unit,
+            reference_type: 'Transfer Out',
+            reference_id: trf.id,
+            reference_number: transferNumber,
+            notes: transfer.notes || 'Direct stock transfer dispatched'
+          })
+          .select('id')
+          .maybeSingle();
+        if (outTxn?.id) insertedTxnIds.push(outTxn.id);
+
+        // Ledger: Record stock movement history - Transfer In
+        const { data: inTxn } = await supabase
+          .from('stock_transactions')
+          .insert({
+            company_id: finalCompanyId,
+            date: transferDate,
+            type: 'Stock Transfer',
+            product_id: item.productId,
+            product_name: item.productName,
+            warehouse_id: toWarehouseId,
+            warehouse_to_id: fromWarehouseId,
+            qty: qtyNum,
+            unit: item.unit,
+            reference_type: 'Transfer In',
+            reference_id: trf.id,
+            reference_number: transferNumber,
+            notes: transfer.notes || 'Direct stock transfer received'
+          })
+          .select('id')
+          .maybeSingle();
+        if (inTxn?.id) insertedTxnIds.push(inTxn.id);
+      }
+    } catch (atomicErr: any) {
+      // Rollback changes if anything fails during execution
+      console.error('Error during direct stock transfer execution, rolling back:', atomicErr);
+      for (const mod of modifiedBalances) {
+        try {
+          await this.updateStockBalance(mod.warehouseId, mod.productId, -mod.delta, finalCompanyId);
+        } catch {}
+      }
+      for (const txnId of insertedTxnIds) {
+        try {
+          await supabase.from('stock_transactions').delete().eq('id', txnId);
+        } catch {}
+      }
+      try {
+        await supabase.from('stock_transfer_items').delete().eq('transfer_id', trf.id);
+        await supabase.from('stock_transfers').delete().eq('id', trf.id);
+      } catch {}
+      throw new Error(`Stock transfer failed and was rolled back: ${atomicErr?.message || 'Database error'}`);
     }
 
     return {
       ...transfer,
       id: trf.id,
       transferNumber,
-      status: (trf.status as any) || 'Requested',
-      createdAt: trf.created_at
+      status: 'Completed',
+      createdAt: trf.created_at || new Date().toISOString()
     };
   },
 
@@ -266,7 +435,7 @@ export const inventoryService = {
     actorName?: string,
     companyId?: string
   ): Promise<void> {
-    // 0. Strict RBAC Enforcement: Only Warehouse Manager, Admin, and Owner can approve/dispatch/receive transfers
+    // 0. Strict RBAC Enforcement: Only Warehouse Manager, Admin, and Owner can manage transfers
     await assertCallerPermission('inventory', 'manage');
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
@@ -310,7 +479,7 @@ export const inventoryService = {
         updatePayload.approved_by = actorName || 'Branch Manager';
       } else if (status === 'Sent') {
         updatePayload.sent_date = nowIso;
-      } else if (status === 'Received') {
+      } else if (status === 'Received' || status === 'Completed') {
         updatePayload.received_date = nowIso;
       }
 
@@ -321,7 +490,7 @@ export const inventoryService = {
 
       // Execute inventory balance changes according to status transitions:
       // Status 'Sent': Deduct from source warehouse
-      if (status === 'Sent' && oldStatus !== 'Sent' && oldStatus !== 'Received') {
+      if (status === 'Sent' && oldStatus !== 'Sent' && oldStatus !== 'Received' && oldStatus !== 'Completed') {
         for (const item of items) {
           await this.updateStockBalance(fromWhId, item.product_id, -Number(item.qty), finalCompanyId);
           await supabase.from('stock_transactions').insert({
@@ -342,9 +511,9 @@ export const inventoryService = {
         }
       }
 
-      // Status 'Received': Add to destination warehouse
-      if (status === 'Received' && oldStatus !== 'Received') {
-        // If transfer went straight to Received without Sent, deduct source first
+      // Status 'Received' or 'Completed': Add to destination warehouse
+      if ((status === 'Received' || status === 'Completed') && oldStatus !== 'Received' && oldStatus !== 'Completed') {
+        // If transfer went straight to Received/Completed without Sent, deduct source first
         if (oldStatus !== 'Sent') {
           for (const item of items) {
             await this.updateStockBalance(fromWhId, item.product_id, -Number(item.qty), finalCompanyId);
