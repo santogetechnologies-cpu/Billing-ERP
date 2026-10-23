@@ -679,14 +679,6 @@ const InventoryDashboardInner: React.FC = () => {
 
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
           <button
-            onClick={() => navigate('/inventory/valuation')}
-            className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>Stock Valuation</span>
-          </button>
-
-          <button
             onClick={() => navigate('/inventory/warehouses')}
             className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
