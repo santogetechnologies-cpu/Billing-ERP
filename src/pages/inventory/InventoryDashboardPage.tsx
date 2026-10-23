@@ -32,15 +32,10 @@ import { calculateStockStatus } from '../../utils/inventoryUtils';
 import { sortNotifications } from '../../services/notificationService';
 import { SalespersonInventoryPage } from './SalespersonInventoryPage';
 
-export const InventoryDashboardPage: React.FC = () => {
+const InventoryDashboardInner: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
-
-  // Strict Least-Privilege Scoping: Salespersons are served a dedicated, view-only stock directory
-  if (profile?.role === 'Salesperson') {
-    return <SalespersonInventoryPage />;
-  }
 
   const {
     products,
@@ -2491,4 +2486,15 @@ export const InventoryDashboardPage: React.FC = () => {
       </Modal>
     </div>
   );
+};
+
+export const InventoryDashboardPage: React.FC = () => {
+  const { profile } = useAuth();
+
+  // Strict Least-Privilege Scoping: Salespersons are served a dedicated, view-only stock directory
+  if (profile?.role === 'Salesperson') {
+    return <SalespersonInventoryPage />;
+  }
+
+  return <InventoryDashboardInner />;
 };

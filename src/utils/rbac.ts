@@ -167,8 +167,8 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     customers: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
     // Read-only catalog details for price and SKU inspection inside Sales
     products: VIEW_ONLY,
-    // Forbidden operational, billing, inventory, settings, and administrative areas
-    inventory: ALL_DENIED,
+    // View-only real-time shop inventory for customer stock queries
+    inventory: VIEW_ONLY,
     settings: ALL_DENIED,
     pos: ALL_DENIED,
     payments: ALL_DENIED,
@@ -555,7 +555,8 @@ export function canAccessRoute(
       cleanPath.startsWith('/barcode/') ||
       cleanPath === '/settings' ||
       cleanPath.startsWith('/settings/') ||
-      cleanPath === '/inventory' ||
+      // Salespersons can view-only /inventory via Check Inventory dashboard button,
+      // but are strictly forbidden from all warehouse stock management sub-routes
       cleanPath.startsWith('/inventory/')
     ) {
       return false;

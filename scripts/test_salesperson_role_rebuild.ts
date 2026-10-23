@@ -52,8 +52,8 @@ function runTestSuite() {
   assert('Salesperson can view and create sales orders, but cannot edit or delete finalized sales records',
     spPerms.sales.view === true && spPerms.sales.create === true && spPerms.sales.edit === false && spPerms.sales.delete === false);
 
-  assert('Salesperson has NO inventory permissions (ALL_DENIED)',
-    spPerms.inventory.view === false && spPerms.inventory.create === false && spPerms.inventory.edit === false);
+  assert('Salesperson has VIEW_ONLY inventory permissions (view stock only, no modification)',
+    spPerms.inventory.view === true && spPerms.inventory.create === false && spPerms.inventory.edit === false && spPerms.inventory.delete === false && spPerms.inventory.manage === false);
 
   assert('Salesperson has NO purchases permissions (ALL_DENIED)',
     spPerms.purchases.view === false && spPerms.purchases.create === false && spPerms.purchases.edit === false);
@@ -89,6 +89,7 @@ function runTestSuite() {
   assert('Salesperson can access /sales/orders', canAccessRoute('Salesperson', '/sales/orders'));
   assert('Salesperson can access /customers', canAccessRoute('Salesperson', '/customers'));
   assert('Salesperson can access /customers/cust-101', canAccessRoute('Salesperson', '/customers/cust-101'));
+  assert('Salesperson can access /inventory (view-only mode via Check Inventory button)', canAccessRoute('Salesperson', '/inventory'));
 
   // Blocked routes:
   const forbiddenRoutes = [
@@ -97,7 +98,6 @@ function runTestSuite() {
     '/products',
     '/units',
     '/pricing',
-    '/inventory',
     '/inventory/stock-overview',
     '/inventory/adjustments',
     '/inventory/transfers',

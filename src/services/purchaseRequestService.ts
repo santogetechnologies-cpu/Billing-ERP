@@ -1,3 +1,4 @@
+import { assertCallerPermission, getActiveUserRole, hasPermission } from '../utils/rbac';
 import { supabase } from '../lib/supabase';
 import {
   PurchaseRequest,
@@ -287,6 +288,8 @@ export const purchaseRequestService = {
     companyId?: string,
     user?: { id: string; name: string; role?: string }
   ): Promise<PurchaseRequest> {
+    // Strict RBAC: Salespersons have view-only access and cannot create purchase requests
+    await assertCallerPermission('inventory', 'create');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const requesterId = user?.id || '00000000-0000-0000-0000-000000000000';
     const requesterName = user?.name || 'Warehouse Manager';
@@ -460,6 +463,11 @@ export const purchaseRequestService = {
     companyId?: string,
     user?: { id: string; name: string; role?: string }
   ): Promise<PurchaseRequest> {
+    // Strict RBAC: Purchase Manager (approvals) or Warehouse Manager (submit/cancel) only; Salesperson blocked
+    const callerRole = await getActiveUserRole();
+    if (callerRole && !hasPermission(callerRole, 'purchases', 'approve') && !hasPermission(callerRole, 'inventory', 'edit') && !hasPermission(callerRole, 'inventory', 'create')) {
+      throw new Error(`Unauthorized (403): User role ${callerRole} is not authorized to update purchase requests.`);
+    }
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const reviewerId = user?.id || '00000000-0000-0000-0000-000000000000';
     const reviewerName = user?.name || 'Reviewer';
@@ -705,6 +713,8 @@ export const purchaseRequestService = {
     companyId?: string,
     user?: { id: string; name: string; role?: string }
   ): Promise<{ purchaseOrderId: string; purchaseOrderNumber: string; request: PurchaseRequest }> {
+    // Strict RBAC: Only authorized purchasing roles can create purchase orders
+    await assertCallerPermission('purchases', 'create');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const existing = await this.getPurchaseRequestById(params.requestId, finalCompanyId);
     if (!existing) {
@@ -923,6 +933,8 @@ export const purchaseRequestService = {
     companyId?: string,
     user?: { id: string; name: string; role?: string }
   ): Promise<PurchaseRequest> {
+    // Strict RBAC: Only warehouse personnel can receive warehouse deliveries
+    await assertCallerPermission('inventory', 'create');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const existing = await this.getPurchaseRequestById(params.requestId, finalCompanyId);
     if (!existing) {
