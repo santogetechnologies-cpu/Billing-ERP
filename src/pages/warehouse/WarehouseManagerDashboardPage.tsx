@@ -1101,7 +1101,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
-                  <th style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }} className="px-2 py-3 text-center align-middle">
+                  <th style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }} className="px-2 py-3 text-center align-middle">
                     <input
                       type="checkbox"
                       checked={paginatedLowStock.length > 0 && paginatedLowStock.every(p => selectedProductIds.has(p.id))}
@@ -1109,7 +1109,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                     />
                   </th>
-                  <th style={{ minWidth: '200px' }} className="px-3.5 py-3">
+                  <th style={{ minWidth: '180px' }} className="px-3.5 py-3">
                     <button
                       onClick={() => {
                         setSortField('name');
@@ -1117,28 +1117,26 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       }}
                       className="flex items-center gap-1 hover:text-slate-900"
                     >
-                      <span>Product</span>
+                      <span>SKU</span>
+                      <span className="text-[10px] text-slate-400 font-normal">/ Product</span>
                       {sortField === 'name' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
                     </button>
                   </th>
-                  <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3">SKU</th>
-                  <th style={{ width: '180px', minWidth: '150px' }} className="px-3 py-3">Warehouse</th>
-                                    <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right">
+                  <th style={{ width: '160px', minWidth: '130px' }} className="px-3 py-3">Warehouse</th>
+                  <th style={{ width: '190px', minWidth: '160px' }} className="px-3 py-3 text-left">
                     <button
                       onClick={() => {
                         setSortField('stock');
                         setSortOrder(s => s === 'asc' ? 'desc' : 'asc');
                       }}
-                      className="flex items-center justify-end gap-1 hover:text-slate-900 w-full"
+                      className="flex items-center gap-1 hover:text-slate-900 w-full"
                     >
-                      <span>Available Stock</span>
+                      <span>Available Stock / Status</span>
                       {sortField === 'stock' && <span>{sortOrder === 'asc' ? '▲' : '▼'}</span>}
                     </button>
                   </th>
                   <th style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right">Warning Limit</th>
-                  <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-center">Status</th>
-                  <th style={{ width: '90px', minWidth: '80px' }} className="px-2 py-3 text-center">Priority</th>
-                  <th style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-right">
+                  <th style={{ width: '140px', minWidth: '120px' }} className="px-3 py-3 text-right">
                     <button
                       onClick={() => {
                         setSortField('suggestedQty');
@@ -1151,7 +1149,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                     </button>
                   </th>
                   <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right">Actions</th>
-                  </tr>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paginatedLowStock.map(p => {
@@ -1163,7 +1161,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       className={`hover:bg-slate-50/70 transition-colors ${isSelected ? 'bg-blue-50/40' : ''}`}
                     >
                       {/* Checkbox */}
-                      <td style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }} className="px-2 py-3 text-center align-middle">
+                      <td style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }} className="px-2 py-3 text-center align-middle">
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -1172,21 +1170,23 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         />
                       </td>
 
-                      {/* Product */}
-                      <td style={{ minWidth: '200px' }} className="px-3.5 py-3 align-middle">
+                      {/* 1. SKU / Product */}
+                      <td style={{ minWidth: '180px' }} className="px-3.5 py-3 align-middle">
                         <div className="font-semibold text-slate-900 leading-snug break-words" title={p.name}>
                           {p.name}
                         </div>
-                        <span className="text-[10px] text-slate-400 block">{p.category}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="font-mono text-[11px] font-semibold text-blue-600">
+                            SKU: {p.sku}
+                          </span>
+                          {p.category && (
+                            <span className="text-[10px] text-slate-400">· {p.category}</span>
+                          )}
+                        </div>
                       </td>
 
-                      {/* SKU */}
-                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 font-mono text-[11px] font-semibold text-blue-600 align-middle">
-                        {p.sku}
-                      </td>
-
-                      {/* Warehouse */}
-                      <td style={{ width: '180px', minWidth: '150px' }} className="px-3 py-3 text-slate-700 align-middle">
+                      {/* 2. Warehouse */}
+                      <td style={{ width: '160px', minWidth: '130px' }} className="px-3 py-3 text-slate-700 align-middle">
                         <span
                           className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium truncate max-w-full"
                           title={p.warehouseName}
@@ -1195,53 +1195,42 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         </span>
                       </td>
 
-                                            {/* Available Stock */}
-                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right align-middle">
-                        <span className={`text-xs font-mono font-bold whitespace-nowrap ${
-                          safeStock <= 0 ? 'text-rose-600 font-extrabold' : p.stockStatus === 'Limited Stock' ? 'text-amber-700' : 'text-slate-700'
-                        }`}>
-                          {formatNumber(safeStock)} {p.unit}
-                        </span>
+                      {/* 3. Available Stock / Status */}
+                      <td style={{ width: '190px', minWidth: '160px' }} className="px-3 py-3 align-middle">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-xs font-mono font-bold whitespace-nowrap ${
+                            safeStock <= 0 ? 'text-rose-600 font-extrabold' : p.stockStatus === 'Limited Stock' ? 'text-amber-700' : 'text-slate-800'
+                          }`}>
+                            {formatNumber(safeStock)} {p.unit}
+                          </span>
+                          {p.stockStatus === 'Out of Stock' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 shrink-0" />
+                              Out of Stock
+                            </span>
+                          ) : p.stockStatus === 'Limited Stock' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                              Limited
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                              In Stock
+                            </span>
+                          )}
+                        </div>
                       </td>
 
-                      {/* Low-Stock Threshold */}
+                      {/* 4. Warning Limit */}
                       <td style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right align-middle">
                         <span className="text-xs font-mono text-slate-700 font-semibold whitespace-nowrap">
                           {p.warningLimit !== null ? `${formatNumber(p.warningLimit)} ${p.unit}` : <span className="text-slate-400 italic font-normal text-[11px]">Not set</span>}
                         </span>
                       </td>
 
-                      {/* Stock Status */}
-                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-center align-middle">
-                        {p.stockStatus === 'Out of Stock' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-                            Out of Stock
-                          </span>
-                        ) : p.stockStatus === 'Limited Stock' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-                            Limited
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                            Active
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Priority */}
-                      <td style={{ width: '90px', minWidth: '80px' }} className="px-2 py-3 text-center align-middle">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
-                          safeStock <= 0 ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}>
-                          {safeStock <= 0 ? 'Critical' : 'High'}
-                        </span>
-                      </td>
-
-                      {/* Suggested Reorder */}
-                      <td style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-right font-mono font-bold text-indigo-600 align-middle">
+                      {/* 5. Suggested Reorder */}
+                      <td style={{ width: '140px', minWidth: '120px' }} className="px-3 py-3 text-right font-mono font-bold text-indigo-600 align-middle">
                         +{formatNumber(p.suggestedQty)} {p.unit}
                       </td>
 
