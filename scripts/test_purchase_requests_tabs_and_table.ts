@@ -42,7 +42,7 @@ async function runTests() {
     assert(pageContent.includes('Request #</th>'), 'Table contains Request # column header');
     assert(pageContent.includes('Date</th>'), 'Table contains Date column header');
     assert(pageContent.includes('Warehouse</th>'), 'Table contains Warehouse column header');
-    assert(pageContent.includes('Product(s)</th>'), 'Table contains Product(s) column header');
+    assert(pageContent.includes('Product Name</th>') || pageContent.includes('Product(s)</th>'), 'Table contains Product Name column header');
     assert(pageContent.includes('Quantity</th>'), 'Table contains Quantity column header');
     assert(pageContent.includes('Priority</th>'), 'Table contains Priority column header');
     assert(pageContent.includes('Status</th>'), 'Table contains Status column header');

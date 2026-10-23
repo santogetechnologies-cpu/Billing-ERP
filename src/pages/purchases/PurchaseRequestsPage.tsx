@@ -1343,13 +1343,13 @@ export const PurchaseRequestsPage: React.FC = () => {
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4 w-[140px] whitespace-nowrap">Request #</th>
-                <th className="py-3 px-4 min-w-[220px]">Product(s)</th>
-                <th className="py-3 px-3.5 w-[110px] whitespace-nowrap">Date</th>
+                <th className="py-3 px-4 min-w-[220px]">Product Name</th>
+                <th className="py-3 px-3.5 w-[120px] whitespace-nowrap">Date</th>
                 <th className="py-3 px-3.5 w-[160px] whitespace-nowrap">Warehouse</th>
                 <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap">Quantity</th>
                 <th className="py-3 px-3 w-[100px] text-center whitespace-nowrap">Priority</th>
                 <th className="py-3 px-3.5 w-[130px] text-center whitespace-nowrap">Status</th>
-                <th className="py-3 px-4 w-[90px] text-right whitespace-nowrap">Actions</th>
+                <th className="py-3 px-4 w-[90px] text-center whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1386,7 +1386,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                         <span>#{req.requestNumber}</span>
                       </td>
 
-                      {/* 2. Product(s) */}
+                      {/* 2. Product Name */}
                       <td className="py-3.5 px-4 text-slate-800">
                         {firstItem ? (
                           <div className="min-w-0">
@@ -1413,18 +1413,21 @@ export const PurchaseRequestsPage: React.FC = () => {
 
                       {/* 3. Request Date */}
                       <td className="py-3.5 px-3.5 text-slate-600 font-medium whitespace-nowrap">
-                        {formatDate(req.createdAt)}
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{formatDate(req.createdAt)}</span>
+                        </div>
                       </td>
 
                       {/* 4. Warehouse Name */}
                       <td className="py-3.5 px-3.5 text-slate-800 font-medium">
                         <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[140px]" title={req.warehouseName}>{req.warehouseName}</span>
+                          <span className="truncate max-w-[180px]" title={req.warehouseName}>{req.warehouseName}</span>
                         </div>
                       </td>
 
-                      {/* 6. Quantity */}
+                      {/* 5. Quantity */}
                       <td className="py-3.5 px-3.5 text-right font-mono whitespace-nowrap">
                         {itemsCount === 1 && firstItem ? (
                           <span className="font-bold text-slate-800 text-xs tabular-nums">
@@ -1459,9 +1462,9 @@ export const PurchaseRequestsPage: React.FC = () => {
                       </td>
 
                       {/* 8. Actions */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div
-                          className="flex items-center justify-end gap-1.5"
+                          className="flex items-center justify-center gap-1.5"
                           onClick={e => e.stopPropagation()}
                         >
                           <button
