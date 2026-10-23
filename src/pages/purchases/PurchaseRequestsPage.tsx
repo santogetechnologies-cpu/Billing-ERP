@@ -26,7 +26,6 @@ import {
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { canManageBarcodeOverride } from '../../utils/rbac';
-import { StatCard } from '../../components/common/StatCard';
 import { Modal } from '../../components/common/Modal';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { formatNumber, formatDate } from '../../utils/formatters';
@@ -229,23 +228,7 @@ export const PurchaseRequestsPage: React.FC = () => {
     return filteredRequests.slice(start, start + pageSize);
   }, [filteredRequests, currentPage, pageSize]);
 
-  // Statistics
-  const pendingCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Pending Approval' || r.status === 'Pending Review').length,
-    [purchaseRequests]
-  );
-  const underReviewCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Under Review' || r.status === 'Clarification Requested').length,
-    [purchaseRequests]
-  );
-  const approvedCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Approved').length,
-    [purchaseRequests]
-  );
-  const orderedOrReceivedCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Ordered' || r.status === 'Partially Received').length,
-    [purchaseRequests]
-  );
+
 
   // Navigation Handlers
   const handleViewDetails = (reqId: string) => {
@@ -1218,46 +1201,6 @@ export const PurchaseRequestsPage: React.FC = () => {
             </button>
           )}
         </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Pending Review"
-          value={formatNumber(pendingCount)}
-          subtitle="Awaiting purchase manager review"
-          icon={Clock}
-          iconBgColor="bg-amber-50"
-          iconTextColor="text-amber-600"
-          onClick={() => { setStatusFilter('Pending Review'); setCurrentPage(1); }}
-        />
-        <StatCard
-          title="Under Review / Clarification"
-          value={formatNumber(underReviewCount)}
-          subtitle="In procurement evaluation"
-          icon={HelpCircle}
-          iconBgColor="bg-indigo-50"
-          iconTextColor="text-indigo-600"
-          onClick={() => { setStatusFilter('Pending Review'); setCurrentPage(1); }}
-        />
-        <StatCard
-          title="Approved (Ready for PO)"
-          value={formatNumber(approvedCount)}
-          subtitle="Authorized for vendor purchase order"
-          icon={CheckCircle2}
-          iconBgColor="bg-emerald-50"
-          iconTextColor="text-emerald-600"
-          onClick={() => { setStatusFilter('Approved'); setCurrentPage(1); }}
-        />
-        <StatCard
-          title="Ordered & In Transit"
-          value={formatNumber(orderedOrReceivedCount)}
-          subtitle="Active supplier purchase orders"
-          icon={Truck}
-          iconBgColor="bg-blue-50"
-          iconTextColor="text-blue-600"
-          onClick={() => navigate('/purchases/orders')}
-        />
       </div>
 
       {/* Filters & Search Toolbar */}
