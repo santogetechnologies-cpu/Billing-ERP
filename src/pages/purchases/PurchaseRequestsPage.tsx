@@ -36,6 +36,15 @@ import {
   PurchaseRequestPriority
 } from '../../types';
 
+const STATUS_TABS = [
+  'All',
+  'Pending Review',
+  'Approved',
+  'Ordered',
+  'Completed',
+  'Rejected'
+] as const;
+
 export const PurchaseRequestsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -79,6 +88,8 @@ export const PurchaseRequestsPage: React.FC = () => {
   const [warehouseFilter, setWarehouseFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 10;
 
   // Fallback direct request fetcher for direct deep links / page reloads
   const [directFetchedRequest, setDirectFetchedRequest] = useState<PurchaseRequest | null>(null);
@@ -173,7 +184,18 @@ export const PurchaseRequestsPage: React.FC = () => {
     return purchaseRequests.filter(req => {
       if (statusFilter !== 'All') {
         if (statusFilter === 'Pending Approval' || statusFilter === 'Pending Review') {
-          if (req.status !== 'Pending Approval' && req.status !== 'Pending Review') return false;
+          if (
+            req.status !== 'Pending Approval' &&
+            req.status !== 'Pending Review' &&
+            req.status !== 'Under Review' &&
+            req.status !== 'Clarification Requested'
+          ) {
+            return false;
+          }
+        } else if (statusFilter === 'Ordered') {
+          if (req.status !== 'Ordered' && req.status !== 'Partially Received') {
+            return false;
+          }
         } else if (req.status !== statusFilter) {
           return false;
         }
@@ -192,6 +214,20 @@ export const PurchaseRequestsPage: React.FC = () => {
       return true;
     });
   }, [purchaseRequests, statusFilter, warehouseFilter, priorityFilter, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
+
+  // Clamping page if count shrinks
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginatedRequests = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredRequests.slice(start, start + pageSize);
+  }, [filteredRequests, currentPage, pageSize]);
 
   // Statistics
   const pendingCount = useMemo(
@@ -1193,7 +1229,7 @@ export const PurchaseRequestsPage: React.FC = () => {
           icon={Clock}
           iconBgColor="bg-amber-50"
           iconTextColor="text-amber-600"
-          onClick={() => setStatusFilter('Pending Review')}
+          onClick={() => { setStatusFilter('Pending Review'); setCurrentPage(1); }}
         />
         <StatCard
           title="Under Review / Clarification"
@@ -1202,7 +1238,7 @@ export const PurchaseRequestsPage: React.FC = () => {
           icon={HelpCircle}
           iconBgColor="bg-indigo-50"
           iconTextColor="text-indigo-600"
-          onClick={() => setStatusFilter('Under Review')}
+          onClick={() => { setStatusFilter('Pending Review'); setCurrentPage(1); }}
         />
         <StatCard
           title="Approved (Ready for PO)"
@@ -1211,7 +1247,7 @@ export const PurchaseRequestsPage: React.FC = () => {
           icon={CheckCircle2}
           iconBgColor="bg-emerald-50"
           iconTextColor="text-emerald-600"
-          onClick={() => setStatusFilter('Approved')}
+          onClick={() => { setStatusFilter('Approved'); setCurrentPage(1); }}
         />
         <StatCard
           title="Ordered & In Transit"
@@ -1233,7 +1269,7 @@ export const PurchaseRequestsPage: React.FC = () => {
             <WarehouseIcon className="w-3.5 h-3.5 text-slate-500" />
             <select
               value={warehouseFilter}
-              onChange={e => setWarehouseFilter(e.target.value)}
+              onChange={e => { setWarehouseFilter(e.target.value); setCurrentPage(1); }}
               className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer pr-1"
             >
               <option value="All">All Warehouses</option>
@@ -1250,7 +1286,7 @@ export const PurchaseRequestsPage: React.FC = () => {
             <Filter className="w-3.5 h-3.5 text-slate-500" />
             <select
               value={priorityFilter}
-              onChange={e => setPriorityFilter(e.target.value)}
+              onChange={e => { setPriorityFilter(e.target.value); setCurrentPage(1); }}
               className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer pr-1"
             >
               <option value="All">All Priorities</option>
@@ -1267,27 +1303,34 @@ export const PurchaseRequestsPage: React.FC = () => {
               type="text"
               placeholder="Search by request #, product name, requester..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
             />
           </div>
         </div>
 
         {/* Row 2: Status Segmented Tabs */}
-        <div className="flex items-center p-1 bg-slate-100 rounded-xl overflow-x-auto">
-          {['All', 'Pending Review', 'Under Review', 'Clarification Requested', 'Approved', 'Ordered', 'Partially Received', 'Completed', 'Rejected'].map(st => (
-            <button
-              key={st}
-              onClick={() => setStatusFilter(st)}
-              className={`px-3 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-                statusFilter === st
-                  ? 'bg-white text-indigo-600 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {st}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl border border-slate-200/60">
+          {STATUS_TABS.map(st => {
+            const isActive = statusFilter === st;
+            return (
+              <button
+                key={st}
+                type="button"
+                onClick={() => {
+                  setStatusFilter(st);
+                  setCurrentPage(1);
+                }}
+                className={`flex-1 sm:flex-initial min-w-[85px] sm:min-w-0 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap text-center cursor-pointer ${
+                  isActive
+                    ? 'bg-white text-indigo-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                }`}
+              >
+                {st}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1296,23 +1339,24 @@ export const PurchaseRequestsPage: React.FC = () => {
       {/* ========================================================================= */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs min-w-[980px]">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                <th className="py-3 px-4">Request Number</th>
-                <th className="py-3 px-4">Request Date</th>
-                <th className="py-3 px-4">Warehouse Name</th>
-                <th className="py-3 px-4">Requested By</th>
-                <th className="py-3 px-4 text-center whitespace-nowrap">Total Products</th>
-                <th className="py-3 px-4 text-center">Priority</th>
-                <th className="py-3 px-4 text-center">Request Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-3 px-4 w-[140px] whitespace-nowrap">Request #</th>
+                <th className="py-3 px-3.5 w-[110px] whitespace-nowrap">Date</th>
+                <th className="py-3 px-3.5 w-[150px] whitespace-nowrap">Warehouse</th>
+                <th className="py-3 px-3.5 w-[150px] whitespace-nowrap">Requester</th>
+                <th className="py-3 px-4 min-w-[200px]">Product(s)</th>
+                <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap">Quantity</th>
+                <th className="py-3 px-3 w-[100px] text-center whitespace-nowrap">Priority</th>
+                <th className="py-3 px-3.5 w-[130px] text-center whitespace-nowrap">Status</th>
+                <th className="py-3 px-4 w-[110px] text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredRequests.length === 0 ? (
+              {paginatedRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <ClipboardList className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-700">No purchase requests found</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1323,10 +1367,14 @@ export const PurchaseRequestsPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map(req => {
+                paginatedRequests.map(req => {
                   const isUrgent = req.priority === 'Urgent';
                   const isHigh = req.priority === 'High';
-                  const totalProducts = req.items?.length || 0;
+                  const itemsCount = req.items?.length || 0;
+                  const firstItem = req.items?.[0];
+                  const otherItemsCount = itemsCount - 1;
+                  const totalRequestedQty = req.items?.reduce((sum, it) => sum + (it.requestedQty || 0), 0) || 0;
+                  const firstUnit = firstItem?.unit || 'Piece';
 
                   return (
                     <tr
@@ -1335,72 +1383,105 @@ export const PurchaseRequestsPage: React.FC = () => {
                       className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                     >
                       {/* 1. Request Number */}
-                      <td className="py-3.5 px-4 font-mono font-bold text-indigo-600">
-                        <span>{req.requestNumber}</span>
+                      <td className="py-3.5 px-4 font-mono font-bold text-indigo-600 whitespace-nowrap">
+                        <span>#{req.requestNumber}</span>
                       </td>
 
                       {/* 2. Request Date */}
-                      <td className="py-3.5 px-4 text-slate-600 font-medium whitespace-nowrap">
+                      <td className="py-3.5 px-3.5 text-slate-600 font-medium whitespace-nowrap">
                         {formatDate(req.createdAt)}
                       </td>
 
                       {/* 3. Warehouse Name */}
-                      <td className="py-3.5 px-4 text-slate-800 font-medium">
-                        <div className="flex items-center gap-1.5">
+                      <td className="py-3.5 px-3.5 text-slate-800 font-medium">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{req.warehouseName}</span>
+                          <span className="truncate max-w-[140px]" title={req.warehouseName}>{req.warehouseName}</span>
                         </div>
                       </td>
 
                       {/* 4. Requested By */}
-                      <td className="py-3.5 px-4 text-slate-800">
-                        <div>
-                          <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+                      <td className="py-3.5 px-3.5 text-slate-800">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 font-semibold text-slate-900 truncate">
                             <UserIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span>{req.requesterName}</span>
+                            <span className="truncate max-w-[130px]" title={req.requesterName}>{req.requesterName}</span>
                           </div>
                           {req.requesterRole && (
-                            <span className="text-[10px] text-slate-500 block pl-5">
+                            <span className="text-[10px] text-slate-500 block pl-5 truncate max-w-[130px]">
                               {req.requesterRole}
                             </span>
                           )}
                         </div>
                       </td>
 
-                      {/* 5. Total Products */}
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                          {totalProducts} {totalProducts === 1 ? 'Product' : 'Products'}
-                        </span>
+                      {/* 5. Product(s) */}
+                      <td className="py-3.5 px-4 text-slate-800">
+                        {firstItem ? (
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-semibold text-slate-900 truncate max-w-[200px]" title={firstItem.productName}>
+                                {firstItem.productName}
+                              </span>
+                              {otherItemsCount > 0 && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 whitespace-nowrap">
+                                  +{otherItemsCount} more
+                                </span>
+                              )}
+                            </div>
+                            {firstItem.sku && (
+                              <span className="font-mono text-[10px] text-slate-500 block truncate">
+                                SKU: {firstItem.sku}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">No products</span>
+                        )}
                       </td>
 
-                      {/* 6. Priority */}
-                      <td className="py-3.5 px-4 text-center">
+                      {/* 6. Quantity */}
+                      <td className="py-3.5 px-3.5 text-right font-mono whitespace-nowrap">
+                        {itemsCount === 1 && firstItem ? (
+                          <span className="font-bold text-slate-800 text-xs tabular-nums">
+                            {formatNumber(firstItem.requestedQty)} {firstUnit}
+                          </span>
+                        ) : itemsCount > 1 ? (
+                          <div>
+                            <span className="font-bold text-slate-800 text-xs tabular-nums">
+                              {formatNumber(totalRequestedQty)} Units
+                            </span>
+                            <span className="text-[10px] text-slate-400 block tabular-nums">
+                              Across {itemsCount} items
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+
+                      {/* 7. Priority */}
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
                         <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            isUrgent
-                              ? 'bg-rose-100 text-rose-700 border border-rose-200'
-                              : isHigh
-                              ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                              : 'bg-slate-100 text-slate-700 border border-slate-200/60'
-                          }`}
+                          className={"inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border " + (isUrgent ? "bg-rose-50 text-rose-700 border-rose-200" : isHigh ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-700 border-slate-200")}
                         >
                           {req.priority}
                         </span>
                       </td>
 
-                      {/* 7. Request Status */}
-                      <td className="py-3.5 px-4 text-center">
+                      {/* 8. Request Status */}
+                      <td className="py-3.5 px-3.5 text-center whitespace-nowrap">
                         <StatusBadge status={req.status} size="sm" />
                       </td>
 
-                      {/* 8. Actions */}
-                      <td className="py-3.5 px-4 text-right">
+                      {/* 9. Actions */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div
                           className="flex items-center justify-end gap-1.5"
                           onClick={e => e.stopPropagation()}
                         >
                           <button
+                            type="button"
                             onClick={() => handleViewDetails(req.id)}
                             className="px-3 py-1.5 text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                             title="View Details"
@@ -1417,6 +1498,43 @@ export const PurchaseRequestsPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {filteredRequests.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-slate-50/70 border-t border-slate-200">
+            <span className="text-xs text-slate-500">
+              Showing <span className="font-semibold text-slate-700">{(currentPage - 1) * pageSize + 1}</span> to{' ' }
+              <span className="font-semibold text-slate-700">
+                {Math.min(currentPage * pageSize, filteredRequests.length)}
+              </span>{' ' }
+              of <span className="font-semibold text-slate-700">{filteredRequests.length}</span> purchase requests
+            </span>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
+                >
+                  Previous
+                </button>
+                <span className="text-xs font-bold px-2 text-slate-700 font-mono">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action Modals Rendered below */}
