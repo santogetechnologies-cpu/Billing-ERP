@@ -49,7 +49,7 @@ export const NewProductPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
-  const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory } = useERP();
+  const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory, batches } = useERP();
 
   // Custom Category Modal State
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
@@ -122,6 +122,8 @@ export const NewProductPage: React.FC = () => {
 
   // Step 3: Inventory
   const [openingStock, setOpeningStock] = useState<string>('');
+  const [batchNumber, setBatchNumber] = useState<string>('');
+  const [expiryDate, setExpiryDate] = useState<string>('');
   const [reorderLevel, setReorderLevel] = useState<string>('');
   const [warehouse, setWarehouse] = useState('');
   const [rack, setRack] = useState('');
@@ -235,6 +237,10 @@ export const NewProductPage: React.FC = () => {
         setWarehouse(existing.warehouse || warehouses[0]?.code || '');
         setRack(existing.rack || '');
 
+        const productBatch = batches?.find(b => b.productId === existing.id);
+        setBatchNumber(existing.batchNumber || productBatch?.batchNumber || '');
+        setExpiryDate(existing.expiryDate ? existing.expiryDate.split('T')[0] : (productBatch?.expiryDate ? productBatch.expiryDate.split('T')[0] : ''));
+
         setPrimaryUnit(existing.primaryUnit || 'Piece');
         setSecondaryUnit(existing.secondaryUnit || '');
         setConversionFactor(existing.conversionFactor !== undefined && existing.conversionFactor !== null ? String(existing.conversionFactor) : '1');
@@ -250,7 +256,7 @@ export const NewProductPage: React.FC = () => {
         setCompletedSteps(new Set([1, 2, 3, 4, 5, 6]));
       }
     }
-  }, [id, isEditMode, products, warehouses]);
+  }, [id, isEditMode, products, warehouses, batches]);
 
   // Auto-generate SKU & Barcode when Name or Category changes (only in create mode when empty)
   useEffect(() => {
@@ -379,6 +385,26 @@ export const NewProductPage: React.FC = () => {
 
       if (reorderLevel !== '' && (isNaN(Number(reorderLevel)) || Number(reorderLevel) < 0)) {
         errs.reorderLevel = 'Warning limit must be a valid non-negative number.';
+      }
+
+      // Mandatory Batch Number & Expiry Date for new products
+      if (!isEditMode) {
+        if (!batchNumber || !batchNumber.trim()) {
+          errs.batchNumber = 'Batch number is required.';
+        }
+        if (!expiryDate || !expiryDate.trim()) {
+          errs.expiryDate = 'Expiry date is required.';
+        } else if (isNaN(new Date(expiryDate).getTime())) {
+          errs.expiryDate = 'Please select a valid expiry date.';
+        }
+      } else {
+        if (batchNumber.trim() && !expiryDate.trim()) {
+          errs.expiryDate = 'Expiry date is required when batch number is provided.';
+        } else if (!batchNumber.trim() && expiryDate.trim()) {
+          errs.batchNumber = 'Batch number is required when expiry date is provided.';
+        } else if (expiryDate.trim() && isNaN(new Date(expiryDate).getTime())) {
+          errs.expiryDate = 'Please select a valid expiry date.';
+        }
       }
     }
 
@@ -529,9 +555,11 @@ export const NewProductPage: React.FC = () => {
         conversionFactor: Number(conversionFactor) || 1,
         warehouse: warehouse || (warehouses[0]?.code || 'WH-MAIN'),
         rack: rack.trim(),
-        batchTracking,
+        batchNumber: batchNumber.trim(),
+        expiryDate: expiryDate.trim(),
+        batchTracking: true,
         serialTracking,
-        expiryTracking,
+        expiryTracking: true,
         isActive
       };
 
@@ -1324,6 +1352,74 @@ export const NewProductPage: React.FC = () => {
                 <span className="text-[10px] text-slate-500 mt-1 block">
                   Calculated as: Opening Stock ({numOpeningStock}) × {numCostPrice > 0 ? 'Total Cost per Item' : 'Buying Price'} ({formatCurrency(effectiveCostPrice)})
                 </span>
+              </div>
+            </div>
+
+            {/* Batch & Expiry Details */}
+            <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
+              <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
+                <Calendar className="w-4 h-4 text-blue-600" />
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900">Batch & Expiry Details</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Mandatory batch/lot number and expiration tracking for inventory safety.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Batch Number */}
+                <div className="flex flex-col">
+                  <label htmlFor="field-batchNumber" className="block font-medium text-slate-700 mb-1">
+                    Batch Number <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="field-batchNumber"
+                    type="text"
+                    value={batchNumber}
+                    onChange={e => {
+                      setBatchNumber(e.target.value);
+                      if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
+                    }}
+                    placeholder="Enter batch number (e.g. BAT-2026-001)"
+                    className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-mono font-bold text-slate-900 text-xs ${
+                      errors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
+                    }`}
+                  />
+                  {errors.batchNumber ? (
+                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.batchNumber}</p>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Identification lot or batch code printed on the item package.
+                    </p>
+                  )}
+                </div>
+
+                {/* Expiry Date */}
+                <div className="flex flex-col">
+                  <label htmlFor="field-expiryDate" className="block font-medium text-slate-700 mb-1">
+                    Expiry Date <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="field-expiryDate"
+                    type="date"
+                    value={expiryDate}
+                    onChange={e => {
+                      setExpiryDate(e.target.value);
+                      if (errors.expiryDate) setErrors(prev => ({ ...prev, expiryDate: '' }));
+                    }}
+                    className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-mono text-slate-900 text-xs cursor-pointer ${
+                      errors.expiryDate ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
+                    }`}
+                  />
+                  {errors.expiryDate ? (
+                    <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.expiryDate}</p>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Final expiration date after which the item cannot be legally or safely sold.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>

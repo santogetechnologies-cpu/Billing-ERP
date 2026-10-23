@@ -151,3 +151,48 @@ export function validateCartStock(
   };
 }
 
+/**
+ * Checks whether an expiry date has already passed.
+ */
+export function isBatchExpired(expiryDate?: string | null): boolean {
+  if (!expiryDate || !expiryDate.trim()) return false;
+  const exp = new Date(expiryDate);
+  if (isNaN(exp.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return exp < today;
+}
+
+/**
+ * Calculates batch lifecycle status based on expiry date and stock level.
+ */
+export function calculateBatchStatus(
+  expiryDate?: string | null,
+  qty?: number | null
+): 'Active' | 'Expiring Soon' | 'Expired' | 'Low Stock' {
+  if (!expiryDate || !expiryDate.trim()) {
+    return (Number(qty) || 0) <= 0 ? 'Low Stock' : 'Active';
+  }
+  const exp = new Date(expiryDate);
+  if (isNaN(exp.getTime())) {
+    return (Number(qty) || 0) <= 0 ? 'Low Stock' : 'Active';
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (exp < today) {
+    return 'Expired';
+  }
+
+  const thirtyDaysLater = new Date(today);
+  thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+  if (exp <= thirtyDaysLater) {
+    return 'Expiring Soon';
+  }
+
+  if ((Number(qty) || 0) <= 0) {
+    return 'Low Stock';
+  }
+
+  return 'Active';
+}

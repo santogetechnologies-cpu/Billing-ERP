@@ -14,6 +14,7 @@ import {
   Layers,
   Sparkles,
   CheckCircle2,
+  Calendar,
   X
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
@@ -481,6 +482,37 @@ export const ProductListPage: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {/* Batch & Expiry Information */}
+            {(selectedProduct.batchNumber || selectedProduct.expiryDate || selectedProduct.batchTracking) && (
+              <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-200/80 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-blue-900 block text-xs flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                    Batch & Expiry Details
+                  </span>
+                  {selectedProduct.expiryDate && (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      new Date(selectedProduct.expiryDate) < new Date()
+                        ? 'bg-rose-100 text-rose-700'
+                        : 'bg-emerald-100 text-emerald-700'
+                    }`}>
+                      {new Date(selectedProduct.expiryDate) < new Date() ? 'Expired' : 'Active'}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 text-xs text-slate-700">
+                  <p>
+                    <span className="text-slate-500 block text-[10px]">Batch Number:</span>
+                    <span className="font-mono font-bold text-slate-900">{selectedProduct.batchNumber || 'Assigned'}</span>
+                  </p>
+                  <p>
+                    <span className="text-slate-500 block text-[10px]">Expiry Date:</span>
+                    <span className="font-mono font-bold text-slate-900">{selectedProduct.expiryDate ? formatDate(selectedProduct.expiryDate) : 'Not specified'}</span>
+                  </p>
+                </div>
+              </div>
+            )}
 
             {selectedProduct.description && (
               <div>

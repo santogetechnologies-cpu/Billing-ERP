@@ -53,7 +53,7 @@ import { notificationService, sortNotifications } from '../services/notification
 import { barcodeService } from '../services/barcodeService';
 import { stockAlertService } from '../services/stockAlertService';
 import { normalizeUnitKey } from '../data/unitsData';
-import { validateStockAvailability, StockValidationResult } from '../utils/inventoryUtils';
+import { validateStockAvailability, StockValidationResult, isBatchExpired } from '../utils/inventoryUtils';
 
 
 const getSavedInitialTheme = (): string => {
@@ -720,6 +720,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
+    try {
+      const updatedBatches = await productService.getBatches(company.id);
+      if (updatedBatches) setBatches(dedupeById(updatedBatches));
+    } catch (e) {
+      console.warn('Failed to refresh batches:', e);
+    }
+
     addAuditLog('Created Product', 'Products', newProduct.name, 'None', `SKU: ${newProduct.sku} | Stock: ${newProduct.openingStock}`);
     const nextList = [newProduct, ...products.filter(p => p.id !== newProduct.id)];
     checkStockAlerts(nextList);
@@ -739,6 +746,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return nextList;
     });
+    try {
+      const updatedBatches = await productService.getBatches(company.id);
+      if (updatedBatches) setBatches(dedupeById(updatedBatches));
+    } catch (e) {
+      console.warn('Failed to refresh batches:', e);
+    }
+
     if (nextList.length > 0) {
       checkStockAlerts(nextList);
     }
@@ -908,6 +922,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const availableStock = getWarehouseStock(whId, prodId);
       const prod = products.find(p => p.id === prodId);
       const unit = req.unit || prod?.primaryUnit || 'Pcs';
+
+      // Enforce expiry rules: Expired stock cannot be sold
+      const productBatches = batches.filter(b => b.productId === prodId);
+      if (productBatches.length > 0 && productBatches.every(b => b.status === 'Expired' || isBatchExpired(b.expiryDate))) {
+        return {
+          valid: false,
+          errorMessage: `Product "${prod?.name || 'Item'}" stock has expired and cannot be sold. Please quarantine or write-off expired batches.`,
+          availableStock: 0,
+          unit
+        };
+      }
 
       const result = validateStockAvailability(availableStock, req.qty, unit);
       if (!result.valid) {

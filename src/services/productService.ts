@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { Product, Batch, SerialNumber, Unit, UnitConversion, ProductDeletionEligibility } from '../types';
 import { UNIVERSAL_BUILTIN_UNITS, isBuiltInUnit, isCustomUnit, normalizeUnitKey } from '../data/unitsData';
 import { assertCallerPermission } from '../utils/rbac';
+import { calculateBatchStatus } from '../utils/inventoryUtils';
 
 export const productService = {
   // Fetch products with optional search, category, and pagination
@@ -33,8 +34,30 @@ export const productService = {
       return [];
     }
 
+    // Load active product batches for batch and expiry details
+    const batchesByProduct = new Map<string, any>();
+    try {
+      const { data: batchesData } = await supabase
+        .from('product_batches')
+        .select('*')
+        .eq('company_id', finalCompanyId)
+        .order('created_at', { ascending: false });
+
+      if (batchesData) {
+        batchesData.forEach(b => {
+          if (!batchesByProduct.has(b.product_id)) {
+            batchesByProduct.set(b.product_id, b);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Error fetching product batches map:', e);
+    }
+
     // Map database snake_case to frontend camelCase
-    return (data || []).map(p => ({
+    return (data || []).map(p => {
+      const primaryBatch = batchesByProduct.get(p.id);
+      return {
       id: p.id,
       name: p.name,
       code: p.code || '',
@@ -67,16 +90,30 @@ export const productService = {
       batchTracking: Boolean(p.batch_tracking),
       serialTracking: Boolean(p.serial_tracking),
       expiryTracking: Boolean(p.expiry_tracking),
+      batchNumber: primaryBatch?.batch_number || '',
+      expiryDate: primaryBatch?.expiry_date || '',
       isActive: Boolean(p.is_active),
       imageUrl: p.image_url,
       createdAt: p.created_at
-    }));
+    };
+    });
   },
 
   // Create new product atomically
   async createProduct(p: Omit<Product, 'id' | 'createdAt'>, companyId?: string): Promise<Product> {
     // 0. Strict RBAC Enforcement: Only roles with 'products:create' can create new products
     await assertCallerPermission('products', 'create');
+
+    // 1. Mandatory Batch Number and Expiry Date Validation
+    if (!p.batchNumber || !p.batchNumber.trim()) {
+      throw new Error('Batch number is required.');
+    }
+    if (!p.expiryDate || !p.expiryDate.trim()) {
+      throw new Error('Expiry date is required.');
+    }
+    if (isNaN(new Date(p.expiryDate).getTime())) {
+      throw new Error('Please select a valid expiry date.');
+    }
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const dbPayload = {
@@ -109,10 +146,54 @@ export const productService = {
       conversion_factor: p.conversionFactor || 1,
       warehouse: p.warehouse || '',
       rack: p.rack || '',
-      batch_tracking: Boolean(p.batchTracking),
+      batch_tracking: true,
       serial_tracking: Boolean(p.serialTracking),
-      expiry_tracking: Boolean(p.expiryTracking),
+      expiry_tracking: true,
       is_active: p.isActive !== false
+    };
+
+    // Mandatory initial batch registration helper
+    const registerInitialBatch = async (prodId: string) => {
+      if (!p.batchNumber || !p.expiryDate || !prodId) return;
+
+      let whId = p.warehouse;
+      if (whId) {
+        const { data: wh } = await supabase
+          .from('warehouses')
+          .select('id')
+          .eq('company_id', finalCompanyId)
+          .or(`id.eq.${whId.length === 36 ? whId : '00000000-0000-0000-0000-000000000000'},code.eq.${whId}`)
+          .maybeSingle();
+        if (wh) whId = wh.id;
+      }
+
+      if (!whId) {
+        const { data: defWh } = await supabase
+          .from('warehouses')
+          .select('id')
+          .eq('company_id', finalCompanyId)
+          .order('is_default', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (defWh) whId = defWh.id;
+      }
+
+      const batchStatus = calculateBatchStatus(p.expiryDate, p.openingStock);
+      const { error: batchErr } = await supabase.from('product_batches').insert({
+        company_id: finalCompanyId,
+        product_id: prodId,
+        warehouse_id: whId || null,
+        batch_number: p.batchNumber.trim(),
+        expiry_date: p.expiryDate,
+        purchase_date: new Date().toISOString().split('T')[0],
+        cost: p.costPrice || p.purchasePrice || 0,
+        qty: p.openingStock || 0,
+        status: batchStatus
+      });
+
+      if (batchErr) {
+        console.warn('Could not register initial batch record:', batchErr);
+      }
     };
 
     // Try RPC first for 100% database-level atomic transaction rollback
@@ -133,11 +214,14 @@ export const productService = {
       if (!rpcError && parsedRpc && (parsedRpc.id || parsedRpc.product_id || parsedRpc.success)) {
         const prodId = parsedRpc.id || parsedRpc.product_id;
         if (prodId) {
+          await registerInitialBatch(prodId);
           return {
             ...p,
             id: prodId,
             sku: parsedRpc.sku || p.sku,
             barcode: parsedRpc.barcode || p.barcode,
+            batchNumber: p.batchNumber.trim(),
+            expiryDate: p.expiryDate,
             createdAt: parsedRpc.created_at || new Date().toISOString()
           };
         }
@@ -158,7 +242,10 @@ export const productService = {
     }
 
     try {
-      // 1. Barcode registration
+      // 1. Initial Batch Registration (Mandatory batch tracking)
+      await registerInitialBatch(data.id);
+
+      // 2. Barcode registration
       if (p.barcode && data.id) {
         await supabase.from('product_barcodes').insert({
           product_id: data.id,
@@ -169,7 +256,7 @@ export const productService = {
         });
       }
 
-      // 2. Stock balances & transactions if openingStock > 0
+      // 3. Stock balances & transactions if openingStock > 0
       if (p.openingStock > 0 && data.id) {
         let whId = p.warehouse;
         if (whId) {
@@ -208,7 +295,7 @@ export const productService = {
         }
       }
 
-      // 3. Unit conversion registration
+      // 4. Unit conversion registration
       if (p.secondaryUnit && p.conversionFactor && p.conversionFactor > 0) {
         await productService.createConversion({
           fromUnit: p.secondaryUnit,
@@ -226,6 +313,8 @@ export const productService = {
     return {
       ...p,
       id: data.id,
+      batchNumber: p.batchNumber.trim(),
+      expiryDate: p.expiryDate,
       createdAt: data.created_at
     };
   },
@@ -286,6 +375,50 @@ export const productService = {
     if (error) {
       throw new Error(`Database error updating product: ${error.message}`);
     }
+
+    // Sync product batch without creating duplicates
+    if (updates.batchNumber !== undefined || updates.expiryDate !== undefined) {
+      try {
+        const { data: existingBatches } = await supabase
+          .from('product_batches')
+          .select('*')
+          .eq('product_id', id)
+          .eq('company_id', finalCompanyId)
+          .order('created_at', { ascending: false });
+
+        if (existingBatches && existingBatches.length > 0) {
+          const primaryBatch = existingBatches[0];
+          const newBatchNum = updates.batchNumber !== undefined ? updates.batchNumber.trim() : primaryBatch.batch_number;
+          const newExpDate = updates.expiryDate !== undefined ? updates.expiryDate : primaryBatch.expiry_date;
+          const newStatus = calculateBatchStatus(newExpDate, primaryBatch.qty);
+
+          await supabase
+            .from('product_batches')
+            .update({
+              batch_number: newBatchNum,
+              expiry_date: newExpDate,
+              status: newStatus,
+              cost: updates.costPrice !== undefined ? updates.costPrice : primaryBatch.cost
+            })
+            .eq('id', primaryBatch.id);
+        } else if (updates.batchNumber?.trim() && updates.expiryDate?.trim()) {
+          const status = calculateBatchStatus(updates.expiryDate, updates.currentStock || 0);
+          await supabase.from('product_batches').insert({
+            company_id: finalCompanyId,
+            product_id: id,
+            batch_number: updates.batchNumber.trim(),
+            expiry_date: updates.expiryDate,
+            purchase_date: new Date().toISOString().split('T')[0],
+            cost: updates.costPrice || updates.purchasePrice || 0,
+            qty: updates.currentStock || 0,
+            status: status
+          });
+        }
+      } catch (batchErr) {
+        console.warn('Warning updating batch in product_batches:', batchErr);
+      }
+    }
+
     return data;
   },
 

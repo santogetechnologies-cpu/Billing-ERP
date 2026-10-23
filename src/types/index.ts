@@ -95,6 +95,8 @@ export interface Product {
   conversionFactor?: number;
   warehouse: string;
   rack: string;
+  batchNumber?: string;
+  expiryDate?: string;
   batchTracking: boolean;
   serialTracking: boolean;
   expiryTracking: boolean;
