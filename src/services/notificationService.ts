@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { NotificationItem, SalesInvoice, PaymentRecord, CustomerSupportPriority } from '../types';
 import { getAppStorage } from '../utils/storageUtils';
+import { filterSupportedNotificationPayload, hasNotificationColumn } from '../utils/schemaDetector';
 
 const STORAGE_KEY = (cId: string) => `universal_billing_notifications_${cId}`;
 
@@ -117,18 +118,6 @@ export const notificationService = {
     const isStockAlert = (type: string) =>
       type === 'low_stock' || type === 'limited_stock' || type === 'out_of_stock' || type === 'stock_damage';
 
-    const isPRCancellation = (it: NotificationItem) => {
-      if (it.type !== 'purchase_request') return false;
-      const titleLower = (it.title || '').toLowerCase();
-      const messageLower = (it.message || '').toLowerCase();
-      return (
-        titleLower.includes('cancel') ||
-        titleLower.includes('cancelled') ||
-        messageLower.includes('cancelled') ||
-        messageLower.includes('status: cancelled')
-      );
-    };
-
     const isPRCreationOrRoutine = (it: NotificationItem) => {
       if (it.type !== 'purchase_request') return false;
       const titleLower = (it.title || '').toLowerCase();
@@ -199,27 +188,39 @@ export const notificationService = {
     }
 
     // 1. WAREHOUSE MANAGER ROLE RESTRICTION:
-    // A Warehouse Manager MUST ONLY receive notifications from the 5 permitted categories:
-    //   A. Low Stock Alert (low_stock)
-    //   B. Out of Stock Alert (out_of_stock)
-    //   C. Limited Stock Alert (limited_stock)
-    //   D. Purchase Request Cancellation (purchase_request cancellation addressed to this manager)
-    //   E. Stock Damage Alert (stock_damage)
+    // A Warehouse Manager MUST ONLY receive notifications for their assigned warehouses/requests:
+    //   A. Out of Stock Alert (out_of_stock)
+    //   B. Limited Stock Alert (limited_stock, low_stock)
+    //   C. Purchase Request Approved, Rejected, or Cancelled (addressed to submitting manager)
+    //   D. Batch Expiry Alert (expiring_batch - 30 days before expiry)
+    //   E. End-of-Day Expiry Reminder (expiring_batches, eod_expiry)
+    //   F. Stock Damage Alert (stock_damage)
     // Strictly EXCLUDES:
     //   - Customer support, complaints, damages, returns, follow-ups
-    //   - Routine PR creation notifications ("New Purchase Request: PR-...")
-    //   - General purchasing updates
-    //   - Unrelated sales, accounting, user management, or administrative notifications
+    //   - Routine PR creation notifications ("New Purchase Request: PR-...") by others
+    //   - Unrelated sales, POS, invoicing, accounting, or administrative notifications
     if (role === 'Warehouse Manager') {
       if (!userId) return false;
 
-      // Category A, B, C, E: Stock alerts & damage alerts
+      // Category A, B, F: Stock alerts & stock damage
       if (isStockAlert(item.type)) {
         return item.userId === userId;
       }
 
-      // Category D: Purchase Request Cancellation
-      if (isPRCancellation(item) && !isPRCreationOrRoutine(item)) {
+      // Category C: Purchase Request decision notifications (Approved, Rejected, Cancelled)
+      if (item.type === 'purchase_request') {
+        if (item.userId !== userId) return false;
+        // Routine creation notifications or company broadcast PRs never shown to submitting Warehouse Manager
+        if (isPRCreationOrRoutine(item)) return false;
+        return true;
+      }
+
+      // Category D & E: Batch Expiry alerts & End-of-Day Expiry Reminders
+      if (
+        item.type === 'expiring_batch' ||
+        item.type === 'expiring_batches' ||
+        item.type === 'eod_expiry'
+      ) {
         return item.userId === userId;
       }
 
@@ -375,7 +376,12 @@ export const notificationService = {
           'customer_followup',
           'customer_update'
         ];
-        query = query.or(`type.in.(${csTypes.join(',')}),category.in.(${csTypes.join(',')})`);
+        const hasCategory = await hasNotificationColumn('category');
+        if (hasCategory) {
+          query = query.or(`type.in.(${csTypes.join(',')}),category.in.(${csTypes.join(',')})`);
+        } else {
+          query = query.in('type', csTypes);
+        }
       } else if (role === 'Warehouse Manager' && userId) {
         query = query.eq('user_id', userId);
       }
@@ -792,16 +798,48 @@ export const notificationService = {
     }
 
     try {
-      // Try full insert with extended recipient targeting and customer support columns
-      const { data, error } = await supabase
-        .from('notifications')
-        .insert({
+      // Check database-level deduplication if dedupKey is provided
+      if (dedupKey) {
+        try {
+          const hasDedup = await hasNotificationColumn('dedup_key');
+          if (hasDedup) {
+            const { data: existingDb } = await supabase
+              .from('notifications')
+              .select('id, is_read')
+              .eq('company_id', finalCompanyId)
+              .eq('dedup_key', dedupKey)
+              .eq('is_read', false)
+              .maybeSingle();
+
+            if (existingDb?.id) {
+              createdId = existingDb.id;
+              await supabase
+                .from('notifications')
+                .update({
+                  title: notif.title,
+                  message: notif.message,
+                  created_at: createdAt
+                })
+                .eq('id', existingDb.id);
+            }
+          }
+        } catch {}
+      }
+
+      if (!createdId) {
+        const rawPayload = {
           company_id: finalCompanyId,
           user_id: notif.userId || null,
           warehouse_id: notif.warehouseId || null,
           product_id: notif.productId || null,
           customer_id: notif.customerId || null,
-          priority: notif.priority || (notif.type === 'customer_complaint' ? 'High' : 'Normal'),
+          priority:
+            notif.priority ||
+            (notif.type === 'customer_complaint' ||
+            notif.type === 'customer_product_damage' ||
+            notif.type === 'customer_return_request'
+              ? 'High'
+              : 'Normal'),
           category: notif.category || (isCustomerSupportNotification(notif) ? notif.type : null),
           case_id: notif.caseId || null,
           case_status: notif.caseStatus || null,
@@ -814,29 +852,21 @@ export const notificationService = {
           link: calculatedLink,
           is_read: false,
           created_at: createdAt
-        })
-        .select()
-        .single();
+        };
 
-      if (!error && data?.id) {
-        createdId = data.id;
-      } else if (error) {
-        // Fallback for earlier database schema
-        const { data: fbData } = await supabase
+        const safePayload = await filterSupportedNotificationPayload(rawPayload);
+
+        const { data, error } = await supabase
           .from('notifications')
-          .insert({
-            company_id: finalCompanyId,
-            user_id: notif.userId || null,
-            title: notif.title,
-            message: notif.message,
-            type: notif.type,
-            link: calculatedLink,
-            is_read: false,
-            created_at: createdAt
-          })
+          .insert(safePayload)
           .select()
           .single();
-        if (fbData?.id) createdId = fbData.id;
+
+        if (!error && data?.id) {
+          createdId = data.id;
+        } else if (error) {
+          console.warn('Supabase notification insert note:', error);
+        }
       }
     } catch (e) {
       console.warn('Supabase notification insert note:', e);
@@ -865,8 +895,13 @@ export const notificationService = {
       paymentId: notif.paymentId || null,
       invoiceNumber: finalInvoiceNumber,
       paymentNumber: finalPaymentNumber,
-      warehouseName: notif.warehouseName,
-      priority: notif.priority || (notif.type === 'customer_complaint' ? 'High' : 'Normal'),
+      priority:
+        notif.priority ||
+        (notif.type === 'customer_complaint' ||
+        notif.type === 'customer_product_damage' ||
+        notif.type === 'customer_return_request'
+          ? 'High'
+          : 'Normal'),
       category: notif.category || (isCustomerSupportNotification(notif) ? notif.type : undefined),
       customerId: notif.customerId || null,
       customerName: notif.customerName,

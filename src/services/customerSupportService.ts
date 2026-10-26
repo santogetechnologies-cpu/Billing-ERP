@@ -48,14 +48,18 @@ export const customerSupportService = {
         u => u.role === 'Salesperson' && u.accountStatus === 'Enabled'
       );
 
-      if (salespersons.length === 0) {
-        return null;
+      // 1. Explicit ID if provided (strictly blocking non-sales roles like Cashier, Warehouse Manager, etc.)
+      if (explicitSalespersonId) {
+        const isForbiddenRole = users.some(
+          u => u.id === explicitSalespersonId && u.role !== 'Salesperson'
+        );
+        if (!isForbiddenRole) {
+          return explicitSalespersonId;
+        }
       }
 
-      // 1. Explicit ID if it is a valid Salesperson
-      if (explicitSalespersonId) {
-        const found = salespersons.find(sp => sp.id === explicitSalespersonId);
-        if (found) return found.id;
+      if (salespersons.length === 0) {
+        return null;
       }
 
       // 2. Customer's assigned Sales Person if set
@@ -213,11 +217,15 @@ export const customerSupportService = {
       } catch {}
     }
 
-    // High Priority enforcement for Complaints (Requirement 1)
-    const priority: CustomerSupportPriority =
-      payload.category === 'customer_complaint'
-        ? 'High'
-        : payload.priority || 'Normal';
+    // High Priority enforcement for Complaints, Damage/Defects, and Return Requests (Requirements 1, 2, 4)
+    const isHighByDefault =
+      payload.category === 'customer_complaint' ||
+      payload.category === 'customer_product_damage' ||
+      payload.category === 'customer_return_request';
+
+    const priority: CustomerSupportPriority = isHighByDefault
+      ? 'High'
+      : payload.priority || 'Normal';
 
     const caseRecord: CustomerSupportCase = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `case_${Date.now()}`,
@@ -297,12 +305,12 @@ export const customerSupportService = {
 
   /**
    * Dispatches the required notification format according to the 6 Master Prompt categories:
-   * 1. Customer Complaints — HIGH PRIORITY (Title: "Customer Complaint — High Priority", Action: "View Complaint")
-   * 2. Product Damage & Defects (Title: "Product Damage Reported", Action: "Review Issue")
-   * 3. Customer Support Requests (Title: "New Customer Support Request", Action: "Respond to Customer")
-   * 4. Return & Replacement Requests (Title: "Return / Replacement Request", Action: "Review Request")
-   * 5. Pending Customer Follow-ups (Title: "Customer Follow-up Due", Action: "Continue Follow-up")
-   * 6. Customer Updates (Title: "Customer Update", Action: "View Customer")
+   * 1. Customer Complaints — High Priority (Title: "Customer Complaint", Action: "View Complaint")
+   * 2. Product Damage & Defects — High Priority (Title: "Product Damage Report", Action: "View Case")
+   * 3. Customer Support Requests — Normal Priority (Title: "New Customer Support Request", Action: "View Support Request")
+   * 4. Return & Replacement Requests — High Priority (Title: "Return / Replacement Request", Action: "Review Request")
+   * 5. Pending Customer Follow-ups (Title: "Customer Follow-up Required", Action: "View Case")
+   * 6. Customer Updates (Title: "Customer Assigned", Action: "View Customer")
    */
   async dispatchCaseNotification(
     caseRecord: CustomerSupportCase,
@@ -314,28 +322,55 @@ export const customerSupportService = {
 
     switch (caseRecord.category) {
       case 'customer_complaint':
-        title = 'Customer Complaint — High Priority';
+        title = 'Customer Complaint';
+        if (caseRecord.productName) {
+          message = `Customer ${caseRecord.customerName || 'Customer'} reported an issue with ${caseRecord.productName}.`;
+        } else {
+          message = `Customer ${caseRecord.customerName || 'Customer'} reported an issue: ${caseRecord.description || caseRecord.title}`;
+        }
         actionText = 'View Complaint';
         break;
+
       case 'customer_product_damage':
-        title = 'Product Damage Reported';
-        actionText = 'Review Issue';
+        title = 'Product Damage Report';
+        if (caseRecord.productName) {
+          message = `${caseRecord.customerName || 'Customer'} reported damage to ${caseRecord.productName}.`;
+        } else {
+          message = `${caseRecord.customerName || 'Customer'} reported damage: ${caseRecord.description || caseRecord.title}`;
+        }
+        actionText = 'View Case';
         break;
+
       case 'customer_support_request':
         title = 'New Customer Support Request';
-        actionText = 'Respond to Customer';
+        const requestType = caseRecord.title || 'Product Assistance';
+        message = `${caseRecord.customerName || 'Customer'} needs assistance with ${requestType}.`;
+        actionText = 'View Support Request';
         break;
+
       case 'customer_return_request':
         title = 'Return / Replacement Request';
+        if (caseRecord.productName) {
+          message = `${caseRecord.customerName || 'Customer'} requested a return or replacement for ${caseRecord.productName}.`;
+        } else {
+          message = `${caseRecord.customerName || 'Customer'} requested a return or replacement: ${caseRecord.description || caseRecord.title}`;
+        }
         actionText = 'Review Request';
         break;
+
       case 'customer_followup':
-        title = 'Customer Follow-up Due';
-        actionText = 'Continue Follow-up';
+        title = 'Customer Follow-up Required';
+        const caseRef = caseRecord.caseNumber ? `#${caseRecord.caseNumber}` : caseRecord.title;
+        message = `Follow up with ${caseRecord.customerName || 'Customer'} regarding ${caseRef}.`;
+        actionText = 'View Case';
         break;
+
       case 'customer_update':
-        title = 'Customer Update';
-        actionText = 'View Customer';
+        title = 'Customer Assigned';
+        message = caseRecord.caseNumber
+          ? `Customer support case #${caseRecord.caseNumber} for ${caseRecord.customerName || 'Customer'} has been assigned to you.`
+          : `Customer ${caseRecord.customerName || 'Customer'} has been assigned to you.`;
+        actionText = caseRecord.caseNumber ? 'View Case' : 'View Customer';
         break;
     }
 
@@ -527,6 +562,11 @@ export const customerSupportService = {
 
   /**
    * Scans for pending/overdue customer follow-ups and dispatches targeted reminders (Category 5).
+   * Requirement 5:
+   * Title: Customer Follow-up Required
+   * Message: Follow up with [Customer Name] regarding [Case Reference].
+   * Priority: High when overdue; otherwise Normal.
+   * Action: View Case
    * Prevents spam duplicates via stable dedupKey.
    */
   async checkPendingFollowups(
@@ -549,22 +589,26 @@ export const customerSupportService = {
         const cust = customerMap.get(c.customerId);
         const repId = c.assignedSalespersonId || cust?.assignedSalespersonId || null;
 
+        const isOverdue = due.getTime() < now.getTime();
+        const priority: CustomerSupportPriority = isOverdue ? 'High' : 'Normal';
+        const caseRef = c.caseNumber ? `#${c.caseNumber}` : c.title;
+
         const notif = await notificationService.createNotification(
           {
-            title: `Follow-up Due: ${cust?.name || 'Customer'}`,
-            message: `Follow-up scheduled for case #${c.caseNumber} ("${c.title}") is now due.`,
+            title: 'Customer Follow-up Required',
+            message: `Follow up with ${cust?.name || c.customerName || 'Customer'} regarding ${caseRef}.`,
             type: 'customer_followup',
-            priority: 'Normal',
+            priority,
             category: 'customer_followup',
             userId: repId,
             customerId: c.customerId,
-            customerName: cust?.name,
+            customerName: cust?.name || c.customerName,
             caseId: c.id,
             caseNumber: c.caseNumber,
             caseStatus: c.status,
             followupDue: c.followupDue,
             link: `/customers/${c.customerId}?caseId=${c.id}`,
-            actionText: 'Continue Follow-up',
+            actionText: 'View Case',
             dedupKey: `followup_${c.id}_${due.toISOString().split('T')[0]}`
           },
           finalCompanyId
@@ -575,6 +619,41 @@ export const customerSupportService = {
     }
 
     return notificationsGenerated;
+  },
+
+  /**
+   * Dispatches a "Customer Assigned" notification when a customer is assigned or reassigned to a Sales Person.
+   * Requirement 6:
+   * Title: Customer Assigned
+   * Message: Customer [Customer Name] has been assigned to you.
+   * Priority: Normal
+   * Action: View Customer
+   */
+  async notifyCustomerAssigned(
+    customer: { id: string; name: string },
+    salespersonId: string,
+    companyId?: string,
+    isReassigned: boolean = false
+  ): Promise<NotificationItem | null> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const dedupKey = `cust_assigned_${customer.id}_${salespersonId}`;
+
+    return await notificationService.createNotification(
+      {
+        title: 'Customer Assigned',
+        message: `Customer ${customer.name} has been assigned to you.`,
+        type: 'customer_update',
+        priority: 'Normal',
+        category: 'customer_update',
+        userId: salespersonId,
+        customerId: customer.id,
+        customerName: customer.name,
+        link: `/customers/${customer.id}`,
+        actionText: 'View Customer',
+        dedupKey
+      },
+      finalCompanyId
+    );
   },
 
   /**

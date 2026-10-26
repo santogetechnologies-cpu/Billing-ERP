@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useParams, useLocation } from 'react-router-dom';
 import {
   ClipboardList,
@@ -21,15 +21,20 @@ import {
   Package,
   ExternalLink,
   ChevronRight,
-  ScanBarcode
+  ScanBarcode,
+  Edit2,
+  Trash2,
+  X,
+  AlertCircle
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
-import { canManageBarcodeOverride } from '../../utils/rbac';
+import { canManageBarcodeOverride, hasPermission } from '../../utils/rbac';
 import { Modal } from '../../components/common/Modal';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { formatNumber, formatDate } from '../../utils/formatters';
 import { purchaseRequestService } from '../../services/purchaseRequestService';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import {
   PurchaseRequest,
   PurchaseRequestPriority
@@ -64,7 +69,9 @@ export const PurchaseRequestsPage: React.FC = () => {
     suppliers,
     products,
     createPurchaseRequest,
+    updatePurchaseRequest,
     updatePurchaseRequestStatus,
+    deletePurchaseRequest,
     createPurchaseOrderFromRequest,
     recordGoodsReceipt,
     refreshPurchaseRequests
@@ -74,8 +81,9 @@ export const PurchaseRequestsPage: React.FC = () => {
   const isPurchaseManager = profile?.role === 'Purchase Manager' || isExecutive;
   const isWarehouseManager = profile?.role === 'Warehouse Manager';
 
-  // Filters for Main List
+  // Filters for Main List (preserved across views)
   const [statusFilter, setStatusFilter] = useState<string>(() => {
+    if (location.state?.statusFilter) return location.state.statusFilter;
     const raw = searchParams.get('status');
     if (!raw) return 'All';
     const low = raw.toLowerCase();
@@ -84,11 +92,23 @@ export const PurchaseRequestsPage: React.FC = () => {
     }
     return raw;
   });
-  const [warehouseFilter, setWarehouseFilter] = useState<string>('All');
-  const [priorityFilter, setPriorityFilter] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [warehouseFilter, setWarehouseFilter] = useState<string>(
+    location.state?.warehouseFilter || 'All'
+  );
+  const [priorityFilter, setPriorityFilter] = useState<string>(
+    location.state?.priorityFilter || 'All'
+  );
+  const [searchQuery, setSearchQuery] = useState<string>(
+    location.state?.searchQuery || ''
+  );
+  const [currentPage, setCurrentPage] = useState<number>(
+    location.state?.currentPage || 1
+  );
   const pageSize = 10;
+
+  // Delete Confirmation Modal State
+  const [deleteConfirmRequest, setDeleteConfirmRequest] = useState<PurchaseRequest | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Fallback direct request fetcher for direct deep links / page reloads
   const [directFetchedRequest, setDirectFetchedRequest] = useState<PurchaseRequest | null>(null);
@@ -122,10 +142,14 @@ export const PurchaseRequestsPage: React.FC = () => {
   const [receiptQuantities, setReceiptQuantities] = useState<Record<string, number>>({});
   const [receiptWarehouseId, setReceiptWarehouseId] = useState<string>('');
 
-  // New Request Form State (Manual multi-item)
+  // New / Edit Request Form State
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [newReqWarehouseId, setNewReqWarehouseId] = useState<string>('');
   const [newReqPriority, setNewReqPriority] = useState<PurchaseRequestPriority>('Normal');
-  const [newReqReason, setNewReqReason] = useState<string>('');
+  const [newReqReason, setNewReqReason] = useState<string>('Critical inventory replenishment: Items are out of stock');
+  const [newReqReasonError, setNewReqReasonError] = useState<string | null>(null);
+  const newReqReasonInputRef = useRef<HTMLInputElement>(null);
+  const isNewReqReasonEditedRef = useRef<boolean>(false);
   const [newReqDate, setNewReqDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
@@ -214,29 +238,55 @@ export const PurchaseRequestsPage: React.FC = () => {
     });
   }, [purchaseRequests, statusFilter, warehouseFilter, priorityFilter, searchQuery]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
-
-  // Clamping page if count shrinks
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  const paginatedRequests = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredRequests.slice(start, start + pageSize);
-  }, [filteredRequests, currentPage, pageSize]);
+  // Continuous single-page list
+  const paginatedRequests = filteredRequests;
 
 
 
-  // Navigation Handlers
+  // Navigation Handlers (Preserve active filters and search query)
   const handleViewDetails = (reqId: string) => {
-    navigate(`${baseRoute}/${reqId}`);
+    navigate(`${baseRoute}/${reqId}`, {
+      state: {
+        fromSearch: location.search,
+        statusFilter,
+        warehouseFilter,
+        priorityFilter,
+        searchQuery,
+        currentPage
+      }
+    });
   };
 
   const handleBackToList = () => {
-    navigate(baseRoute);
+    const savedSearch = location.state?.fromSearch || '';
+    navigate(`${baseRoute}${savedSearch}`, {
+      state: {
+        statusFilter,
+        warehouseFilter,
+        priorityFilter,
+        searchQuery,
+        currentPage
+      }
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmRequest) return;
+    setIsDeleting(true);
+    try {
+      await deletePurchaseRequest(deleteConfirmRequest.id);
+      await refreshPurchaseRequests();
+      setFeedbackMsg({
+        type: 'success',
+        text: `Purchase request #${deleteConfirmRequest.requestNumber} was deleted successfully.`
+      });
+      setDeleteConfirmRequest(null);
+      handleBackToList();
+    } catch (err: any) {
+      alert(`Failed to delete purchase request: ${err?.message || 'Error occurred'}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Helper to calculate remaining quantity and receiving status for an item
@@ -548,9 +598,12 @@ export const PurchaseRequestsPage: React.FC = () => {
 
   // Open New Manual Request Modal
   const handleOpenNewRequestModal = () => {
+    setEditingRequestId(null);
     setNewReqWarehouseId(warehouses[0]?.id || '');
     setNewReqPriority('Normal');
-    setNewReqReason('');
+    setNewReqReason('Critical inventory replenishment: Items are out of stock');
+    isNewReqReasonEditedRef.current = false;
+    setNewReqReasonError(null);
     const firstProd = products[0];
     if (firstProd) {
       setNewReqItems([
@@ -567,11 +620,41 @@ export const PurchaseRequestsPage: React.FC = () => {
     setFeedbackMsg(null);
   };
 
-  // Submit Manual Multi-Item Request
+  // Open Edit Saved Request Modal
+  const handleOpenEditRequestModal = (req: PurchaseRequest) => {
+    setEditingRequestId(req.id);
+    setNewReqWarehouseId(req.warehouseId);
+    setNewReqPriority(req.priority);
+    // Explicitly preserve the saved replenishment reason
+    setNewReqReason(req.reason || '');
+    isNewReqReasonEditedRef.current = true;
+    setNewReqReasonError(null);
+    if (req.requestedDeliveryDate) {
+      setNewReqDate(req.requestedDeliveryDate);
+    }
+    setNewReqItems(
+      req.items.map(it => ({
+        productId: it.productId,
+        requestedQty: it.requestedQty,
+        estimatedCost: it.estimatedCost || 0
+      }))
+    );
+    setActionType('NEW_REQUEST');
+    setFeedbackMsg(null);
+  };
+
+  // Submit Manual Multi-Item Request (Create or Edit)
   const handleSubmitNewRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newReqItems.length === 0) {
       alert('Please add at least one product item to the request.');
+      return;
+    }
+
+    const trimmedReason = newReqReason.trim();
+    if (!trimmedReason) {
+      setNewReqReasonError('Replenishment Reason is required. Please provide a reason for this purchase request.');
+      newReqReasonInputRef.current?.focus();
       return;
     }
 
@@ -597,24 +680,44 @@ export const PurchaseRequestsPage: React.FC = () => {
         };
       });
 
-      const res = await createPurchaseRequest({
-        warehouseId: wh.id,
-        warehouseName: wh.name,
-        priority: newReqPriority,
-        reason: newReqReason,
-        requestedDeliveryDate: newReqDate,
-        items: itemsPayload
-      });
+      if (editingRequestId) {
+        const res = await updatePurchaseRequest(editingRequestId, {
+          warehouseId: wh.id,
+          warehouseName: wh.name,
+          priority: newReqPriority,
+          reason: trimmedReason,
+          requestedDeliveryDate: newReqDate,
+          items: itemsPayload
+        });
 
-      await refreshPurchaseRequests();
+        await refreshPurchaseRequests();
+        if (targetId) {
+          const updated = await purchaseRequestService.getPurchaseRequestById(targetId);
+          if (updated) setDirectFetchedRequest(updated);
+        }
 
-      setFeedbackMsg({ type: 'success', text: `Purchase request #${res.requestNumber} created successfully!` });
+        setFeedbackMsg({ type: 'success', text: `Purchase request #${res.requestNumber} updated successfully!` });
+      } else {
+        const res = await createPurchaseRequest({
+          warehouseId: wh.id,
+          warehouseName: wh.name,
+          priority: newReqPriority,
+          reason: trimmedReason,
+          requestedDeliveryDate: newReqDate,
+          items: itemsPayload
+        });
+
+        await refreshPurchaseRequests();
+        setFeedbackMsg({ type: 'success', text: `Purchase request #${res.requestNumber} created successfully!` });
+      }
+
       setTimeout(() => {
         setActionType(null);
+        setEditingRequestId(null);
         setIsSubmitting(false);
       }, 1500);
     } catch (err: any) {
-      alert(`Failed to create request: ${err.message}`);
+      alert(`Failed to save request: ${err.message}`);
       setIsSubmitting(false);
     }
   };
@@ -652,9 +755,27 @@ export const PurchaseRequestsPage: React.FC = () => {
       );
     }
 
-    const items = selectedRequest.items || [];
+    const items = sortProductsAZ(selectedRequest.items || []);
     const isUrgent = selectedRequest.priority === 'Urgent';
     const isHigh = selectedRequest.priority === 'High';
+
+    const isEditableStatus = ['Pending Approval', 'Pending Review', 'Clarification Requested', 'Draft'].includes(selectedRequest.status);
+    const canEditRequest =
+      isEditableStatus &&
+      (isExecutive ||
+       isPurchaseManager ||
+       isWarehouseManager ||
+       hasPermission(profile?.role, 'purchases', 'edit') ||
+       hasPermission(profile?.role, 'inventory', 'edit'));
+
+    const isDeletableStatus = !['Ordered', 'Partially Received', 'Received'].includes(selectedRequest.status);
+    const canDeleteRequest =
+      isDeletableStatus &&
+      (isExecutive ||
+       hasPermission(profile?.role, 'purchases', 'delete') ||
+       hasPermission(profile?.role, 'inventory', 'delete') ||
+       (isPurchaseManager && ['Pending Approval', 'Pending Review', 'Clarification Requested', 'Rejected', 'Cancelled', 'Draft'].includes(selectedRequest.status)) ||
+       (isWarehouseManager && ['Pending Approval', 'Pending Review', 'Clarification Requested', 'Draft'].includes(selectedRequest.status)));
 
     return (
       <div className="space-y-6">
@@ -709,6 +830,42 @@ export const PurchaseRequestsPage: React.FC = () => {
 
             {/* Quick Action Matrix for Details Page */}
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={handleBackToList}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                title="Close details view and return to purchase requests list"
+              >
+                <X className="w-3.5 h-3.5 text-slate-500" />
+                <span>Close</span>
+              </button>
+
+              {/* Edit Request Button if allowed */}
+              {canEditRequest && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditRequestModal(selectedRequest)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Edit this request"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Edit</span>
+                </button>
+              )}
+
+              {/* Delete Request Button if allowed */}
+              {canDeleteRequest && (
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmRequest(selectedRequest)}
+                  className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Delete this request"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Delete</span>
+                </button>
+              )}
               {/* Purchase Manager: Pending Approval Actions */}
               {isPurchaseManager && (selectedRequest.status === 'Pending Approval' || selectedRequest.status === 'Pending Review' || selectedRequest.status === 'Under Review' || selectedRequest.status === 'Clarification Requested') && (
                 <>
@@ -742,6 +899,8 @@ export const PurchaseRequestsPage: React.FC = () => {
                   </button>
                 </>
               )}
+
+
 
               {/* Warehouse Manager: Reply to clarification */}
               {isWarehouseManager && selectedRequest.status === 'Clarification Requested' && (
@@ -1154,7 +1313,7 @@ export const PurchaseRequestsPage: React.FC = () => {
           </div>
           <div className="min-w-0">
             <h1 className="text-xl font-bold tracking-tight text-slate-900 truncate sm:whitespace-normal">
-              Purchase Requests & Procurement Workflow
+              Purchase Requests & Pending Requests
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
               Warehouse replenishment requests, approval matrix, purchase orders, and goods receiving (GRN)
@@ -1377,10 +1536,10 @@ export const PurchaseRequestsPage: React.FC = () => {
                         <StatusBadge status={req.status} size="sm" />
                       </td>
 
-                      {/* 8. Actions */}
+                      {/* 8. Actions (Eye / View Only) */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div
-                          className="flex items-center justify-center gap-1.5"
+                          className="flex items-center justify-center"
                           onClick={e => e.stopPropagation()}
                         >
                           <button
@@ -1401,43 +1560,6 @@ export const PurchaseRequestsPage: React.FC = () => {
             </tbody>
           </table>
         </div>
-
-        {/* Pagination Footer */}
-        {filteredRequests.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-slate-50/70 border-t border-slate-200">
-            <span className="text-xs text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{(currentPage - 1) * pageSize + 1}</span> to{' ' }
-              <span className="font-semibold text-slate-700">
-                {Math.min(currentPage * pageSize, filteredRequests.length)}
-              </span>{' ' }
-              of <span className="font-semibold text-slate-700">{filteredRequests.length}</span> purchase requests
-            </span>
-
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
-                >
-                  Previous
-                </button>
-                <span className="text-xs font-bold px-2 text-slate-700 font-mono">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  type="button"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
-                >
-                  Next
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Action Modals Rendered below */}
@@ -1906,9 +2028,14 @@ export const PurchaseRequestsPage: React.FC = () => {
         {/* ========================================================================= */}
         <Modal
           isOpen={actionType === 'NEW_REQUEST'}
-          onClose={() => !isSubmitting && setActionType(null)}
-          title="Create Warehouse Purchase Request"
-          subtitle="Submit replenishment items to the Purchase Manager"
+          onClose={() => {
+            if (!isSubmitting) {
+              setActionType(null);
+              setEditingRequestId(null);
+            }
+          }}
+          title={editingRequestId ? 'Edit Purchase Request' : 'Create Warehouse Purchase Request'}
+          subtitle={editingRequestId ? 'Update replenishment items, quantities, or reason' : 'Submit replenishment items to the Purchase Manager'}
           size="lg"
         >
           <form onSubmit={handleSubmitNewRequest} className="space-y-4 text-xs py-1">
@@ -1976,15 +2103,29 @@ export const PurchaseRequestsPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Reason for Request
+                Replenishment Reason <span className="text-rose-500">*</span>
               </label>
               <input
+                ref={newReqReasonInputRef}
                 type="text"
-                placeholder="e.g. Critical stock shortage or customer project commitments"
+                required
+                placeholder="e.g. Critical inventory replenishment: Items are out of stock"
                 value={newReqReason}
-                onChange={e => setNewReqReason(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                onChange={e => {
+                  isNewReqReasonEditedRef.current = true;
+                  setNewReqReason(e.target.value);
+                  if (newReqReasonError) setNewReqReasonError(null);
+                }}
+                onFocus={e => {
+                  if (!isNewReqReasonEditedRef.current && newReqReason) {
+                    e.currentTarget.select();
+                  }
+                }}
+                className={`w-full px-3 py-2 bg-white border ${newReqReasonError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300'} rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500`}
               />
+              {newReqReasonError && (
+                <p className="text-[11px] text-rose-600 mt-1 font-medium">{newReqReasonError}</p>
+              )}
             </div>
 
             {/* Line Items */}
@@ -2034,11 +2175,20 @@ export const PurchaseRequestsPage: React.FC = () => {
                         }}
                         className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                       >
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} (Stock: {p.currentStock} {p.primaryUnit || 'Pcs'})
-                          </option>
-                        ))}
+                        {sortProductsAZ(products).map(p => {
+                          const pStock = Number(p.currentStock || 0);
+                          const pStatus =
+                            pStock <= 0
+                              ? 'Out of Stock'
+                              : p.reorderLevel !== null && p.reorderLevel !== undefined && pStock <= p.reorderLevel
+                              ? 'Limited'
+                              : 'In Stock';
+                          return (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({pStatus} - {pStock} {p.primaryUnit || 'Piece'})
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
@@ -2086,10 +2236,84 @@ export const PurchaseRequestsPage: React.FC = () => {
                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
                 {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                <span>Submit Purchase Request</span>
+                <span>{editingRequestId ? 'Save Changes' : 'Submit Purchase Request'}</span>
               </button>
             </div>
           </form>
+        </Modal>
+
+        {/* ========================================================================= */}
+        {/* DELETE CONFIRMATION MODAL                                                 */}
+        {/* ========================================================================= */}
+        <Modal
+          isOpen={Boolean(deleteConfirmRequest)}
+          onClose={() => !isDeleting && setDeleteConfirmRequest(null)}
+          title="Delete Purchase Request"
+          size="sm"
+        >
+          {deleteConfirmRequest && (
+            <div className="space-y-4 text-xs">
+              <div className="p-3.5 bg-rose-50 rounded-xl border border-rose-200 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-rose-900">
+                    Are you sure you want to permanently delete purchase request #{deleteConfirmRequest.requestNumber}?
+                  </p>
+                  <p className="text-[11px] text-rose-700">
+                    This action will remove the request and its line items. This operation cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-slate-600">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Request:</span>
+                  <span className="font-mono font-bold text-slate-800">#{deleteConfirmRequest.requestNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Warehouse:</span>
+                  <span className="font-medium text-slate-800">{deleteConfirmRequest.warehouseName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Status:</span>
+                  <span className="font-semibold text-slate-800">{deleteConfirmRequest.status}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Line Items:</span>
+                  <span className="font-mono font-bold text-slate-800">{deleteConfirmRequest.items?.length || 0} items</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setDeleteConfirmRequest(null)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmDelete}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Confirm Delete</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
         </Modal>
       </>
     );

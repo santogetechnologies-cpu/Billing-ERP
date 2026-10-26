@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Printer,
   Download,
@@ -8,37 +8,73 @@ import {
   Receipt,
   Check,
   Building,
-  QrCode
+  QrCode,
+  ArrowLeft,
+  Zap,
+  Settings,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { SalesInvoice } from '../../types';
 import { useERP } from '../../context/ERPContext';
 import { formatCurrency, formatDate, numberToWordsIndian } from '../../utils/formatters';
 import { BarcodeCanvas } from '../barcode/BarcodeCanvas';
 import { ModalCloseButton } from '../common/ModalCloseButton';
+import { directPrintService, ReceiptPaperSize, PrinterConfig } from '../../services/directPrintService';
 
-interface InvoicePrintModalProps {
+export interface InvoicePrintModalProps {
   invoice: SalesInvoice | null;
   isOpen: boolean;
   onClose: () => void;
-  defaultFormat?: 'A4' | 'Thermal';
+  defaultFormat?: 'A4' | 'Thermal' | '80mm' | '58mm';
+  showSuccessBanner?: boolean;
+  preventBackdropClose?: boolean;
+  closeButtonLabel?: string;
 }
 
 export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   invoice,
   isOpen,
   onClose,
-  defaultFormat = 'A4'
+  defaultFormat = 'A4',
+  showSuccessBanner = true,
+  preventBackdropClose = true,
+  closeButtonLabel = 'Close / Back to Billing'
 }) => {
   const { company } = useERP();
-  const [format, setFormat] = useState<'A4' | 'Thermal'>(defaultFormat);
+  
+  // Resolve initial format: if 'Thermal' is passed, default to 80mm or configured size
+  const initialResolvedFormat = useMemo<'A4' | '80mm' | '58mm'>(() => {
+    if (defaultFormat === '58mm') return '58mm';
+    if (defaultFormat === '80mm') return '80mm';
+    if (defaultFormat === 'Thermal') {
+      const cfg = directPrintService.getConfig();
+      return cfg.billPaperSize === '58mm' ? '58mm' : '80mm';
+    }
+    return 'A4';
+  }, [defaultFormat]);
+
+  const [format, setFormat] = useState<'A4' | '80mm' | '58mm'>(initialResolvedFormat);
   const [copied, setCopied] = useState(false);
+  const [isPrintingDirect, setIsPrintingDirect] = useState(false);
+  const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(() => directPrintService.getConfig());
+  const [printFeedback, setPrintFeedback] = useState<{
+    type: 'success' | 'info' | 'error';
+    message: string;
+    printerName?: string;
+  } | null>(null);
+
+  const autoPrintedRef = useRef<string | null>(null);
 
   // Sync format with defaultFormat whenever the modal opens
   useEffect(() => {
     if (isOpen) {
-      setFormat(defaultFormat);
+      setFormat(initialResolvedFormat);
+      const cfg = directPrintService.getConfig();
+      setPrinterConfig(cfg);
+      setPrintFeedback(null);
     }
-  }, [isOpen, defaultFormat]);
+  }, [isOpen, initialResolvedFormat]);
 
   useEffect(() => {
     if (isOpen) {
@@ -48,6 +84,24 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
       };
     }
   }, [isOpen]);
+
+  // Auto-print on save if configured
+  useEffect(() => {
+    if (
+      isOpen &&
+      invoice &&
+      printerConfig.directPrintEnabled &&
+      printerConfig.autoPrintOnSave &&
+      autoPrintedRef.current !== invoice.id
+    ) {
+      autoPrintedRef.current = invoice.id;
+      // Auto-trigger direct print once silently
+      const timer = setTimeout(() => {
+        handlePrint();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, invoice?.id, printerConfig.directPrintEnabled, printerConfig.autoPrintOnSave]);
 
   // Formatted date and time from transaction
   const invoiceDateTime = useMemo(() => {
@@ -96,8 +150,57 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
 
   if (!isOpen || !invoice) return null;
 
-  const handlePrint = () => {
+  // Print Bill handler - Direct print when configured, fallback to browser print, keeps modal open
+  const handlePrint = async () => {
+    if (!invoice) return;
+    setIsPrintingDirect(true);
+    setPrintFeedback(null);
+
+    try {
+      const result = await directPrintService.printReceipt(invoice, company, {
+        paperSize: format,
+        copies: 1
+      });
+
+      if (result.success) {
+        if (result.mode === 'direct') {
+          setPrintFeedback({
+            type: 'success',
+            message: result.message,
+            printerName: result.printerName
+          });
+        } else {
+          setPrintFeedback({
+            type: 'info',
+            message: result.message
+          });
+        }
+      } else {
+        setPrintFeedback({
+          type: 'error',
+          message: result.message || 'Printing failed. Check printer configuration.'
+        });
+      }
+    } catch (err: any) {
+      setPrintFeedback({
+        type: 'error',
+        message: err?.message || 'Error occurred while spooling print job.'
+      });
+    } finally {
+      setIsPrintingDirect(false);
+    }
+  };
+
+  // Download PDF handler - sets document title to invoice number for PDF filename and triggers print dialog
+  const handleDownloadPdf = () => {
+    const originalTitle = document.title;
+    if (invoice?.invoiceNumber) {
+      document.title = `Invoice_${invoice.invoiceNumber}`;
+    }
     window.print();
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1500);
   };
 
   const handleShare = () => {
@@ -109,69 +212,151 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   return (
     <div
       className="invoice-modal-backdrop fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 print:static print:inset-auto print:z-auto print:p-0 print:bg-white print:backdrop-blur-none print:overflow-visible print:block print:w-full print:h-auto"
-      onClick={onClose}
+      onClick={preventBackdropClose ? undefined : onClose}
     >
       <div
-        className="invoice-modal-container relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[95vh] print:max-h-none print:h-auto print:overflow-visible print:border-none print:shadow-none print:rounded-none print:w-full print:max-w-none print:bg-white print:static print:block"
+        className="invoice-modal-container relative w-full max-w-5xl 2xl:max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[95vh] print:max-h-none print:h-auto print:overflow-visible print:border-none print:shadow-none print:rounded-none print:w-full print:max-w-none print:bg-white print:static print:block"
         onClick={e => e.stopPropagation()}
       >
         {/* Top Control Bar (Hidden during print) */}
-        <div className="no-print px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-700">Receipt Format:</span>
-            <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 text-xs">
+        <div className="no-print px-4 sm:px-6 py-2.5 bg-slate-50/95 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+          {/* Left: Format Selector & Direct Print Status */}
+          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">
+              Format:
+            </span>
+            <div className="inline-flex items-center bg-white border border-slate-200/90 rounded-lg p-0.5 text-xs shadow-2xs shrink-0">
               <button
-                onClick={() => setFormat('Thermal')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-colors ${
-                  format === 'Thermal' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-50'
+                type="button"
+                onClick={() => setFormat('58mm')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium text-xs transition-colors cursor-pointer ${
+                  format === '58mm' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
+                title="58mm Compact Thermal Receipt (2 inch)"
               >
-                <Receipt className="w-3.5 h-3.5" />
-                <span>80mm Thermal POS</span>
+                <Receipt className="w-3.5 h-3.5 shrink-0" />
+                <span>58mm Thermal</span>
               </button>
               <button
-                onClick={() => setFormat('A4')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-colors ${
-                  format === 'A4' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-50'
+                type="button"
+                onClick={() => setFormat('80mm')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium text-xs transition-colors cursor-pointer ${
+                  format === '80mm' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
+                title="80mm Standard POS Thermal Receipt (3 inch)"
               >
-                <FileText className="w-3.5 h-3.5" />
+                <Receipt className="w-3.5 h-3.5 shrink-0" />
+                <span>80mm POS</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormat('A4')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium text-xs transition-colors cursor-pointer ${
+                  format === 'A4' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+                title="Standard A4 GST Tax Invoice"
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0" />
                 <span>A4 Tax Invoice</span>
               </button>
             </div>
+
+            {/* Direct Print Status Pill */}
+            <div
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border shrink-0 ${
+                printerConfig.directPrintEnabled
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold'
+                  : 'bg-white text-slate-600 border-slate-200'
+              }`}
+              title={
+                printerConfig.directPrintEnabled
+                  ? `Silent Direct Print Enabled -> ${printerConfig.billPrinterName || 'Default POS Printer'}`
+                  : 'Direct Print Disabled -> Browser preview dialog will be used'
+              }
+            >
+              {printerConfig.directPrintEnabled ? (
+                <>
+                  <Zap className="w-3 h-3 text-emerald-600 fill-emerald-600 shrink-0" />
+                  <span className="hidden sm:inline">Direct Print:</span>
+                  <span className="font-bold truncate max-w-[120px]">
+                    {printerConfig.billPrinterName || 'Active POS'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Printer className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>Browser Print</span>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleShare}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copied Link' : 'Share'}</span>
-            </button>
-
-            <button
-              onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shadow-2xs transition-colors"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-600" />
-              <span>Save as PDF</span>
-            </button>
-
-            <button
-              onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-2xs transition-colors"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print Bill</span>
-            </button>
-
+          {/* Right: Modal Close Button */}
+          <div className="flex items-center gap-2 shrink-0">
             <ModalCloseButton onClose={onClose} autoHandleEscape={true} />
           </div>
         </div>
 
+        {/* Print Feedback Banner (Success / Info / Error) */}
+        {printFeedback && (
+          <div
+            className={`no-print mx-4 sm:mx-6 mt-3 px-4 py-2 rounded-xl flex items-center justify-between gap-3 text-xs shadow-2xs animate-fadeIn ${
+              printFeedback.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                : printFeedback.type === 'info'
+                ? 'bg-blue-50 text-blue-900 border border-blue-200'
+                : 'bg-rose-50 text-rose-900 border border-rose-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {printFeedback.type === 'success' ? (
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : printFeedback.type === 'info' ? (
+                <Printer className="w-4 h-4 text-blue-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span className="font-semibold">{printFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPrintFeedback(null)}
+              className="text-slate-400 hover:text-slate-600 p-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Required Banner: Prominent Database Save Confirmation Banner */}
+        {showSuccessBanner && (
+          <div
+            id="invoice-save-success-banner"
+            className="no-print mx-4 sm:mx-6 mt-3 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-emerald-800 shadow-2xs shrink-0"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+              </span>
+              <div>
+                <p className="font-bold text-xs sm:text-sm text-emerald-950">
+                  Invoice saved successfully
+                </p>
+                <p className="text-[11px] text-emerald-700">
+                  Invoice #{invoice.invoiceNumber} recorded in database &bull; Stock balance updated &bull; Preview is ready
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                #{invoice.invoiceNumber}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Printable Invoice Container */}
-        <div className="invoice-preview-viewport flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-100/60 print:p-0 print:bg-white print:overflow-visible print:block flex justify-center items-start">
+        <div className="invoice-preview-viewport flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-100/60 print:p-0 print:bg-white print:overflow-visible print:block flex flex-col items-center">
           {format === 'A4' ? (
             /* =================== A4 GST TAX INVOICE =================== */
             <div
@@ -407,14 +592,20 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
               </div>
             </div>
           ) : (
-            /* =================== 80mm THERMAL POS RECEIPT =================== */
+            /* =================== 58mm / 80mm THERMAL POS RECEIPT =================== */
             <div
               id="printable-thermal-receipt"
-              className="invoice-document-paper w-72 bg-white p-4 rounded-lg border border-slate-200 shadow-sm text-slate-900 print:border-none print:shadow-none print:rounded-none print:p-0 print:w-72 font-mono text-[11px] leading-tight space-y-2.5 min-h-fit"
+              className={`invoice-document-paper bg-white rounded-lg border border-slate-200 shadow-sm text-slate-900 print:border-none print:shadow-none print:rounded-none print:p-0 font-mono leading-tight space-y-2.5 min-h-fit ${
+                format === '58mm'
+                  ? 'w-56 p-3 text-[10px] print:w-56'
+                  : 'w-72 p-4 text-[11px] print:w-72'
+              }`}
             >
               {/* Company Header */}
               <div className="text-center space-y-1 border-b border-dashed border-slate-300 pb-2.5">
-                <h3 className="font-bold text-sm tracking-tight uppercase text-slate-900">{company.name}</h3>
+                <h3 className={`font-bold tracking-tight uppercase text-slate-900 ${format === '58mm' ? 'text-xs' : 'text-sm'}`}>
+                  {company.name}
+                </h3>
                 {(company.address || company.city) && (
                   <p className="text-[10px] text-slate-600">
                     {[company.address, company.city && company.pincode ? `${company.city} - ${company.pincode}` : (company.city || company.pincode), company.state].filter(Boolean).join(', ')}
@@ -430,8 +621,11 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
                     {[company.phone && `Ph: ${company.phone}`, company.email].filter(Boolean).join(' | ')}
                   </p>
                 )}
-                <div className="text-[11px] font-black uppercase pt-1 tracking-wider text-slate-900">
+                <div className="text-[10px] sm:text-[11px] font-black uppercase pt-1 tracking-wider text-slate-900">
                   *** {invoice.docType === 'pos_invoice' ? 'RETAIL POS CASH RECEIPT' : 'TAX INVOICE RECEIPT'} ***
+                </div>
+                <div className="text-[9px] text-slate-400 uppercase tracking-widest font-sans">
+                  [{format === '58mm' ? '58mm Roll Format' : '80mm Roll Format'}]
                 </div>
               </div>
 
@@ -447,7 +641,9 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span>Customer:</span>
-                  <span className="font-bold truncate max-w-[150px] text-slate-800">{invoice.customerName}</span>
+                  <span className={`font-bold truncate text-slate-800 ${format === '58mm' ? 'max-w-[110px]' : 'max-w-[150px]'}`}>
+                    {invoice.customerName}
+                  </span>
                 </div>
                 {invoice.customerPhone && (
                   <div className="flex justify-between">
@@ -478,7 +674,9 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
                   {(invoice.items || []).map((item, idx) => (
                     <div key={item.id || idx} className="pt-1 text-[10px]">
                       <div className="flex justify-between font-semibold text-slate-900">
-                        <span className="truncate max-w-[170px]">{item.productName}</span>
+                        <span className={`truncate ${format === '58mm' ? 'max-w-[120px]' : 'max-w-[170px]'}`}>
+                          {item.productName}
+                        </span>
                         <span className="font-bold">{formatCurrency(item.total)}</span>
                       </div>
                       <div className="flex justify-between text-[10px] text-slate-500">
@@ -570,7 +768,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
 
               {/* Barcode & Footer */}
               <div className="text-center pt-2 space-y-1.5">
-                <BarcodeCanvas value={invoice.invoiceNumber} height={32} showText={false} />
+                <BarcodeCanvas value={invoice.invoiceNumber} height={format === '58mm' ? 26 : 32} showText={false} />
                 <p className="font-mono text-[9px] text-slate-700">{invoice.invoiceNumber}</p>
                 <p className="text-[10px] text-slate-600 whitespace-pre-line font-sans">
                   {invoice.terms || 'Thank you for your visit! Goods once sold can be exchanged within 7 days with bill.'}
@@ -579,6 +777,75 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
               </div>
             </div>
           )}
+
+        </div>
+
+        {/* Bottom Pinned Footer Actions (Fixed at bottom of modal) */}
+        <div className="no-print w-full px-4 sm:px-6 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 shadow-xs">
+          <div className="text-xs text-slate-600 text-center sm:text-left">
+            <span className="font-bold text-slate-800">Saved Invoice:</span>{' '}
+            <span className="font-mono font-bold text-blue-600">#{invoice.invoiceNumber}</span> &bull; Total:{' '}
+            <span className="font-bold text-slate-900">{formatCurrency(invoice.grandTotal)}</span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Share */}
+            <button
+              type="button"
+              onClick={handleShare}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer shadow-2xs shrink-0"
+              title="Share invoice link"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-slate-500" />}
+              <span>{copied ? 'Copied' : 'Share'}</span>
+            </button>
+
+            {/* Required Action 1: Download PDF */}
+            <button
+              type="button"
+              id="download-pdf-btn"
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 rounded-lg shadow-2xs transition-colors cursor-pointer shrink-0"
+              title="Download or save invoice as PDF"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-600" />
+              <span>Download PDF</span>
+            </button>
+
+            {/* Required Action 2: Print Bill */}
+            <button
+              type="button"
+              id="print-bill-btn"
+              disabled={isPrintingDirect}
+              onClick={handlePrint}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-lg shadow-2xs transition-colors cursor-pointer shrink-0"
+              title={printerConfig.directPrintEnabled ? 'Direct silent print to receipt printer' : 'Print bill to receipt or document printer'}
+            >
+              {isPrintingDirect ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Printing...</span>
+                </>
+              ) : (
+                <>
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>{printerConfig.directPrintEnabled ? 'Direct Print Bill' : 'Print Bill'}</span>
+                </>
+              )}
+            </button>
+
+            {/* Required Action 3: Close / Back to Billing */}
+            <button
+              type="button"
+              id="close-back-to-billing-btn"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-300 hover:bg-slate-200 hover:text-slate-900 rounded-lg shadow-2xs transition-colors cursor-pointer shrink-0"
+              title="Close saved invoice preview and return to billing"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-slate-600" />
+              <span>{closeButtonLabel}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

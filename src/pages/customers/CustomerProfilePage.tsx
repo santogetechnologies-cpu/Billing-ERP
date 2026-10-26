@@ -39,7 +39,7 @@ export const CustomerProfilePage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const caseIdParam = searchParams.get('caseId');
   const { profile } = useAuth();
-  const { customers, updateCustomer, deleteCustomer, salesInvoices, payments, company } = useERP();
+  const { customers, updateCustomer, deleteCustomer, salesInvoices, payments, company, users } = useERP();
 
   const [activeTab, setActiveTab] = useState<'invoices' | 'payments' | 'ledger' | 'returns' | 'support'>('invoices');
   const [selectedInvoice, setSelectedInvoice] = useState<SalesInvoice | null>(null);
@@ -65,9 +65,14 @@ export const CustomerProfilePage: React.FC = () => {
   const [openingBalance, setOpeningBalance] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'Active' | 'Inactive' | 'Blocked'>('Active');
+  const [assignedSalespersonId, setAssignedSalespersonId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const customer = customers.find(c => c.id === id) || customers[0];
+  const assignedSalesperson = users?.find(u => u.id === customer?.assignedSalespersonId);
+  const salespersons = (users || []).filter(
+    u => u.role === 'Salesperson' && u.accountStatus === 'Enabled'
+  );
 
   const handleOpenEdit = () => {
     if (!customer) return;
@@ -84,6 +89,7 @@ export const CustomerProfilePage: React.FC = () => {
     setOpeningBalance(customer.openingBalance ? String(customer.openingBalance) : '');
     setNotes(customer.notes || '');
     setStatus(customer.status || 'Active');
+    setAssignedSalespersonId(customer.assignedSalespersonId || '');
     setIsEditModalOpen(true);
   };
 
@@ -106,7 +112,8 @@ export const CustomerProfilePage: React.FC = () => {
         creditDays: Number(creditDays) || 0,
         openingBalance: Number(openingBalance) || 0,
         notes: notes.trim(),
-        status
+        status,
+        assignedSalespersonId: assignedSalespersonId || null
       });
       setIsEditModalOpen(false);
     } catch (err: any) {
@@ -263,9 +270,13 @@ export const CustomerProfilePage: React.FC = () => {
               <StatusBadge status={customer.type} size="sm" />
               <StatusBadge status={customer.status} size="sm" />
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              GSTIN: {customer.gstin || 'Unregistered'} • PAN: {customer.pan || '—'} • State:{' '}
-              {customer.state}
+            <p className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-2">
+              <span>GSTIN: {customer.gstin || 'Unregistered'} • PAN: {customer.pan || '—'} • State: {customer.state}</span>
+              {assignedSalesperson && (
+                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold text-[11px] border border-blue-200">
+                  Assigned Rep: {assignedSalesperson.name}
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -772,6 +783,22 @@ export const CustomerProfilePage: React.FC = () => {
                 <option value="Dealer">Dealer</option>
                 <option value="Distributor">Distributor</option>
                 <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Assigned Sales Representative</label>
+              <select
+                value={assignedSalespersonId}
+                onChange={e => setAssignedSalespersonId(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer font-medium"
+              >
+                <option value="">-- No specific representative assigned --</option>
+                {salespersons.map(sp => (
+                  <option key={sp.id} value={sp.id}>
+                    {sp.name} ({sp.email})
+                  </option>
+                ))}
               </select>
             </div>
 

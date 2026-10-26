@@ -96,3 +96,19 @@ export const formatPercent = (val: number, decimals = 1): string => {
   if (isNaN(val) || val === null || val === undefined) return '0%';
   return `${val.toFixed(decimals)}%`;
 };
+
+/**
+ * Formats payment method for UI display.
+ * Maps "Bank Transfer" or "bank_transfer" to "Bank" on a single line,
+ * while strictly preserving other payment methods (Cash, UPI, Card, Cheque, Credit).
+ */
+export const formatPaymentMethod = (method?: string | null): string => {
+  if (!method) return 'Cash';
+  const trimmed = method.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === 'bank transfer' || lower === 'bank_transfer' || lower === 'bank') {
+    return 'Bank';
+  }
+  return trimmed;
+};
+

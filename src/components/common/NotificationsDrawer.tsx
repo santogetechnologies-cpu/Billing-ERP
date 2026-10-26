@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Bell,
   AlertTriangle,
   Clock,
   CheckCircle2,
@@ -17,8 +16,7 @@ import {
   RotateCcw,
   UserCheck,
   User,
-  ArrowRight,
-  Filter
+  ArrowRight
 } from 'lucide-react';
 import { Drawer } from './Drawer';
 import { Modal } from './Modal';
@@ -83,7 +81,9 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
   const displayedNotifications = useMemo(() => {
     let list = sortedNotifications;
 
-    if (categoryFilter !== 'all') {
+    if (categoryFilter === 'unread') {
+      list = list.filter(n => !n.read);
+    } else if (categoryFilter !== 'all') {
       list = list.filter(n => n.type === categoryFilter || n.category === categoryFilter);
     }
 
@@ -160,7 +160,24 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
       return;
     }
 
-    // 4. Working Action Link Handler: Customer Support Cases or General Links
+    // 4. Customer Support Cases & Customer Updates Handler
+    if (isCustomerSupportNotification(item)) {
+      if (item.customerId) {
+        navigate(`/customers/${item.customerId}${item.caseId ? `?caseId=${item.caseId}` : ''}`);
+        onClose();
+        return;
+      }
+      if (item.link) {
+        navigate(item.link);
+        onClose();
+        return;
+      }
+      navigate('/customers');
+      onClose();
+      return;
+    }
+
+    // 5. Working Action Link Handler: General Operational Links
     if (item.link) {
       let targetLink = item.link;
       if (currentRole === 'Purchase Manager' && targetLink.startsWith('/inventory/purchase-requests')) {
@@ -205,6 +222,8 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
       case 'stock_damage':
         return <AlertOctagon className="w-4 h-4 text-rose-600" />;
       case 'expiring_batch':
+      case 'expiring_batches':
+      case 'eod_expiry':
         return <Calendar className="w-4 h-4 text-orange-600" />;
       case 'overdue_invoice':
         return <Clock className="w-4 h-4 text-rose-600" />;
@@ -241,6 +260,8 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
       case 'overdue_invoice':
         return 'bg-rose-50 border-rose-200';
       case 'expiring_batch':
+      case 'expiring_batches':
+      case 'eod_expiry':
         return 'bg-orange-50 border-orange-200';
       case 'credit_limit':
         return 'bg-purple-50 border-purple-200';
@@ -265,6 +286,17 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
         return 'Follow-up Due';
       case 'customer_update':
         return 'Customer Update';
+      case 'out_of_stock':
+        return 'Out of Stock';
+      case 'limited_stock':
+        return 'Limited Stock';
+      case 'expiring_batch':
+        return 'Expiring Soon';
+      case 'expiring_batches':
+      case 'eod_expiry':
+        return 'Expiry Reminder';
+      case 'purchase_request':
+        return 'Purchase Request';
       default:
         return type.replace(/_/g, ' ');
     }
@@ -307,12 +339,13 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-none">
               {[
                 { id: 'all', label: 'All' },
+                { id: 'unread', label: 'Unread' },
                 { id: 'customer_complaint', label: 'Complaints', high: true },
-                { id: 'customer_product_damage', label: 'Damage & Defects' },
+                { id: 'customer_product_damage', label: 'Product Damage', high: true },
                 { id: 'customer_support_request', label: 'Support' },
-                { id: 'customer_return_request', label: 'Returns' },
+                { id: 'customer_return_request', label: 'Returns & Replacements', high: true },
                 { id: 'customer_followup', label: 'Follow-ups' },
-                { id: 'customer_update', label: 'Updates' }
+                { id: 'customer_update', label: 'Customer Updates' }
               ].map(tab => {
                 const isSelected = categoryFilter === tab.id;
                 return (
@@ -345,7 +378,9 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                   className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[11px] text-slate-700 focus:outline-hidden"
                 >
                   <option value="all">All</option>
+                  <option value="Critical">Critical</option>
                   <option value="High">High Priority</option>
+                  <option value="Normal">Normal</option>
                   <option value="Medium">Medium</option>
                   <option value="Low">Low</option>
                 </select>
@@ -380,6 +415,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
           ) : (
             displayedNotifications.map(item => {
               const isComplaint = item.type === 'customer_complaint';
+              const isCriticalPriority = item.priority === 'Critical';
               const isHighPriority = item.priority === 'High' || isComplaint;
 
               return (
@@ -387,7 +423,11 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                   key={item.id}
                   onClick={() => handleNotificationClick(item)}
                   className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
-                    isHighPriority
+                    isCriticalPriority
+                      ? item.read
+                        ? 'bg-rose-50/25 border-rose-300 hover:border-rose-400'
+                        : 'bg-rose-50/60 border-rose-400 shadow-xs ring-1 ring-rose-300 hover:border-rose-500'
+                      : isHighPriority
                       ? item.read
                         ? 'bg-rose-50/20 border-rose-200 hover:border-rose-300'
                         : 'bg-rose-50/50 border-rose-300 shadow-xs ring-1 ring-rose-200/50 hover:border-rose-400'
@@ -404,9 +444,15 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                       {/* Top Badges & Time */}
                       <div className="flex items-center justify-between gap-1 mb-1">
                         <div className="flex flex-wrap items-center gap-1.5">
+                          {/* Prominent Critical Priority Badge */}
+                          {isCriticalPriority && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-rose-700 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-0.5 shadow-2xs">
+                              <AlertOctagon className="w-2.5 h-2.5" /> Critical
+                            </span>
+                          )}
                           {/* Prominent High Priority Badge */}
-                          {isHighPriority && (
-                            <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-0.5 shadow-2xs">
+                          {!isCriticalPriority && isHighPriority && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-amber-600 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-0.5 shadow-2xs">
                               <ShieldAlert className="w-2.5 h-2.5" /> High Priority
                             </span>
                           )}
@@ -460,7 +506,31 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                       {/* Working Action Link Button */}
                       <div className="mt-2.5 flex items-center justify-between">
                         <span className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 group">
-                          {item.actionText || 'View Case'}
+                          {item.actionText || (
+                            item.type === 'customer_complaint'
+                              ? 'View Complaint'
+                              : item.type === 'customer_product_damage'
+                              ? 'View Case'
+                              : item.type === 'customer_support_request'
+                              ? 'View Support Request'
+                              : item.type === 'customer_return_request'
+                              ? 'Review Request'
+                              : item.type === 'customer_followup'
+                              ? 'View Case'
+                              : item.type === 'customer_update'
+                              ? item.caseId ? 'View Case' : 'View Customer'
+                              : item.type === 'out_of_stock' || item.type === 'limited_stock' || item.type === 'low_stock'
+                              ? 'View Product'
+                              : item.type === 'purchase_request'
+                              ? 'View Purchase Request'
+                              : item.type === 'expiring_batch'
+                              ? 'View Batch & Expiry Management'
+                              : item.type === 'expiring_batches' || item.type === 'eod_expiry'
+                              ? 'View Expiring Batches'
+                              : isCustomerSupportNotification(item)
+                              ? 'View Case'
+                              : 'View Details'
+                          )}
                           <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                         </span>
 

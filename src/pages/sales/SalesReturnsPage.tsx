@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import { sortProductsAZ } from '../../utils/sortUtils';
 
 export const SalesReturnsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -200,7 +201,7 @@ export const SalesReturnsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {selectedInvoice.items.map(item => {
+                {sortProductsAZ(selectedInvoice.items).map(item => {
                   const rawQty = returnQtys[item.productId] !== undefined ? returnQtys[item.productId] : '';
                   const numQty = Number(rawQty) || 0;
                   const itemCredit = item.qty > 0 ? (item.total / item.qty) * numQty : 0;

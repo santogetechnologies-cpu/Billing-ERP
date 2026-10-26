@@ -53,6 +53,7 @@ import {
 } from '../../utils/rbac';
 import { policyService } from '../../services/policyService';
 import { presenceService } from '../../services/presenceService';
+import { PrinterSettingsSection } from '../../components/settings/PrinterSettingsSection';
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -80,7 +81,7 @@ export const SettingsPage: React.FC = () => {
   // Determine initial tab based on role and query parameters
   const tabParam = searchParams.get('tab');
   const resolveInitialTab = (): TabType => {
-    if ((tabParam === 'numbering' || tabParam === 'invoice_design') && canManageCompany) return 'company';
+    if ((tabParam === 'numbering' || tabParam === 'invoice_design' || tabParam === 'printers') && canManageCompany) return 'company';
     if (tabParam === 'backup' && canManageSystem) return 'system';
     if (tabParam && ['personal', 'appearance', 'notifications', 'company', 'policy', 'users', 'system'].includes(tabParam)) {
       if ((tabParam === 'company' || tabParam === 'users') && !canManageCompany) return 'personal';
@@ -91,20 +92,21 @@ export const SettingsPage: React.FC = () => {
   };
 
   const [activeSection, setActiveSection] = useState<TabType>(resolveInitialTab);
-  const [companySubTab, setCompanySubTab] = useState<'profile' | 'numbering' | 'invoice_design'>(
-    tabParam === 'numbering' ? 'numbering' : tabParam === 'invoice_design' ? 'invoice_design' : 'profile'
+  const [companySubTab, setCompanySubTab] = useState<'profile' | 'numbering' | 'invoice_design' | 'printers'>(
+    tabParam === 'numbering' ? 'numbering' : tabParam === 'invoice_design' ? 'invoice_design' : tabParam === 'printers' ? 'printers' : 'profile'
   );
 
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     const currentTab = searchParams.get('tab');
-    if (currentTab === 'numbering' || currentTab === 'invoice_design') {
+    if (currentTab === 'numbering' || currentTab === 'invoice_design' || currentTab === 'printers') {
       if (canManageCompany) {
         setActiveSection('company');
         setCompanySubTab(currentTab);
       } else {
-        setActiveSection('personal');
+        // Allow cashier or non-owner to configure workstation printers
+        setCompanySubTab('printers');
       }
     } else if (currentTab === 'backup') {
       if (canManageSystem) {
@@ -841,70 +843,6 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
           </div>
-
-          {/* Subsection 2: Workplace & Regional Preferences */}
-          <div className="pt-4 border-t border-slate-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">Workplace & Regional Preferences</span>
-              <span className="text-[10px] text-slate-400 font-medium">Local currency, date formats, and initial view</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Display Language</label>
-                <select
-                  value={personalLanguage}
-                  onChange={e => setPersonalLanguage(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                >
-                  <option value="English (United States)">English (United States)</option>
-                  <option value="English (India)">English (India)</option>
-                  <option value="Hindi (हिंदी)">Hindi (हिंदी)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Date Format</label>
-                <select
-                  value={personalDateFormat}
-                  onChange={e => setPersonalDateFormat(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono"
-                >
-                  <option value="DD/MM/YYYY">DD/MM/YYYY (Indian Standard)</option>
-                  <option value="MM/DD/YYYY">MM/DD/YYYY (US Standard)</option>
-                  <option value="YYYY-MM-DD">YYYY-MM-DD (ISO Format)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Number & Currency Format</label>
-                <select
-                  value={personalNumberFormat}
-                  onChange={e => setPersonalNumberFormat(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                >
-                  <option value="en-IN (Lakhs/Crores - ₹)">Indian (Lakhs & Crores - ₹)</option>
-                  <option value="en-US (Millions/Billions - $)">International (Millions & Billions)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Default Landing Route</label>
-                <select
-                  value={personalDefaultRoute}
-                  onChange={e => setPersonalDefaultRoute(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono"
-                >
-                  <option value="/">Main Executive Dashboard (/)</option>
-                  <option value="/sales/dashboard">Sales Dashboard (/sales/dashboard)</option>
-                  <option value="/sales/pos">POS Billing Counter (/sales/pos)</option>
-                  <option value="/inventory">Inventory & Stock Alerts (/inventory)</option>
-                  <option value="/purchases">Purchases Overview (/purchases)</option>
-                  <option value="/accounting">General Ledger & Accounts (/accounting)</option>
-                </select>
-              </div>
-            </div>
-          </div>
         </form>
       )}
 
@@ -1342,11 +1280,26 @@ export const SettingsPage: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setCompanySubTab('invoice_design')}
+              onClick={() => {
+                setCompanySubTab('invoice_design');
+                setSearchParams({ tab: 'invoice_design' });
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${companySubTab === 'invoice_design' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
             >
               Invoice Customizer & Print
+            </button>
+            <button
+              type="button"
+              id="tab-printer-settings"
+              onClick={() => {
+                setCompanySubTab('printers');
+                setSearchParams({ tab: 'printers' });
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${companySubTab === 'printers' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+            >
+              Hardware & Direct Printers
             </button>
           </div>
 
@@ -1689,6 +1642,18 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Sub-tab 4: Hardware & Direct Printers */}
+          {companySubTab === 'printers' && (
+            <PrinterSettingsSection />
+          )}
+        </div>
+      )}
+
+      {/* Direct Printer Settings for Cashier/Staff without full company settings access */}
+      {!canManageCompany && (tabParam === 'printers' || companySubTab === 'printers') && (
+        <div className="space-y-4">
+          <PrinterSettingsSection />
         </div>
       )}
 

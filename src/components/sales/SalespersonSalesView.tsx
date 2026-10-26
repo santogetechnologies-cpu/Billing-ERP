@@ -349,7 +349,7 @@ export const SalespersonSalesView: React.FC = () => {
                 : 'All Customer Sales Records'}
             </h2>
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-              Showing {displayedSalesList.length} of {salesInvoices.length} records
+              {displayedSalesList.length} {displayedSalesList.length === 1 ? 'record' : 'records'}
             </span>
           </div>
           <span className="text-[11px] text-slate-400">

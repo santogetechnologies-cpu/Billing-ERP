@@ -17,19 +17,24 @@ import {
   Calendar,
   X,
   ArrowRight,
-  Hash
+  Hash,
+  Zap,
+  Printer,
+  RefreshCw
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { DataTable, Column } from '../../components/common/DataTable';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import { StatusBadge, StockStatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { Product } from '../../types';
 import { Modal } from '../../components/common/Modal';
 import { BarcodeCanvas } from '../../components/barcode/BarcodeCanvas';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission, canManageBarcodeOverride } from '../../utils/rbac';
 import { ProductDeleteModal } from '../../components/products/ProductDeleteModal';
+import { directPrintService } from '../../services/directPrintService';
 
 export const ProductListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -37,6 +42,33 @@ export const ProductListPage: React.FC = () => {
   const { profile } = useAuth();
   const { products, deleteProduct } = useERP();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isPrintingDirect, setIsPrintingDirect] = useState(false);
+
+  const handleDirectPrintProductBarcode = async (product: Product, copies: number = 1) => {
+    if (!product.barcode) {
+      setToastMessage(`Product "${product.name}" does not have a barcode assigned yet.`);
+      return;
+    }
+    setIsPrintingDirect(true);
+    try {
+      const res = await directPrintService.printBarcodeSticker(
+        {
+          name: product.name,
+          barcode: product.barcode,
+          sku: product.sku,
+          sellingPrice: product.sellingPrice,
+          mrp: product.mrp,
+          category: product.category
+        },
+        copies
+      );
+      setToastMessage(res.message);
+    } catch (err: any) {
+      setToastMessage(`Print error: ${err?.message || 'Failed to print'}`);
+    } finally {
+      setIsPrintingDirect(false);
+    }
+  };
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const isWarehouseManager = profile?.role === 'Warehouse Manager';
@@ -48,12 +80,13 @@ export const ProductListPage: React.FC = () => {
     }
   }, [location.state]);
 
-  // Dynamic products with computed stockStatus for sorting, filtering & search
+  // Dynamic products with computed stockStatus for sorting, filtering & search (sorted A-Z)
   const productsWithStatus = React.useMemo(() => {
-    return products.map(p => ({
+    const list = products.map(p => ({
       ...p,
       stockStatus: calculateStockStatus(p.currentStock, p.reorderLevel)
     }));
+    return sortProductsAZ(list);
   }, [products]);
 
   // Table Columns:
@@ -62,6 +95,7 @@ export const ProductListPage: React.FC = () => {
     {
       key: 'sku',
       header: 'SKU',
+      sortable: true,
       width: isWarehouseManager ? '14%' : '110px',
       minWidth: '105px',
       render: row => (
@@ -76,6 +110,8 @@ export const ProductListPage: React.FC = () => {
     {
       key: 'name',
       header: 'Product Name',
+      sortable: true,
+      sortValue: row => (row.name || '').trim(),
       width: isWarehouseManager ? '24%' : '200px',
       minWidth: '160px',
       render: row => (
@@ -99,6 +135,7 @@ export const ProductListPage: React.FC = () => {
     {
       key: 'category',
       header: 'Category',
+      sortable: true,
       width: isWarehouseManager ? '13%' : '120px',
       minWidth: '110px',
       render: row => (
@@ -147,6 +184,7 @@ export const ProductListPage: React.FC = () => {
       key: 'costPrice',
       header: isWarehouseManager ? 'Cost' : 'Cost (₹)',
       align: 'right',
+      sortable: true,
       width: isWarehouseManager ? '8%' : '95px',
       minWidth: '85px',
       render: row => (
@@ -157,6 +195,7 @@ export const ProductListPage: React.FC = () => {
       key: 'sellingPrice',
       header: isWarehouseManager ? 'Selling' : 'Selling Price (₹)',
       align: 'right',
+      sortable: true,
       width: isWarehouseManager ? '9%' : '105px',
       minWidth: '95px',
       render: row => (
@@ -167,6 +206,7 @@ export const ProductListPage: React.FC = () => {
       key: 'taxRate',
       header: isWarehouseManager ? 'Tax' : 'Tax Rate',
       align: 'center',
+      sortable: true,
       width: isWarehouseManager ? '6%' : '75px',
       minWidth: '70px',
       render: row => (
@@ -177,20 +217,22 @@ export const ProductListPage: React.FC = () => {
       key: 'stockStatus',
       header: 'Stock Status',
       align: 'center',
+      sortable: true,
       width: isWarehouseManager ? '14%' : '140px',
       minWidth: '135px',
       render: row => {
         const stockStatus = calculateStockStatus(row.currentStock, row.reorderLevel);
         const currentQty = Math.max(0, row.currentStock !== null && row.currentStock !== undefined ? Number(row.currentStock) : 0);
-        const unit = row.primaryUnit || 'Pcs';
+        const unit = row.primaryUnit || 'Piece';
 
         return (
-          <div className="flex flex-col items-center justify-center gap-0.5 py-0.5 min-w-0">
-            <StatusBadge status={stockStatus} size="sm" />
-            <span className="text-[10px] font-medium text-slate-600 whitespace-nowrap">
-              {formatNumber(currentQty)} {unit}
-            </span>
-          </div>
+          <StockStatusBadge
+            status={stockStatus}
+            currentStock={currentQty}
+            unit={unit}
+            size="sm"
+            align="center"
+          />
         );
       }
     }
@@ -272,6 +314,8 @@ export const ProductListPage: React.FC = () => {
         subtitle={`Total ${products.length} products registered across ${categories.length} categories`}
         columns={columns}
         data={productsWithStatus}
+        defaultSortKey="name"
+        defaultSortDir="asc"
         enablePagination={false}
         infiniteScroll={true}
         batchSize={50}
@@ -334,6 +378,20 @@ export const ProductListPage: React.FC = () => {
                 <ScanBarcode className="w-3.5 h-3.5" />
               </button>
             )}
+            {row.barcode && (
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  handleDirectPrintProductBarcode(row, 1);
+                }}
+                disabled={isPrintingDirect}
+                className="p-1 rounded text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors shrink-0"
+                title="Direct Print Barcode Sticker (1 copy)"
+              >
+                <Zap className="w-3.5 h-3.5" />
+              </button>
+            )}
             {hasPermission(profile?.role, 'products', 'delete') && (
               <button
                 onClick={e => {
@@ -363,7 +421,23 @@ export const ProductListPage: React.FC = () => {
               <span className="text-xs text-slate-500">
                 Created: {formatDate(selectedProduct.createdAt)}
               </span>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedProduct.barcode && (
+                  <button
+                    type="button"
+                    disabled={isPrintingDirect}
+                    onClick={() => handleDirectPrintProductBarcode(selectedProduct, 1)}
+                    className="px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                    title="Directly send 1 barcode sticker to the configured label printer"
+                  >
+                    {isPrintingDirect ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Zap className="w-3.5 h-3.5 fill-white" />
+                    )}
+                    <span>Direct Print Sticker</span>
+                  </button>
+                )}
                 {hasPermission(profile?.role, 'products', 'delete') && (
                   <button
                     onClick={() => {
@@ -399,7 +473,7 @@ export const ProductListPage: React.FC = () => {
                     className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 cursor-pointer"
                   >
                     <ScanBarcode className="w-3.5 h-3.5" />
-                    <span>Print Barcode Label</span>
+                    <span>Barcode Hub</span>
                   </button>
                 )}
               </div>

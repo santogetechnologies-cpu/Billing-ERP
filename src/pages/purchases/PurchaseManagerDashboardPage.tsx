@@ -32,6 +32,7 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { Modal } from '../../components/common/Modal';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { canManageBarcodeOverride } from '../../utils/rbac';
+import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../../utils/schemaDetector';
 import {
   PurchaseRequest,
   PurchaseInvoice,
@@ -546,18 +547,28 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   const fetchPurchaseOrders = useCallback(async () => {
     const targetCompId = company?.id || '00000000-0000-0000-0000-000000000001';
     setIsPurchaseOrdersLoading(true);
-    try {
-      const { data: poData, error: poErr } = await supabase
-        .from('purchase_orders')
-        .select('*, purchase_order_items(*)')
-        .eq('company_id', targetCompId)
-        .order('created_at', { ascending: false });
+    if (!isTableMarkedMissing('purchase_orders')) {
+      try {
+        const { data: poData, error: poErr } = await supabase
+          .from('purchase_orders')
+          .select('*, purchase_order_items(*)')
+          .eq('company_id', targetCompId)
+          .order('created_at', { ascending: false });
 
-      if (!poErr && poData) {
-        setPurchaseOrdersData(poData);
-        return;
+        if (!poErr && poData) {
+          setPurchaseOrdersData(poData);
+          setIsPurchaseOrdersLoading(false);
+          return;
+        }
+        if (poErr && isTableNotFoundError(poErr)) {
+          markTableMissing('purchase_orders');
+        }
+      } catch (err) {
+        if (isTableNotFoundError(err)) {
+          markTableMissing('purchase_orders');
+        }
       }
-    } catch {}
+    }
 
     try {
       const { data: pData } = await supabase

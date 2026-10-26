@@ -17,6 +17,7 @@ import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { canAccessRoute } from '../../utils/rbac';
 import { formatCurrency } from '../../utils/formatters';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { ModalCloseButton } from './ModalCloseButton';
 
 interface GlobalSearchProps {
@@ -88,24 +89,24 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ isOpen, onClose }) =
       badge?: string;
     }> = [];
 
-    // 1. Products
+    // 1. Products (sorted A-Z)
     if (canAccessRoute(profile?.role, '/products')) {
-      products.forEach(p => {
-        if (
+      const matchedProducts = products.filter(
+        p =>
           p.name.toLowerCase().includes(q) ||
           p.sku.toLowerCase().includes(q) ||
           p.barcode.includes(q) ||
           p.category.toLowerCase().includes(q)
-        ) {
-          items.push({
-            type: 'Product',
-            title: p.name,
-            subtitle: `SKU: ${p.sku} | Barcode: ${p.barcode} | Stock: ${p.currentStock} ${p.primaryUnit}`,
-            link: '/products',
-            icon: Package,
-            badge: formatCurrency(p.sellingPrice)
-          });
-        }
+      );
+      sortProductsAZ(matchedProducts).forEach(p => {
+        items.push({
+          type: 'Product',
+          title: p.name,
+          subtitle: `SKU: ${p.sku} | Barcode: ${p.barcode} | Stock: ${p.currentStock} ${p.primaryUnit}`,
+          link: '/products',
+          icon: Package,
+          badge: formatCurrency(p.sellingPrice)
+        });
       });
     }
 

@@ -1,7 +1,12 @@
 import { supabase } from '../lib/supabase';
 import { CompanyProfile, Warehouse } from '../types';
 import { assertCallerPermission } from '../utils/rbac';
-import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../utils/schemaDetector';
+import {
+  isTableMarkedMissing,
+  markTableMissing,
+  isTableNotFoundError,
+  filterSupportedWarehousePayload
+} from '../utils/schemaDetector';
 import { notificationService } from './notificationService';
 
 export const companyService = {
@@ -190,11 +195,18 @@ export const companyService = {
         .eq('doc_type', 'warehouse_meta');
       if (docData && docData.length > 0) {
         docData.forEach(d => {
-          if (d.title) {
-            try {
-              cloudMetaMap[d.title] = JSON.parse(d.terms_conditions || '{}');
-            } catch {}
-          }
+          try {
+            const parsed = JSON.parse(d.terms_conditions || '{}');
+            if (parsed && typeof parsed === 'object') {
+              if (d.title && (parsed.locationType !== undefined || parsed.type !== undefined || parsed.contactPerson !== undefined)) {
+                // Legacy format: single warehouse payload in terms_conditions where d.title is warehouseId
+                cloudMetaMap[d.title] = parsed;
+              } else {
+                // Multi-warehouse dictionary format: { [warehouseId]: metaPayload }
+                Object.assign(cloudMetaMap, parsed);
+              }
+            }
+          } catch {}
         });
       }
     } catch {}
@@ -234,6 +246,55 @@ export const companyService = {
     });
   },
 
+  // Sync warehouse metadata to cloud document_settings registry safely without 409 unique constraint conflicts
+  async syncCloudWarehouseMeta(warehouseId: string, metaPayload: any, companyId?: string): Promise<void> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    try {
+      // 1. Fetch current cloud warehouse_meta record
+      const { data: existingRow } = await supabase
+        .from('document_settings')
+        .select('*')
+        .eq('company_id', finalCompanyId)
+        .eq('doc_type', 'warehouse_meta')
+        .maybeSingle();
+
+      let currentMap: Record<string, any> = {};
+      if (existingRow && existingRow.terms_conditions) {
+        try {
+          const parsed = JSON.parse(existingRow.terms_conditions);
+          if (parsed && typeof parsed === 'object') {
+            if (existingRow.title && (parsed.locationType !== undefined || parsed.type !== undefined || parsed.contactPerson !== undefined)) {
+              currentMap[existingRow.title] = parsed;
+            } else {
+              currentMap = parsed;
+            }
+          }
+        } catch {}
+      }
+
+      // Merge local storage metadata so no warehouse metadata is lost
+      const localMeta = this.getLocalWarehouseMeta(finalCompanyId);
+      Object.assign(currentMap, localMeta);
+      currentMap[warehouseId] = metaPayload;
+
+      // 2. Perform upsert on document_settings using onConflict: 'company_id,doc_type'
+      await supabase
+        .from('document_settings')
+        .upsert(
+          {
+            company_id: finalCompanyId,
+            doc_type: 'warehouse_meta',
+            title: 'warehouses_meta_registry',
+            header_text: 'WAREHOUSES_META',
+            terms_conditions: JSON.stringify(currentMap)
+          },
+          { onConflict: 'company_id,doc_type' }
+        );
+    } catch (err) {
+      console.warn('Note: resilient fallback syncing warehouse meta to document_settings:', err);
+    }
+  },
+
   // Create a warehouse
   async createWarehouse(
     warehouse: {
@@ -265,50 +326,37 @@ export const companyService = {
       } catch {}
     }
 
-    // Try full insert with extended columns including manager_id
-    let insertedData: any = null;
-    try {
-      const { data, error } = await supabase
-        .from('warehouses')
-        .insert({
-          company_id: finalCompanyId,
-          name: warehouse.name.trim(),
-          code: warehouse.code.trim().toUpperCase(),
-          address: warehouse.address || '',
-          location_type: locType,
-          contact_person: warehouse.contactPerson || '',
-          phone: warehouse.phone || '',
-          description: warehouse.description || '',
-          is_active: isActive,
-          is_default: isDefault,
-          manager_id: warehouse.managerId || null
-        })
-        .select()
-        .single();
+    // Prepare full desired payload and filter to columns supported by remote DB schema to prevent 400 Bad Request
+    const fullPayload: Record<string, any> = {
+      company_id: finalCompanyId,
+      name: warehouse.name.trim(),
+      code: warehouse.code.trim().toUpperCase(),
+      address: warehouse.address || '',
+      location_type: locType,
+      contact_person: warehouse.contactPerson || '',
+      phone: warehouse.phone || '',
+      description: warehouse.description || '',
+      is_active: isActive,
+      is_default: isDefault,
+      manager_id: warehouse.managerId || null
+    };
 
-      if (!error && data) {
-        insertedData = data;
-      }
-    } catch {}
+    const safePayload = await filterSupportedWarehousePayload(fullPayload);
+    // Ensure baseline required fields
+    safePayload.company_id = finalCompanyId;
+    safePayload.name = warehouse.name.trim();
+    safePayload.code = warehouse.code.trim().toUpperCase();
+    if (warehouse.address !== undefined) safePayload.address = warehouse.address;
+    if (isDefault !== undefined) safePayload.is_default = isDefault;
 
-    // Fallback if extended columns are not yet migrated on DB instance
-    if (!insertedData) {
-      const { data: fallbackData, error: fbError } = await supabase
-        .from('warehouses')
-        .insert({
-          company_id: finalCompanyId,
-          name: warehouse.name.trim(),
-          code: warehouse.code.trim().toUpperCase(),
-          address: warehouse.address || '',
-          is_default: isDefault
-        })
-        .select()
-        .single();
+    const { data: insertedData, error: insError } = await supabase
+      .from('warehouses')
+      .insert(safePayload)
+      .select()
+      .single();
 
-      if (fbError || !fallbackData) {
-        throw new Error(`Failed to create warehouse: ${fbError?.message || 'Database error'}`);
-      }
-      insertedData = fallbackData;
+    if (insError || !insertedData) {
+      throw new Error(`Failed to create warehouse: ${insError?.message || 'Database error'}`);
     }
 
     const assignedManagerIds = Array.from(new Set([
@@ -316,7 +364,7 @@ export const companyService = {
       ...(warehouse.managerId ? [warehouse.managerId] : [])
     ]));
 
-    // Sync multi-manager assignments to warehouse_managers table
+    // Sync multi-manager assignments to warehouse_managers table if available
     if (assignedManagerIds.length > 0 && !isTableMarkedMissing('warehouse_managers')) {
       try {
         for (const mId of assignedManagerIds) {
@@ -353,16 +401,7 @@ export const companyService = {
       updatedAt: new Date().toISOString()
     };
     this.saveLocalWarehouseMeta(insertedData.id, metaPayload, finalCompanyId);
-
-    try {
-      await supabase.from('document_settings').insert({
-        company_id: finalCompanyId,
-        doc_type: 'warehouse_meta',
-        title: insertedData.id,
-        header_text: warehouse.code.trim().toUpperCase(),
-        terms_conditions: JSON.stringify(metaPayload)
-      });
-    } catch {}
+    await this.syncCloudWarehouseMeta(insertedData.id, metaPayload, finalCompanyId);
 
     return {
       id: insertedData.id,
@@ -398,30 +437,28 @@ export const companyService = {
     }
 
     const locType = (updates.locationType || updates.type) as any;
-    const dbPayload: any = { updated_at: new Date().toISOString() };
-    if (updates.name !== undefined) dbPayload.name = updates.name.trim();
-    if (updates.code !== undefined) dbPayload.code = updates.code.trim().toUpperCase();
-    if (updates.address !== undefined) dbPayload.address = updates.address;
-    if (updates.isDefault !== undefined) dbPayload.is_default = updates.isDefault;
-    if (updates.managerId !== undefined) dbPayload.manager_id = updates.managerId || null;
+    const rawUpdatePayload: Record<string, any> = {
+      updated_at: new Date().toISOString()
+    };
+    if (updates.name !== undefined) rawUpdatePayload.name = updates.name.trim();
+    if (updates.code !== undefined) rawUpdatePayload.code = updates.code.trim().toUpperCase();
+    if (updates.address !== undefined) rawUpdatePayload.address = updates.address;
+    if (updates.isDefault !== undefined) rawUpdatePayload.is_default = updates.isDefault;
+    if (locType) rawUpdatePayload.location_type = locType;
+    if (updates.contactPerson !== undefined) rawUpdatePayload.contact_person = updates.contactPerson;
+    if (updates.phone !== undefined) rawUpdatePayload.phone = updates.phone;
+    if (updates.description !== undefined) rawUpdatePayload.description = updates.description;
+    if (updates.isActive !== undefined) rawUpdatePayload.is_active = updates.isActive;
+    if (updates.managerId !== undefined) rawUpdatePayload.manager_id = updates.managerId || null;
 
-    // Try full update
-    try {
-      const extendedPayload = {
-        ...dbPayload,
-        ...(locType ? { location_type: locType } : {}),
-        ...(updates.contactPerson !== undefined ? { contact_person: updates.contactPerson } : {}),
-        ...(updates.phone !== undefined ? { phone: updates.phone } : {}),
-        ...(updates.description !== undefined ? { description: updates.description } : {}),
-        ...(updates.isActive !== undefined ? { is_active: updates.isActive } : {}),
-        ...(updates.managerId !== undefined ? { manager_id: updates.managerId || null } : {})
-      };
-      await supabase.from('warehouses').update(extendedPayload).eq('id', id);
-    } catch {
-      // Fallback update
+    // Filter to supported database columns to eliminate 400 Bad Request
+    const safeUpdatePayload = await filterSupportedWarehousePayload(rawUpdatePayload);
+    if (Object.keys(safeUpdatePayload).length > 0) {
       try {
-        await supabase.from('warehouses').update(dbPayload).eq('id', id);
-      } catch {}
+        await supabase.from('warehouses').update(safeUpdatePayload).eq('id', id);
+      } catch (err: any) {
+        console.warn('Warehouse update notice:', err?.message || err);
+      }
     }
 
     // Sync multi-manager assignments if provided
@@ -476,21 +513,7 @@ export const companyService = {
       updatedAt: new Date().toISOString()
     };
     this.saveLocalWarehouseMeta(id, metaPayload, finalCompanyId);
-
-    try {
-      await supabase
-        .from('document_settings')
-        .upsert(
-          {
-            company_id: finalCompanyId,
-            doc_type: 'warehouse_meta',
-            title: id,
-            header_text: updates.code || id,
-            terms_conditions: JSON.stringify(metaPayload)
-          },
-          { onConflict: 'company_id,doc_type' }
-        );
-    } catch {}
+    await this.syncCloudWarehouseMeta(id, metaPayload, finalCompanyId);
 
     const warehouses = await this.getWarehouses(finalCompanyId);
     return warehouses.find(w => w.id === id) || {

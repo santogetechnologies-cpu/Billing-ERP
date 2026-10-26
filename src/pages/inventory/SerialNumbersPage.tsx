@@ -16,6 +16,7 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { formatDate } from '../../utils/formatters';
 import { SerialNumber } from '../../types';
 import { Modal } from '../../components/common/Modal';
+import { sortProductsAZ } from '../../utils/sortUtils';
 
 export const SerialNumbersPage: React.FC = () => {
   const { serialNumbers, products, customers, addSerialNumber } = useERP();
@@ -151,6 +152,8 @@ export const SerialNumbersPage: React.FC = () => {
         subtitle={`Total ${serialNumbers.length} serialized products tracked`}
         columns={columns}
         data={serialNumbers}
+        defaultSortKey="productName"
+        defaultSortDir="asc"
         searchPlaceholder="Search serial number, product, customer or invoice..."
         searchKeys={['serialNumber', 'productName', 'customerName', 'invoiceNumber']}
         hideHorizontalScroll={true}
@@ -199,13 +202,13 @@ export const SerialNumbersPage: React.FC = () => {
               onChange={e => setProductId(e.target.value)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold"
             >
-              {products
-                .filter(p => p.serialTracking || p.category.includes('IT') || p.category.includes('Tools'))
-                .map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.sku})
-                  </option>
-                ))}
+              {sortProductsAZ(
+                products.filter(p => p.serialTracking || p.category.includes('IT') || p.category.includes('Tools'))
+              ).map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.sku})
+                </option>
+              ))}
             </select>
           </div>
 

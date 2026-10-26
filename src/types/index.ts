@@ -435,6 +435,8 @@ export interface Batch {
   cost: number;
   qty: number;
   status: 'Active' | 'Expiring Soon' | 'Expired' | 'Low Stock';
+  warehouseId?: string;
+  warehouseName?: string;
 }
 
 export interface SerialNumber {
@@ -937,4 +939,81 @@ export interface BarcodeValidationResult {
   message?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Customer Return Management Types
+// ---------------------------------------------------------------------------
 
+export type CustomerReturnCondition = 'Resalable' | 'Damaged' | 'Defective' | 'Expired';
+export type CustomerReturnStatus = 'Pending Review' | 'Approved' | 'Rejected' | 'Stock Restocked';
+export type CustomerReturnRefundStatus = 'Pending' | 'Refunded' | 'Rejected' | 'No Refund Required';
+
+export interface CustomerReturn {
+  id: string;
+  companyId: string;
+  returnNumber: string;
+  originalInvoiceId: string;
+  originalInvoiceNumber: string;
+  returnDate: string;
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  soldQty: number;
+  returnedQty: number;
+  unit: string;
+  unitPrice: number;
+  refundAmount: number;
+  reason: string;
+  condition: CustomerReturnCondition;
+  warehouseId?: string;
+  warehouseName?: string;
+  returnStatus: CustomerReturnStatus;
+  refundStatus: CustomerReturnRefundStatus;
+  notes?: string;
+  createdBy?: string;
+  createdByName?: string;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  restockedBy?: string;
+  restockedByName?: string;
+  restockedAt?: string;
+  refundedBy?: string;
+  refundedByName?: string;
+  refundedAt?: string;
+  refundMethod?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCustomerReturnInput {
+  originalInvoiceId: string;
+  originalInvoiceNumber: string;
+  returnDate: string;
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  soldQty: number;
+  returnedQty: number;
+  unit: string;
+  unitPrice: number;
+  refundAmount?: number;
+  reason: string;
+  condition: CustomerReturnCondition;
+  warehouseId?: string;
+  warehouseName?: string;
+  notes?: string;
+  createdBy?: string;
+  createdByName?: string;
+}

@@ -3,16 +3,18 @@ import { Product, Batch, SerialNumber, Unit, UnitConversion, ProductDeletionElig
 import { UNIVERSAL_BUILTIN_UNITS, isBuiltInUnit, isCustomUnit, normalizeUnitKey } from '../data/unitsData';
 import { assertCallerPermission } from '../utils/rbac';
 import { calculateBatchStatus } from '../utils/inventoryUtils';
+import { sortProductsAZ } from '../utils/sortUtils';
 
 export const productService = {
-  // Fetch products with optional search, category, and pagination
+  // Fetch products with optional search, category, and pagination (default A-Z by product name)
   async getProducts(params?: { search?: string; category?: string; page?: number; limit?: number }, companyId?: string): Promise<Product[]> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     let query = supabase
       .from('products')
       .select('*')
       .eq('company_id', finalCompanyId)
-      .order('created_at', { ascending: false });
+      .order('name', { ascending: true })
+      .order('sku', { ascending: true });
 
     if (params?.search) {
       query = query.or(`name.ilike.%${params.search}%,sku.ilike.%${params.search}%,barcode.ilike.%${params.search}%`);
@@ -43,7 +45,8 @@ export const productService = {
           .from('products')
           .select('*')
           .eq('company_id', finalCompanyId)
-          .order('created_at', { ascending: false })
+          .order('name', { ascending: true })
+          .order('sku', { ascending: true })
           .range(from, from + chunkSize - 1);
 
         if (params?.search) {
@@ -91,8 +94,8 @@ export const productService = {
       console.warn('Error fetching product batches map:', e);
     }
 
-    // Map database snake_case to frontend camelCase
-    return rawProducts.map(p => {
+    // Map database snake_case to frontend camelCase and sort A-Z by default
+    const mappedProducts: Product[] = rawProducts.map(p => {
       const primaryBatch = batchesByProduct.get(p.id);
       return {
       id: p.id,
@@ -134,6 +137,8 @@ export const productService = {
       createdAt: p.created_at
     };
     });
+
+    return sortProductsAZ(mappedProducts);
   },
 
   // Create new product atomically
@@ -1085,6 +1090,13 @@ export const productService = {
 
       if (!docErr && docs) {
         docs.forEach(d => {
+          try {
+            const parsed = JSON.parse(d.terms_conditions || '[]');
+            if (Array.isArray(parsed)) {
+              parsed.forEach(addRule);
+              return;
+            }
+          } catch {}
           addRule({
             id: d.id,
             fromUnit: d.title || '',
@@ -1140,32 +1152,32 @@ export const productService = {
       console.warn('Note: unit_conversions direct insert bypassed to document_settings:', e);
     }
 
-    // 2. Persist to document_settings in Supabase (multi-tenant isolated)
+    // 2. Persist to document_settings in Supabase safely using upsert to prevent 409 Conflict
     try {
-      const { data: docData, error: docError } = await supabase
+      const currentConvs = this.getLocalConversions(finalCompanyId);
+      const newConv: UnitConversion = {
+        id: generatedId,
+        fromUnit: conv.fromUnit,
+        toUnit: conv.toUnit,
+        factor: conv.factor,
+        notes: conv.notes
+      };
+      const mergedConvs = [...currentConvs.filter(c => c.id !== generatedId), newConv];
+      await supabase
         .from('document_settings')
-        .insert({
-          company_id: finalCompanyId,
-          doc_type: 'unit_conversion',
-          title: conv.fromUnit,
-          header_text: conv.toUnit,
-          footer_text: String(conv.factor),
-          terms_conditions: conv.notes || `1 ${conv.fromUnit} = ${conv.factor} ${conv.toUnit}`
-        })
-        .select()
-        .single();
+        .upsert(
+          {
+            company_id: finalCompanyId,
+            doc_type: 'unit_conversion',
+            title: 'unit_conversions_registry',
+            header_text: 'UNIT_CONVERSIONS',
+            terms_conditions: JSON.stringify(mergedConvs)
+          },
+          { onConflict: 'company_id,doc_type' }
+        );
 
-      if (!docError && docData) {
-        const result: UnitConversion = {
-          id: docData.id,
-          fromUnit: docData.title || conv.fromUnit,
-          toUnit: docData.header_text || conv.toUnit,
-          factor: Number(docData.footer_text) || conv.factor,
-          notes: docData.terms_conditions || conv.notes
-        };
-        this.saveLocalConversion(result, finalCompanyId);
-        return result;
-      }
+      this.saveLocalConversion(newConv, finalCompanyId);
+      return newConv;
     } catch (docErr) {
       console.warn('Note: document_settings conversion fallback note:', docErr);
     }
@@ -1271,7 +1283,8 @@ export const productService = {
       purchaseDate: b.purchase_date,
       cost: Number(b.cost),
       qty: Number(b.qty),
-      status: b.status as any
+      status: b.status as any,
+      warehouseId: b.warehouse_id || undefined
     }));
   },
 
@@ -1283,6 +1296,7 @@ export const productService = {
         company_id: finalCompanyId,
         product_id: batch.productId,
         product_name: batch.productName,
+        warehouse_id: batch.warehouseId || null,
         batch_number: batch.batchNumber,
         mfg_date: batch.mfgDate,
         expiry_date: batch.expiryDate,
@@ -1307,7 +1321,8 @@ export const productService = {
       purchaseDate: data.purchase_date,
       cost: Number(data.cost),
       qty: Number(data.qty),
-      status: data.status
+      status: data.status,
+      warehouseId: data.warehouse_id || undefined
     };
   },
 

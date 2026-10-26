@@ -14,6 +14,7 @@ import {
   X
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { StockTransfer, StockTransferItem } from '../../types';
 import { Modal } from '../../components/common/Modal';
@@ -828,11 +829,20 @@ export const StockTransfersPage: React.FC = () => {
                           onChange={e => handleLineProductChange(idx, e.target.value)}
                           className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium"
                         >
-                          {products.map(p => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} ({p.sku})
-                            </option>
-                          ))}
+                          {sortProductsAZ(products).map(p => {
+                            const pStock = getWarehouseStock(fromWarehouseId, p.id);
+                            const pStatus =
+                              pStock <= 0
+                                ? 'Out of Stock'
+                                : p.reorderLevel !== null && p.reorderLevel !== undefined && pStock <= p.reorderLevel
+                                ? 'Limited'
+                                : 'In Stock';
+                            return (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({pStatus} - {pStock} {p.primaryUnit || 'Pcs'} | {p.sku})
+                              </option>
+                            );
+                          })}
                         </select>
                       </td>
 
@@ -993,7 +1003,7 @@ export const StockTransfersPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {selectedTransfer.items.map((item, idx) => (
+                  {sortProductsAZ(selectedTransfer.items || []).map((item, idx) => (
                     <tr key={idx}>
                       <td className="py-2 px-3 font-semibold text-slate-900">{item.productName}</td>
                       <td className="py-2 px-3 font-mono text-slate-600">{item.sku || getProductSku(item.productId)}</td>

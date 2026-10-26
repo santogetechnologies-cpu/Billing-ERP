@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart3,
   Calendar,
@@ -18,9 +18,10 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
-import { formatCurrency, formatDate } from '../../utils/formatters';
-import { StatusBadge } from '../../components/common/StatusBadge';
-import { calculateStockStatus } from '../../utils/inventoryUtils';
+import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
+import { StatusBadge, StockStatusBadge } from '../../components/common/StatusBadge';
+import { calculateStockStatus, calculateBatchStatus } from '../../utils/inventoryUtils';
+import { sortProductsAZ } from '../../utils/sortUtils';
 
 type ReportCategory = 'sales' | 'purchases' | 'inventory' | 'financial';
 
@@ -31,38 +32,68 @@ interface ReportDefinition {
   description: string;
 }
 
+const REPORT_DEFINITIONS: ReportDefinition[] = [
+  // Sales
+  { id: 'sales-summary', name: 'Sales Summary Register', category: 'sales', description: 'Comprehensive transaction-level sales register with taxes and discounts.' },
+  { id: 'sales-by-product', name: 'Sales by Product', category: 'sales', description: 'Volume and revenue breakdown by individual product lines.' },
+  { id: 'sales-by-customer', name: 'Sales by Customer', category: 'sales', description: 'Customer-wise turnover, order frequency, and contribution.' },
+  { id: 'sales-by-category', name: 'Sales by Category', category: 'sales', description: 'Category performance and sales contribution percentages.' },
+  { id: 'sales-returns', name: 'Sales Returns & Credit Notes', category: 'sales', description: 'Item returns, return rates, and reversal analysis.' },
+
+  // Purchases
+  { id: 'purchase-summary', name: 'Purchase Summary Register', category: 'purchases', description: 'Supplier bill register, inward tax credits, and payment statuses.' },
+  { id: 'purchase-by-supplier', name: 'Purchase by Supplier', category: 'purchases', description: 'Vendor procurement volumes and credit terms utilization.' },
+  { id: 'purchase-by-product', name: 'Purchase by Product', category: 'purchases', description: 'Raw materials and inventory inward purchases by item.' },
+
+  // Inventory
+  { id: 'stock-summary', name: 'Stock Summary & Valuation', category: 'inventory', description: 'Current physical inventory, reorder levels, and asset values.' },
+  { id: 'batch-expiry', name: 'Batch & Expiry Date Report', category: 'inventory', description: 'Shelf life, expired lots, expiring soon products, and active batch registry.' },
+  { id: 'low-stock', name: 'Low Stock & Reorder Alert', category: 'inventory', description: 'Products currently at or below minimum buffer threshold.' },
+  { id: 'fast-moving', name: 'Fast-Moving vs Slow-Moving', category: 'inventory', description: 'Stock turn velocity and sales frequency velocity matrix.' },
+
+  // Financial
+  { id: 'expense-report', name: 'Expense Breakdown by Category', category: 'financial', description: 'Operational overheads grouped across 17 cost centers.' },
+  { id: 'receivables-aging', name: 'Accounts Receivable Aging', category: 'financial', description: 'Customer outstanding grouped into 5 aging buckets.' },
+  { id: 'payables-aging', name: 'Accounts Payable Aging', category: 'financial', description: 'Vendor payment commitments and schedule analysis.' }
+];
+
 export const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { salesInvoices, purchaseInvoices, products, customers, suppliers, expenses } = useERP();
+  const [searchParams] = useSearchParams();
+  const { salesInvoices, purchaseInvoices, products, customers, suppliers, expenses, batches } = useERP();
 
-  const [activeCategory, setActiveCategory] = useState<ReportCategory>('sales');
-  const [selectedReportId, setSelectedReportId] = useState<string>('sales-summary');
+  const reportDefinitions = REPORT_DEFINITIONS;
+
+  const initialReportParam = searchParams.get('report');
+  const initialCatParam = searchParams.get('category') as ReportCategory | null;
+  const initialMatchedReport = initialReportParam ? reportDefinitions.find(r => r.id === initialReportParam) : undefined;
+
+  const [activeCategory, setActiveCategory] = useState<ReportCategory>(
+    initialMatchedReport?.category ||
+    (initialCatParam && ['sales', 'purchases', 'inventory', 'financial'].includes(initialCatParam) ? initialCatParam : 'sales')
+  );
+  const [selectedReportId, setSelectedReportId] = useState<string>(
+    initialMatchedReport?.id || (initialCatParam === 'inventory' ? 'stock-summary' : 'sales-summary')
+  );
   const [dateRange, setDateRange] = useState<string>('month');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const reportDefinitions: ReportDefinition[] = [
-    // Sales
-    { id: 'sales-summary', name: 'Sales Summary Register', category: 'sales', description: 'Comprehensive transaction-level sales register with taxes and discounts.' },
-    { id: 'sales-by-product', name: 'Sales by Product', category: 'sales', description: 'Volume and revenue breakdown by individual product lines.' },
-    { id: 'sales-by-customer', name: 'Sales by Customer', category: 'sales', description: 'Customer-wise turnover, order frequency, and contribution.' },
-    { id: 'sales-by-category', name: 'Sales by Category', category: 'sales', description: 'Category performance and sales contribution percentages.' },
-    { id: 'sales-returns', name: 'Sales Returns & Credit Notes', category: 'sales', description: 'Item returns, return rates, and reversal analysis.' },
-
-    // Purchases
-    { id: 'purchase-summary', name: 'Purchase Summary Register', category: 'purchases', description: 'Supplier bill register, inward tax credits, and payment statuses.' },
-    { id: 'purchase-by-supplier', name: 'Purchase by Supplier', category: 'purchases', description: 'Vendor procurement volumes and credit terms utilization.' },
-    { id: 'purchase-by-product', name: 'Purchase by Product', category: 'purchases', description: 'Raw materials and inventory inward purchases by item.' },
-
-    // Inventory
-    { id: 'stock-summary', name: 'Stock Summary & Valuation', category: 'inventory', description: 'Current physical inventory, reorder levels, and asset values.' },
-    { id: 'low-stock', name: 'Low Stock & Reorder Alert', category: 'inventory', description: 'Products currently at or below minimum buffer threshold.' },
-    { id: 'fast-moving', name: 'Fast-Moving vs Slow-Moving', category: 'inventory', description: 'Stock turn velocity and sales frequency velocity matrix.' },
-
-    // Financial
-    { id: 'expense-report', name: 'Expense Breakdown by Category', category: 'financial', description: 'Operational overheads grouped across 17 cost centers.' },
-    { id: 'receivables-aging', name: 'Accounts Receivable Aging', category: 'financial', description: 'Customer outstanding grouped into 5 aging buckets.' },
-    { id: 'payables-aging', name: 'Accounts Payable Aging', category: 'financial', description: 'Vendor payment commitments and schedule analysis.' }
-  ];
+  // Auto-sync category and report if navigated with query params later
+  useEffect(() => {
+    const reportParam = searchParams.get('report');
+    const catParam = searchParams.get('category') as ReportCategory | null;
+    if (reportParam) {
+      const match = reportDefinitions.find(r => r.id === reportParam);
+      if (match) {
+        setActiveCategory(match.category);
+        setSelectedReportId(match.id);
+        return;
+      }
+    }
+    if (catParam && ['sales', 'purchases', 'inventory', 'financial'].includes(catParam)) {
+      setActiveCategory(catParam);
+    }
+  }, [searchParams, reportDefinitions]);
 
   const currentReport = reportDefinitions.find(r => r.id === selectedReportId) || reportDefinitions[0];
 
@@ -120,7 +151,7 @@ export const ReportsPage: React.FC = () => {
         }));
 
       case 'stock-summary':
-        return products.map(p => ({
+        return sortProductsAZ(products).map(p => ({
           col1: p.sku,
           col2: p.name,
           col3: p.category,
@@ -128,8 +159,26 @@ export const ReportsPage: React.FC = () => {
           col5: formatCurrency(p.costPrice),
           col6: formatCurrency(p.sellingPrice),
           col7: formatCurrency(p.currentStock * p.costPrice),
-          status: calculateStockStatus(p.currentStock, p.reorderLevel)
+          status: calculateStockStatus(p.currentStock, p.reorderLevel),
+          currentStock: p.currentStock,
+          primaryUnit: p.primaryUnit
         }));
+
+      case 'batch-expiry':
+        return sortProductsAZ(batches).map(b => {
+          const prod = products.find(p => p.id === b.productId || p.name?.toLowerCase() === b.productName?.toLowerCase());
+          const calculatedStatus = calculateBatchStatus(b.expiryDate, b.qty);
+          return {
+            col1: b.batchNumber,
+            col2: b.productName,
+            col3: b.mfgDate ? formatDate(b.mfgDate) : '—',
+            col4: b.expiryDate ? formatDate(b.expiryDate) : '—',
+            col5: `${formatNumber(b.qty)} ${prod?.primaryUnit || 'Units'}`,
+            col6: formatCurrency(b.cost),
+            col7: formatCurrency((Number(b.cost) || 0) * (Number(b.qty) || 0)),
+            status: calculatedStatus
+          };
+        });
 
       case 'purchase-by-supplier':
         return suppliers.map(s => ({
@@ -158,13 +207,14 @@ export const ReportsPage: React.FC = () => {
       default:
         return [];
     }
-  }, [selectedReportId, salesInvoices, products, customers, suppliers, expenses]);
+  }, [selectedReportId, salesInvoices, products, customers, suppliers, expenses, batches]);
 
   const headersByReport: Record<string, string[]> = {
     'sales-summary': ['Invoice #', 'Customer Name', 'Date', 'Payment Mode', 'Taxable Amt', 'GST Total', 'Invoice Total', 'Status'],
     'sales-by-product': ['Product Line', 'Quantity Sold', 'Gross Turnover', 'Gross Margin', 'Profit %', 'Category', 'Rank', 'Status'],
     'sales-by-customer': ['Customer', 'Type', 'Phone', 'Total Sales', 'Amount Paid', 'Outstanding', 'Credit Terms', 'Status'],
     'stock-summary': ['SKU', 'Product Description', 'Category', 'Current Stock', 'Cost Price', 'Selling Price', 'Inventory Value', 'Status'],
+    'batch-expiry': ['Batch Number', 'Product Name', 'Mfg Date', 'Expiry Date', 'Available Qty', 'Unit Cost', 'Total Value', 'Status'],
     'purchase-by-supplier': ['Supplier Name', 'Company Name', 'Contact', 'Procured Total', 'Settled Total', 'Balance Payable', 'Credit Terms', 'Status'],
     'expense-report': ['Date', 'Category', 'Vendor / Payee', 'Paid Via', 'Cost Center', 'Particulars / Description', 'Amount (₹)', 'Status']
   };
@@ -387,7 +437,7 @@ export const ReportsPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredData.map((row, idx) => (
+                filteredData.map((row: any, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3 px-4 font-mono font-bold text-blue-700">{row.col1}</td>
                     <td className="py-3 px-4 font-medium text-slate-900">{row.col2}</td>
@@ -397,7 +447,13 @@ export const ReportsPage: React.FC = () => {
                     <td className="py-3 px-4 text-right font-mono font-semibold text-slate-800">{row.col6}</td>
                     <td className="py-3 px-4 text-right font-mono font-black text-slate-900">{row.col7}</td>
                     <td className="py-3 px-4 text-center">
-                      <StatusBadge status={row.status} size="sm" />
+                      <StockStatusBadge
+                        status={row.status}
+                        currentStock={row.currentStock}
+                        unit={row.primaryUnit}
+                        size="sm"
+                        align="center"
+                      />
                     </td>
                   </tr>
                 ))

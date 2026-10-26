@@ -28,6 +28,7 @@ import { useERP } from '../../context/ERPContext';
 import { Warehouse, WarehouseType } from '../../types';
 import { Modal } from '../../components/common/Modal';
 import { formatCurrency } from '../../utils/formatters';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { useNavigate } from 'react-router-dom';
 
 const LOCATION_TYPES: WarehouseType[] = [
@@ -296,7 +297,7 @@ export const WarehousesPage: React.FC = () => {
   // Products breakdown for selected warehouse
   const selectedWarehouseProducts = useMemo(() => {
     if (!selectedWarehouse) return [];
-    return products
+    const list = products
       .map(p => {
         const qty = getWarehouseStock(selectedWarehouse.id, p.id);
         const cost = p.purchasePrice || p.costPrice || 0;
@@ -316,6 +317,8 @@ export const WarehousesPage: React.FC = () => {
           item.product.category.toLowerCase().includes(q)
         );
       });
+
+    return sortProductsAZ(list);
   }, [selectedWarehouse, products, getWarehouseStock, stockSearchTerm]);
 
   // Helper for type styling
@@ -364,14 +367,6 @@ export const WarehousesPage: React.FC = () => {
             className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => navigate('/inventory/transfers')}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200/80"
-          >
-            <ArrowRightLeft className="w-4 h-4 text-blue-600" />
-            <span>Stock Transfers</span>
           </button>
 
           <button

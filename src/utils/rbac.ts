@@ -169,7 +169,8 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     products: VIEW_ONLY,
     // View-only real-time shop inventory for customer stock queries
     inventory: VIEW_ONLY,
-    settings: ALL_DENIED,
+    // Permitted personal & appearance settings
+    settings: { view: true, create: false, edit: false, delete: false, approve: false, export: false, manage: false },
     pos: ALL_DENIED,
     payments: ALL_DENIED,
     purchases: ALL_DENIED,
@@ -298,6 +299,8 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
 
   // Inventory
   '/inventory': { module: 'inventory', action: 'view' },
+  '/inventory/customer-returns': { module: 'inventory', action: 'view' },
+  '/inventory/returns': { module: 'inventory', action: 'view' },
   '/inventory/alerts': { module: 'inventory', action: 'view' },
   '/inventory/reorder': { module: 'inventory', action: 'view' },
   '/inventory/purchase-requests': { module: 'inventory', action: 'view' },
@@ -553,11 +556,12 @@ export function canAccessRoute(
       cleanPath.startsWith('/audit/') ||
       cleanPath === '/barcode' ||
       cleanPath.startsWith('/barcode/') ||
-      cleanPath === '/settings' ||
-      cleanPath.startsWith('/settings/') ||
       // Salespersons can view-only /inventory via Check Inventory dashboard button,
+      // and Customer Returns (/inventory/customer-returns) to submit/view customer return requests,
       // but are strictly forbidden from all warehouse stock management sub-routes
-      cleanPath.startsWith('/inventory/')
+      (cleanPath.startsWith('/inventory/') &&
+        cleanPath !== '/inventory/customer-returns' &&
+        cleanPath !== '/inventory/returns')
     ) {
       return false;
     }
@@ -691,7 +695,9 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
   Salesperson: [
     'Dashboard',
     'Sales',
-    'Customers'
+    'Customers',
+    'Inventory',
+    'Settings'
   ],
   'Purchase Manager': [
     'Dashboard',
@@ -767,6 +773,10 @@ export function canRoleAccessSubItem(
     if (parentName === 'Sales') {
       return subItemPath === '/sales';
     }
+    // In Inventory: Salesperson accesses view-only stock lookup
+    if (parentName === 'Inventory') {
+      return subItemPath === '/inventory';
+    }
     return false;
   }
   if (normalizedRole === 'Purchase Manager') {
@@ -787,8 +797,12 @@ export function canRoleAccessSubItem(
         subItemPath === '/inventory/alerts' ||
         subItemPath === '/inventory/reorder' ||
         subItemPath === '/inventory/purchase-requests' ||
+        subItemPath === '/inventory/customer-returns' ||
+        subItemPath === '/inventory/returns' ||
         _subItemName === 'Low Stock & Reorder' ||
-        _subItemName === 'Purchase Requests'
+        _subItemName === 'Purchase Requests' ||
+        _subItemName === 'Customer Returns' ||
+        _subItemName === 'Purchase Returns'
       ) {
         return false;
       }

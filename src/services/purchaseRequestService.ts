@@ -5,7 +5,8 @@ import {
   PurchaseRequestHistory,
   PurchaseRequestStatus,
   PurchaseRequestPriority,
-  CreatePurchaseRequestInput
+  CreatePurchaseRequestInput,
+  CustomerSupportPriority
 } from '../types';
 import { getAppStorage } from '../utils/storageUtils';
 import { notificationService } from './notificationService';
@@ -612,27 +613,61 @@ export const purchaseRequestService = {
       let notifMsg = `Your purchase request has been moved to ${params.status} by ${reviewerName}.`;
       let targetUserId: string | null = existing.requesterId;
       let targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+      let priority: CustomerSupportPriority = 'Normal';
+      let actionText = 'View Purchase Request';
+      let dedupKey: string | undefined = undefined;
+
+      // Extract requested product summary (e.g. Cement, Paint)
+      const productSummary =
+        existing.items && existing.items.length > 0
+          ? Array.from(new Set(existing.items.map(it => it.productName).filter(Boolean))).join(', ')
+          : 'items';
 
       if (params.status === 'Approved') {
-        notifTitle = `Purchase Request Approved: ${existing.requestNumber}`;
-        notifMsg = `Approved by ${reviewerName}. Ready for purchase order generation.`;
-        targetUserId = existing.requesterId;
-        targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+        // Rule: Trigger only when the request status changes to Approved
+        if (existing.status !== 'Approved') {
+          notifTitle = 'Purchase Request Approved';
+          notifMsg = `Your purchase request for ${productSummary} has been approved. You can view the request details.`;
+          priority = 'Normal';
+          actionText = 'View Purchase Request';
+          targetUserId = existing.requesterId;
+          targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+          dedupKey = `pr_approved_${existing.id}`;
+        } else {
+          // No repeated notification when unchanged
+          return updatedRequest;
+        }
       } else if (params.status === 'Rejected') {
-        notifTitle = `Purchase Request Rejected: ${existing.requestNumber}`;
-        notifMsg = `Rejected by ${reviewerName}. Reason: ${params.rejectionReason || 'No reason provided'}`;
-        targetUserId = existing.requesterId;
-        targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+        // Rule: Trigger only when the request status changes to Rejected
+        if (existing.status !== 'Rejected') {
+          notifTitle = 'Purchase Request Rejected';
+          if (params.rejectionReason && params.rejectionReason.trim()) {
+            notifMsg = `Your purchase request has been rejected. Reason: ${params.rejectionReason.trim()}.`;
+          } else {
+            notifMsg = 'Your purchase request has been rejected. Please review the request details.';
+          }
+          priority = 'High';
+          actionText = 'View Purchase Request';
+          targetUserId = existing.requesterId;
+          targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+          dedupKey = `pr_rejected_${existing.id}`;
+        } else {
+          // No repeated notification when unchanged
+          return updatedRequest;
+        }
       } else if (params.status === 'Clarification Requested') {
         notifTitle = `Clarification Requested: ${existing.requestNumber}`;
         notifMsg = `${reviewerName} requested clarification: "${params.clarificationNotes}"`;
         targetUserId = existing.requesterId;
         targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+        priority = 'High';
+        actionText = 'View Purchase Request';
       } else if (params.status === 'Under Review' && (params.comments?.includes('Clarification provided') || user?.role === 'Warehouse Manager')) {
         notifTitle = `Clarification Provided: ${existing.requestNumber}`;
         notifMsg = `Clarification provided by ${reviewerName} for request #${existing.requestNumber}. Ready for review.`;
         targetUserId = null;
         targetLink = `/purchases/requests?id=${existing.id}`;
+        priority = 'Normal';
       } else if (params.status === 'Cancelled') {
         const reason = params.cancellationReason || params.rejectionReason || params.comments || 'No reason specified';
         notifTitle = `Purchase Request Cancelled: ${existing.requestNumber}`;
@@ -644,6 +679,8 @@ export const purchaseRequestService = {
           targetUserId = existing.requesterId;
           targetLink = `/inventory/purchase-requests?id=${existing.id}`;
         }
+        priority = 'High';
+        actionText = 'View Purchase Request';
       }
 
       await notificationService.createNotification(
@@ -654,7 +691,10 @@ export const purchaseRequestService = {
           link: targetLink,
           userId: targetUserId,
           warehouseId: existing.warehouseId,
-          warehouseName: existing.warehouseName
+          warehouseName: existing.warehouseName,
+          priority,
+          actionText,
+          dedupKey
         },
         finalCompanyId
       );
@@ -1152,5 +1192,172 @@ export const purchaseRequestService = {
     } catch (e) {}
 
     return updatedRequest;
+  },
+
+  /**
+   * Updates an existing purchase request's details (reason, priority, warehouse, items, date)
+   */
+  async updatePurchaseRequest(
+    requestId: string,
+    input: Partial<CreatePurchaseRequestInput>,
+    companyId?: string,
+    user?: { id: string; name: string; role?: string }
+  ): Promise<PurchaseRequest> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const existing = await this.getPurchaseRequestById(requestId, finalCompanyId);
+    if (!existing) {
+      throw new Error(`Purchase request #${requestId} not found.`);
+    }
+
+    const updatedRequest: PurchaseRequest = {
+      ...existing,
+      warehouseId: input.warehouseId || existing.warehouseId,
+      warehouseName: input.warehouseName || existing.warehouseName,
+      priority: input.priority || existing.priority,
+      reason: input.reason !== undefined ? input.reason : existing.reason,
+      requestedDeliveryDate: input.requestedDeliveryDate !== undefined ? input.requestedDeliveryDate : existing.requestedDeliveryDate,
+      notes: input.notes !== undefined ? input.notes : existing.notes,
+      updatedAt: new Date().toISOString(),
+      items: input.items
+        ? input.items.map((it, idx) => ({
+            id: existing.items[idx]?.id || `${requestId}-item-${idx + 1}`,
+            requestId,
+            productId: it.productId,
+            productName: it.productName,
+            sku: it.sku,
+            currentStock: Number(it.currentStock || 0),
+            warningLimit: it.warningLimit,
+            requestedQty: Number(it.requestedQty),
+            approvedQty: null,
+            receivedQty: 0,
+            unit: it.unit || 'Piece',
+            estimatedCost: Number(it.estimatedCost || 0),
+            createdAt: existing.items[idx]?.createdAt || new Date().toISOString()
+          }))
+        : existing.items,
+      history: [
+        ...(existing.history || []),
+        {
+          id: `${requestId}-hist-${(existing.history?.length || 0) + 1}`,
+          requestId,
+          statusFrom: existing.status,
+          statusTo: existing.status,
+          userId: user?.id || '00000000-0000-0000-0000-000000000000',
+          userName: user?.name || 'Warehouse Manager',
+          role: user?.role || 'Warehouse Manager',
+          comments: input.reason ? `Request details updated: ${input.reason}` : 'Purchase request details updated',
+          createdAt: new Date().toISOString()
+        }
+      ]
+    };
+
+    // 1. Update in Supabase if table is available
+    if (!isTableMarkedMissing('purchase_requests')) {
+      try {
+        const { error: prErr } = await supabase
+          .from('purchase_requests')
+          .update({
+            warehouse_id: updatedRequest.warehouseId,
+            warehouse_name: updatedRequest.warehouseName,
+            priority: updatedRequest.priority,
+            reason: updatedRequest.reason,
+            requested_delivery_date: updatedRequest.requestedDeliveryDate || null,
+            notes: updatedRequest.notes,
+            updated_at: updatedRequest.updatedAt
+          })
+          .eq('id', requestId);
+
+        if (prErr) {
+          if (isTableNotFoundError(prErr)) {
+            markTableMissing('purchase_requests');
+          }
+        } else if (input.items && input.items.length > 0) {
+          // Replace line items
+          await supabase.from('purchase_request_items').delete().eq('request_id', requestId);
+          const itemRows = updatedRequest.items.map(it => ({
+            request_id: requestId,
+            product_id: it.productId,
+            product_name: it.productName,
+            sku: it.sku,
+            current_stock: it.currentStock,
+            warning_limit: it.warningLimit,
+            requested_qty: it.requestedQty,
+            unit: it.unit,
+            estimated_cost: it.estimatedCost
+          }));
+          await supabase.from('purchase_request_items').insert(itemRows);
+        }
+      } catch (e: any) {
+        if (isTableNotFoundError(e)) {
+          markTableMissing('purchase_requests');
+        }
+      }
+    }
+
+    // 2. Update local storage cache
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const list: PurchaseRequest[] = JSON.parse(raw);
+          const index = list.findIndex(r => r.id === requestId);
+          if (index !== -1) {
+            list[index] = updatedRequest;
+          } else {
+            list.unshift(updatedRequest);
+          }
+          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(list));
+        }
+      } catch {}
+    }
+
+    return updatedRequest;
+  },
+
+  /**
+   * Deletes a purchase request and its line items
+   */
+  async deletePurchaseRequest(
+    requestId: string,
+    companyId?: string,
+    userRole?: string
+  ): Promise<boolean> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+
+    // 1. Delete from Supabase if table exists
+    if (!isTableMarkedMissing('purchase_requests')) {
+      try {
+        // Delete child items first to satisfy foreign key constraints
+        try {
+          await supabase.from('purchase_request_items').delete().eq('request_id', requestId);
+        } catch {}
+
+        const { error } = await supabase.from('purchase_requests').delete().eq('id', requestId);
+        if (error && isTableNotFoundError(error)) {
+          markTableMissing('purchase_requests');
+        }
+      } catch (e: any) {
+        if (isTableNotFoundError(e)) {
+          markTableMissing('purchase_requests');
+        }
+      }
+    }
+
+    // 2. Delete from local storage cache
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const list: PurchaseRequest[] = JSON.parse(raw);
+          const filtered = list.filter(r => r.id !== requestId);
+          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(filtered));
+        }
+      } catch {}
+    }
+
+    return true;
   }
 };
+

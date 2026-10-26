@@ -29,10 +29,11 @@ import {
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { Modal } from '../../components/common/Modal';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import { StatusBadge, StockStatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
-import { Product, StockStatusType, CreatePurchaseRequestInput, PurchaseRequestPriority } from '../../types';
+import { Product, StockStatusType, CreatePurchaseRequestInput, PurchaseRequestPriority, PurchaseRequestStatus } from '../../types';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
+import { compareProductsAZ } from '../../utils/sortUtils';
 
 interface MultiRequestItem {
   product: Product;
@@ -159,7 +160,7 @@ export const StockAlertsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OUT_OF_STOCK' | 'LIMITED_STOCK' | 'ACTIVE' | 'LOW_STOCK'>('LOW_STOCK');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [supplierFilter, setSupplierFilter] = useState<string>('ALL');
-  const [sortField, setSortField] = useState<'stock' | 'warningLimit' | 'name' | 'suggestedQty' | 'movementDate'>('stock');
+  const [sortField, setSortField] = useState<'stock' | 'warningLimit' | 'name' | 'suggestedQty' | 'movementDate'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 12;
@@ -172,7 +173,8 @@ export const StockAlertsPage: React.FC = () => {
   const [requestItems, setRequestItems] = useState<MultiRequestItem[]>([]);
   const [requestWarehouseId, setRequestWarehouseId] = useState<string>('');
   const [priority, setPriority] = useState<PurchaseRequestPriority>('High');
-  const [reason, setReason] = useState<string>('Stock replenishment due to inventory reaching warning limit');
+  const [reason, setReason] = useState<string>('Critical inventory replenishment: Items are out of stock');
+  const [reasonError, setReasonError] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 5);
@@ -186,51 +188,17 @@ export const StockAlertsPage: React.FC = () => {
   // Replenishment Reason input auto-selection refs & handlers
   const reasonInputRef = useRef<HTMLInputElement>(null);
   const isReasonEditedRef = useRef<boolean>(false);
-  const shouldSelectOnMouseUpRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    if (isRequestModalOpen) {
-      isReasonEditedRef.current = false;
-      shouldSelectOnMouseUpRef.current = false;
-    }
-  }, [isRequestModalOpen]);
 
   const handleReasonFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    if (!isReasonEditedRef.current) {
+    if (!isReasonEditedRef.current && reason) {
       e.currentTarget.select();
-    }
-  };
-
-  const handleReasonMouseDown = () => {
-    if (!isReasonEditedRef.current && document.activeElement !== reasonInputRef.current) {
-      shouldSelectOnMouseUpRef.current = true;
-    }
-  };
-
-  const handleReasonMouseUp = (e: React.MouseEvent<HTMLInputElement>) => {
-    if (shouldSelectOnMouseUpRef.current) {
-      shouldSelectOnMouseUpRef.current = false;
-      e.currentTarget.select();
-    }
-  };
-
-  const handleReasonKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!isReasonEditedRef.current) {
-      // Allow navigation and shortcut keys
-      if (e.key === 'Tab' || e.key === 'Escape' || e.ctrlKey || e.metaKey || e.altKey) {
-        return;
-      }
-      // If typing immediately after focus, ensure full selection so the key replaces default text
-      const input = e.currentTarget;
-      if (input.selectionStart !== 0 || input.selectionEnd !== input.value.length) {
-        input.select();
-      }
     }
   };
 
   const handleReasonChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     isReasonEditedRef.current = true;
     setReason(e.target.value);
+    if (reasonError) setReasonError(null);
   };
 
   // Helper: Get available stock for a product in the selected warehouse (or aggregated)
@@ -271,6 +239,53 @@ export const StockAlertsPage: React.FC = () => {
     return Array.from(set).sort();
   }, [products]);
 
+  // Active purchase request statuses that cover replenishment requirement
+  const ACTIVE_REQUEST_STATUSES: Set<PurchaseRequestStatus> = useMemo(() => new Set([
+    'Pending Review',
+    'Pending Approval',
+    'Under Review',
+    'Clarification Requested',
+    'Approved',
+    'Ordered',
+    'Partially Received'
+  ]), []);
+
+  // Helper: Get total active requested quantity and latest active request for a product in warehouse scope
+  const getProductActiveRequestInfo = (productId: string, whId: string) => {
+    let activeQty = 0;
+    let latestReq: any = null;
+
+    const matchingRequests = purchaseRequests.filter(req => {
+      if (!ACTIVE_REQUEST_STATUSES.has(req.status)) return false;
+      if (whId === 'ALL') return true;
+      return req.warehouseId === whId;
+    });
+
+    for (const req of matchingRequests) {
+      const item = req.items?.find(it => it.productId === productId);
+      if (!item) continue;
+
+      let pending = 0;
+      if (req.status === 'Partially Received') {
+        const target = item.approvedQty !== null && item.approvedQty !== undefined ? item.approvedQty : item.requestedQty;
+        pending = Math.max(0, target - Number(item.receivedQty || 0));
+      } else if (req.status === 'Approved' || req.status === 'Ordered') {
+        pending = item.approvedQty !== null && item.approvedQty !== undefined ? item.approvedQty : item.requestedQty;
+      } else {
+        pending = Number(item.requestedQty || 0);
+      }
+
+      if (pending > 0) {
+        activeQty += pending;
+        if (!latestReq || new Date(req.createdAt || 0).getTime() > new Date(latestReq.createdAt || 0).getTime()) {
+          latestReq = req;
+        }
+      }
+    }
+
+    return { activeQty, latestReq };
+  };
+
   // Process and compute stock status for each product
   const enrichedProducts = useMemo(() => {
     return products.map(product => {
@@ -281,17 +296,19 @@ export const StockAlertsPage: React.FC = () => {
 
       const status: StockStatusType = calculateStockStatus(stock, limit);
 
-      // Suggested reorder quantity formula:
-      // If out of stock: 2x warning limit (minimum 10)
-      // If limited stock: (2x warning limit) - currentStock
-      // If active: 0
-      let suggestedQty = 0;
+      // Raw suggested reorder quantity formula
+      let rawSuggestedQty = 0;
       const targetLimit = limit && limit > 0 ? limit : 10;
       if (stock <= 0) {
-        suggestedQty = Math.max(1, targetLimit * 2);
+        rawSuggestedQty = Math.max(1, targetLimit * 2);
       } else if (limit !== null && stock <= limit) {
-        suggestedQty = Math.max(1, (targetLimit * 2) - stock);
+        rawSuggestedQty = Math.max(1, (targetLimit * 2) - stock);
       }
+
+      const { activeQty, latestReq } = getProductActiveRequestInfo(product.id, selectedWarehouseId);
+      const isCovered = rawSuggestedQty > 0 && activeQty >= rawSuggestedQty;
+      const remainingSuggestedQty = Math.max(0, rawSuggestedQty - activeQty);
+      const suggestedQty = remainingSuggestedQty > 0 ? remainingSuggestedQty : rawSuggestedQty;
 
       const lastMovement = getLastMovementDate(product.id, selectedWarehouseId);
       const whName = selectedWarehouseId === 'ALL'
@@ -304,11 +321,16 @@ export const StockAlertsPage: React.FC = () => {
         effectiveLimit: limit,
         stockStatus: status,
         suggestedReorderQty: suggestedQty,
+        rawSuggestedQty,
+        activeRequestedQty: activeQty,
+        isCovered,
+        activeRequestNumber: latestReq?.requestNumber,
+        activeRequestId: latestReq?.id,
         lastMovementDate: lastMovement,
         warehouseName: whName
       };
     });
-  }, [products, selectedWarehouseId, warehouses, inventoryTransactions]);
+  }, [products, selectedWarehouseId, warehouses, inventoryTransactions, purchaseRequests]);
 
   // Filtered & Sorted List
   const filteredProducts = useMemo(() => {
@@ -317,7 +339,7 @@ export const StockAlertsPage: React.FC = () => {
       if (statusFilter === 'OUT_OF_STOCK' && p.stockStatus !== 'Out of Stock') return false;
       if (statusFilter === 'LIMITED_STOCK' && p.stockStatus !== 'Limited Stock') return false;
       if (statusFilter === 'ACTIVE' && p.stockStatus !== 'Active') return false;
-      if (statusFilter === 'LOW_STOCK' && p.stockStatus !== 'Out of Stock' && p.stockStatus !== 'Limited Stock') return false;
+      if (statusFilter === 'LOW_STOCK' && (p.isCovered || (p.stockStatus !== 'Out of Stock' && p.stockStatus !== 'Limited Stock'))) return false;
 
       // Category filter
       if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false;
@@ -338,23 +360,32 @@ export const StockAlertsPage: React.FC = () => {
       return true;
     });
 
-    // Sorting
+    // Sorting: Default A-Z by product name with case-insensitivity and SKU tiebreaker
     result.sort((a, b) => {
       let comparison = 0;
       if (sortField === 'stock') {
         comparison = a.effectiveStock - b.effectiveStock;
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a, b);
       } else if (sortField === 'warningLimit') {
         comparison = (a.effectiveLimit || 0) - (b.effectiveLimit || 0);
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a, b);
       } else if (sortField === 'name') {
-        comparison = a.name.localeCompare(b.name);
+        comparison = compareProductsAZ(a, b);
+        return sortOrder === 'asc' ? comparison : -comparison;
       } else if (sortField === 'suggestedQty') {
         comparison = a.suggestedReorderQty - b.suggestedReorderQty;
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a, b);
       } else if (sortField === 'movementDate') {
         const dateA = a.lastMovementDate ? new Date(a.lastMovementDate).getTime() : 0;
         const dateB = b.lastMovementDate ? new Date(b.lastMovementDate).getTime() : 0;
         comparison = dateA - dateB;
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a, b);
       }
-      return sortOrder === 'asc' ? comparison : -comparison;
+      return compareProductsAZ(a, b);
     });
 
     return result;
@@ -366,12 +397,8 @@ export const StockAlertsPage: React.FC = () => {
   const activeStockCount = useMemo(() => enrichedProducts.filter(p => p.stockStatus === 'Active').length, [enrichedProducts]);
   const pendingRequestsCount = useMemo(() => purchaseRequests.filter(r => r.status === 'Pending Approval' || r.status === 'Pending Review' || r.status === 'Under Review').length, [purchaseRequests]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredProducts.length / pageSize) || 1;
-  const paginatedProducts = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredProducts.slice(start, start + pageSize);
-  }, [filteredProducts, currentPage]);
+  // Continuous single-page list
+  const paginatedProducts = filteredProducts;
 
   // Toggle selection for a single product
   const handleToggleSelect = (productId: string) => {
@@ -435,12 +462,12 @@ export const StockAlertsPage: React.FC = () => {
     setPriority(items.some(i => i.currentStock <= 0) ? 'Urgent' : 'High');
     setReason(
       items.some(i => i.currentStock <= 0)
-        ? 'Replenishment for depleted stock items reaching warning thresholds'
-        : 'Routine inventory replenishment for stock at warning levels'
+        ? 'Critical inventory replenishment: Items are out of stock'
+        : 'Stock replenishment: Inventory at or below configured warning limits'
     );
+    setReasonError(null);
     setSubmitSuccessMsg(null);
     isReasonEditedRef.current = false;
-    shouldSelectOnMouseUpRef.current = false;
     setIsRequestModalOpen(true);
   };
 
@@ -544,6 +571,13 @@ export const StockAlertsPage: React.FC = () => {
       }
     }
 
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setReasonError('Replenishment Reason is required. Please provide a reason for this purchase request.');
+      reasonInputRef.current?.focus();
+      return;
+    }
+
     const targetWh = warehouses.find(w => w.id === requestWarehouseId) || warehouses[0];
     if (!targetWh) {
       alert('Please select a valid receiving warehouse.');
@@ -556,7 +590,7 @@ export const StockAlertsPage: React.FC = () => {
         warehouseId: targetWh.id,
         warehouseName: targetWh.name,
         priority,
-        reason: reason.trim() || 'Inventory replenishment for low-stock items',
+        reason: trimmedReason,
         requestedDeliveryDate: deliveryDate,
         notes: '',
         items: requestItems.map(item => ({
@@ -895,18 +929,15 @@ export const StockAlertsPage: React.FC = () => {
                 <th className="py-3 px-4 min-w-[200px]">Product Name</th>
                 <th className="py-3 px-3 whitespace-nowrap">SKU / Code</th>
                 <th className="py-3 px-3 whitespace-nowrap">Warehouse</th>
-                <th className="py-3 px-3.5 whitespace-nowrap text-right">Available Stock</th>
+                <th className="py-3 px-3 text-left whitespace-nowrap">Stock / Status</th>
                 <th className="py-3 px-3 whitespace-nowrap text-right">Warning Limit</th>
-                <th className="py-3 px-3 text-center whitespace-nowrap">Stock Status</th>
-                <th className="py-3 px-3 text-center whitespace-nowrap">Priority</th>
-                <th className="py-3 px-3 text-right whitespace-nowrap">Suggested Reorder</th>
                 <th className="py-3 px-4 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginatedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <Boxes className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-700">No products match current criteria</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -984,19 +1015,15 @@ export const StockAlertsPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* Current Available Stock & Unit */}
-                      <td className="py-3.5 px-3.5 text-right whitespace-nowrap">
-                        <span
-                          className={`font-mono font-bold text-xs tabular-nums ${
-                            isZeroOrNegative
-                              ? 'text-rose-600 font-extrabold'
-                              : isLimited
-                              ? 'text-amber-600'
-                              : 'text-emerald-600'
-                          }`}
-                        >
-                          {formatNumber(Math.max(0, product.effectiveStock))} {product.primaryUnit || 'Piece'}
-                        </span>
+                      {/* Available Stock / Status (Merged) */}
+                      <td className="py-3.5 px-3 text-left whitespace-nowrap">
+                        <StockStatusBadge
+                          status={product.stockStatus}
+                          currentStock={product.effectiveStock}
+                          unit={product.primaryUnit || 'Piece'}
+                          size="sm"
+                          align="left"
+                        />
                       </td>
 
                       {/* Low-Stock Threshold */}
@@ -1010,35 +1037,6 @@ export const StockAlertsPage: React.FC = () => {
                         )}
                       </td>
 
-                      {/* Stock Status */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        <StatusBadge status={product.stockStatus} size="sm" />
-                      </td>
-
-                      {/* Priority */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
-                          isZeroOrNegative
-                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                            : isLimited
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : 'bg-slate-100 text-slate-600 border-slate-200'
-                        }`}>
-                          {isZeroOrNegative ? 'Critical' : isLimited ? 'High' : 'Normal'}
-                        </span>
-                      </td>
-
-                      {/* Suggested Reorder Qty */}
-                      <td className="py-3.5 px-3 text-right font-mono whitespace-nowrap">
-                        {product.suggestedReorderQty > 0 ? (
-                          <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
-                            +{formatNumber(product.suggestedReorderQty)} {product.primaryUnit || 'Piece'}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-
                       {/* Actions: View Product & Create Purchase Request */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
@@ -1049,14 +1047,29 @@ export const StockAlertsPage: React.FC = () => {
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={() => handleOpenSingleProductRequest(product)}
-                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 hover:border-indigo-600 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Create purchase request for this product"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Request</span>
-                          </button>
+                          {(product as any).isCovered ? (
+                            <span
+                              onClick={() => {
+                                if ((product as any).activeRequestId) {
+                                  navigate(`/inventory/purchase-requests?id=${(product as any).activeRequestId}`);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold cursor-pointer hover:bg-indigo-100 transition-colors"
+                              title={`Covered by active purchase request #${(product as any).activeRequestNumber || ''}. Click to view request.`}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>#{(product as any).activeRequestNumber || 'On Request'}</span>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenSingleProductRequest(product)}
+                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 hover:border-indigo-600 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Create purchase request for this product"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Request</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1066,35 +1079,6 @@ export const StockAlertsPage: React.FC = () => {
             </tbody>
           </table>
         </div>
-
-        {/* Pagination Footer */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between p-4 bg-slate-50/60 border-t border-slate-200">
-            <span className="text-xs text-slate-500">
-              Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredProducts.length)} of {filteredProducts.length} items
-            </span>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                className="px-3 py-1.5 text-xs font-medium bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
-              >
-                Previous
-              </button>
-              <span className="text-xs font-bold px-2 text-slate-700">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                className="px-3 py-1.5 text-xs font-medium bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Modal: Create Multi-Product Purchase Request */}
@@ -1216,15 +1200,15 @@ export const StockAlertsPage: React.FC = () => {
                 type="text"
                 required
                 data-testid="replenishment-reason-input"
-                placeholder="e.g. Low stock alert threshold"
+                placeholder="e.g. Critical inventory replenishment: Items are out of stock"
                 value={reason}
                 onChange={handleReasonChange}
                 onFocus={handleReasonFocus}
-                onMouseDown={handleReasonMouseDown}
-                onMouseUp={handleReasonMouseUp}
-                onKeyDown={handleReasonKeyDown}
-                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className={`w-full px-2.5 py-1.5 bg-white border ${reasonError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300'} rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500`}
               />
+              {reasonError && (
+                <p className="text-[11px] text-rose-600 mt-1 font-medium">{reasonError}</p>
+              )}
             </div>
           </div>
 

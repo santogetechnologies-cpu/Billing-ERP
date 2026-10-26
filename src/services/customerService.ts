@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { Customer } from '../types';
 import { assertCallerPermission } from '../utils/rbac';
+import { customerSupportService } from './customerSupportService';
 
 export const customerService = {
   // Fetch customers with search and pagination
@@ -46,6 +47,7 @@ export const customerService = {
       totalPurchased: Number(c.total_purchased) || 0,
       totalPaid: Number(c.total_paid) || 0,
       notes: c.notes,
+      assignedSalespersonId: c.assigned_salesperson_id || null,
       status: (c.status as any) || 'Active',
       createdAt: c.created_at
     }));
@@ -79,6 +81,7 @@ export const customerService = {
       totalPurchased: Number(data.total_purchased) || 0,
       totalPaid: Number(data.total_paid) || 0,
       notes: data.notes,
+      assignedSalespersonId: data.assigned_salesperson_id || null,
       status: data.status || 'Active',
       createdAt: data.created_at
     } as Customer;
@@ -90,7 +93,7 @@ export const customerService = {
     await assertCallerPermission('customers', 'create');
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
-    const dbPayload = {
+    const dbPayload: Record<string, any> = {
       company_id: finalCompanyId,
       name: c.name,
       customer_type: c.type,
@@ -111,6 +114,10 @@ export const customerService = {
       status: c.status || 'Active'
     };
 
+    if (c.assignedSalespersonId) {
+      dbPayload.assigned_salesperson_id = c.assignedSalespersonId;
+    }
+
     const { data, error } = await supabase
       .from('customers')
       .insert(dbPayload)
@@ -120,6 +127,19 @@ export const customerService = {
     if (error || !data) {
       console.error('Failed to insert customer into Supabase:', error?.message);
       throw new Error(`Failed to create customer: ${error?.message || 'Database insert error'}`);
+    }
+
+    // Trigger Customer Assigned notification (Requirement 6)
+    if (c.assignedSalespersonId) {
+      try {
+        await customerSupportService.notifyCustomerAssigned(
+          { id: data.id, name: data.name },
+          c.assignedSalespersonId,
+          finalCompanyId
+        );
+      } catch (err) {
+        console.warn('Failed to notify assigned salesperson on customer creation:', err);
+      }
     }
 
     return {
@@ -140,6 +160,7 @@ export const customerService = {
       totalPurchased: Number(data.total_purchased),
       totalPaid: Number(data.total_paid),
       notes: data.notes,
+      assignedSalespersonId: data.assigned_salesperson_id || null,
       status: data.status,
       createdAt: data.created_at
     };
@@ -170,6 +191,9 @@ export const customerService = {
     if (updates.totalPaid !== undefined) dbPayload.total_paid = updates.totalPaid;
     if (updates.status !== undefined) dbPayload.status = updates.status;
     if (updates.notes !== undefined) dbPayload.notes = updates.notes;
+    if (updates.assignedSalespersonId !== undefined) {
+      dbPayload.assigned_salesperson_id = updates.assignedSalespersonId || null;
+    }
 
     const { data, error } = await supabase
       .from('customers')
@@ -180,6 +204,21 @@ export const customerService = {
       .single();
 
     if (error) throw new Error(`Failed to update customer: ${error.message}`);
+
+    // If customer was assigned or reassigned to a Salesperson, trigger notification (Requirement 6)
+    if (updates.assignedSalespersonId) {
+      try {
+        await customerSupportService.notifyCustomerAssigned(
+          { id: data.id, name: data.name },
+          updates.assignedSalespersonId,
+          finalCompanyId,
+          true
+        );
+      } catch (err) {
+        console.warn('Failed to notify assigned salesperson on customer update:', err);
+      }
+    }
+
     return data;
   },
 

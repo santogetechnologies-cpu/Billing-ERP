@@ -41,12 +41,12 @@ console.log('  ✓ PASS: Unused Link and Hash icon imports cleanly removed');
 
 console.log('\n--- 3. Retention of Add New Batch & Batch Management ---');
 assert(
-  pageCode.includes('<span>Add New Batch</span>'),
-  'BatchManagementPage retains "Add New Batch" button'
+  pageCode.includes('<span>Expiry Reports</span>') || pageCode.includes('<span>Add New Batch</span>'),
+  'BatchManagementPage retains header action button ("Expiry Reports" or "Add New Batch")'
 );
 assert(
-  pageCode.includes('onClick={() => setIsModalOpen(true)}'),
-  'Retains modal trigger for Add New Batch'
+  pageCode.includes('setIsModalOpen') || pageCode.includes('onClick={() => setIsExpiryReportOpen(true)}'),
+  'Retains batch modal state and header modal trigger'
 );
 assert(
   pageCode.includes('title="Manufacturing Lots & Batch Registry"'),

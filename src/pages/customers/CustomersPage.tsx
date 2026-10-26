@@ -26,7 +26,7 @@ export const CustomersPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { profile } = useAuth();
-  const { customers, addCustomer, updateCustomer, deleteCustomer } = useERP();
+  const { customers, addCustomer, updateCustomer, deleteCustomer, users } = useERP();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -45,7 +45,12 @@ export const CustomersPage: React.FC = () => {
   const [openingBalance, setOpeningBalance] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'Active' | 'Inactive' | 'Blocked'>('Active');
+  const [assignedSalespersonId, setAssignedSalespersonId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const salespersons = (users || []).filter(
+    u => u.role === 'Salesperson' && u.accountStatus === 'Enabled'
+  );
 
   const resetForm = () => {
     setName('');
@@ -61,6 +66,7 @@ export const CustomersPage: React.FC = () => {
     setOpeningBalance('');
     setNotes('');
     setStatus('Active');
+    setAssignedSalespersonId('');
     setEditingCustomer(null);
     setIsModalOpen(false);
   };
@@ -93,6 +99,7 @@ export const CustomersPage: React.FC = () => {
     setOpeningBalance(customer.openingBalance ? String(customer.openingBalance) : '');
     setNotes(customer.notes || '');
     setStatus(customer.status || 'Active');
+    setAssignedSalespersonId(customer.assignedSalespersonId || '');
     setIsModalOpen(true);
   };
 
@@ -145,7 +152,8 @@ export const CustomersPage: React.FC = () => {
           creditDays: Number(creditDays) || 0,
           openingBalance: Number(openingBalance) || 0,
           notes: notes.trim(),
-          status
+          status,
+          assignedSalespersonId: assignedSalespersonId || null
         });
       } else {
         await addCustomer({
@@ -162,7 +170,8 @@ export const CustomersPage: React.FC = () => {
           creditDays: Number(creditDays) || 0,
           openingBalance: Number(openingBalance) || 0,
           notes: notes.trim(),
-          status: 'Active'
+          status: 'Active',
+          assignedSalespersonId: assignedSalespersonId || null
         });
       }
 
@@ -399,6 +408,22 @@ export const CustomersPage: React.FC = () => {
                 <option value="Dealer">Dealer</option>
                 <option value="Distributor">Distributor</option>
                 <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">Assigned Sales Representative</label>
+              <select
+                value={assignedSalespersonId}
+                onChange={e => setAssignedSalespersonId(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer font-medium"
+              >
+                <option value="">-- No specific representative assigned --</option>
+                {salespersons.map(sp => (
+                  <option key={sp.id} value={sp.id}>
+                    {sp.name} ({sp.email})
+                  </option>
+                ))}
               </select>
             </div>
 

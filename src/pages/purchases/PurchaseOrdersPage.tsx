@@ -34,6 +34,8 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { supabase } from '../../lib/supabase';
 import { PurchaseRequest } from '../../types';
+import { sortProductsAZ } from '../../utils/sortUtils';
+import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../../utils/schemaDetector';
 
 export interface PurchaseOrderItemRow {
   id: string;
@@ -131,18 +133,27 @@ export const PurchaseOrdersPage: React.FC = () => {
   // Fetch purchase orders from database
   const fetchDbOrders = useCallback(async () => {
     const targetCompId = company?.id || '00000000-0000-0000-0000-000000000001';
-    try {
-      const { data: poData, error: poErr } = await supabase
-        .from('purchase_orders')
-        .select('*, purchase_order_items(*)')
-        .eq('company_id', targetCompId)
-        .order('created_at', { ascending: false });
+    if (!isTableMarkedMissing('purchase_orders')) {
+      try {
+        const { data: poData, error: poErr } = await supabase
+          .from('purchase_orders')
+          .select('*, purchase_order_items(*)')
+          .eq('company_id', targetCompId)
+          .order('created_at', { ascending: false });
 
-      if (!poErr && poData) {
-        setDbOrders(poData);
-        return;
+        if (!poErr && poData) {
+          setDbOrders(poData);
+          return;
+        }
+        if (poErr && isTableNotFoundError(poErr)) {
+          markTableMissing('purchase_orders');
+        }
+      } catch (err) {
+        if (isTableNotFoundError(err)) {
+          markTableMissing('purchase_orders');
+        }
       }
-    } catch {}
+    }
 
     try {
       const { data: pData } = await supabase
@@ -266,7 +277,7 @@ export const PurchaseOrdersPage: React.FC = () => {
         isOverdue,
         notes: po.notes || undefined,
         linkedRequestId: po.request_id || undefined,
-        items: mappedItems
+        items: sortProductsAZ(mappedItems)
       });
     });
 
@@ -368,7 +379,7 @@ export const PurchaseOrdersPage: React.FC = () => {
         isOverdue,
         notes: req.reason || `Linked to PR #${req.requestNumber}`,
         linkedRequestId: req.id,
-        items: mappedItems
+        items: sortProductsAZ(mappedItems)
       });
     });
 

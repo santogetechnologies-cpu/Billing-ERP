@@ -47,6 +47,7 @@ import { StockTransfersPage } from './pages/inventory/StockTransfersPage';
 import { BatchManagementPage } from './pages/inventory/BatchManagementPage';
 import { SerialNumbersPage } from './pages/inventory/SerialNumbersPage';
 import { StockValuationPage } from './pages/inventory/StockValuationPage';
+import { CustomerReturnsPage } from './pages/inventory/CustomerReturnsPage';
 
 // Customers & Suppliers
 import { CustomersPage } from './pages/customers/CustomersPage';
@@ -415,6 +416,18 @@ export function App() {
                     <StockValuationPage />
                   </ProtectedRoute>
                 }
+              />
+              <Route
+                path="inventory/customer-returns"
+                element={
+                  <ProtectedRoute requiredModule="inventory">
+                    <CustomerReturnsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="inventory/returns"
+                element={<Navigate to="/inventory/customer-returns" replace />}
               />
 
               {/* Customers & Suppliers */}

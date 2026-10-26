@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { formatCurrency } from '../../utils/formatters';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { PurchaseInvoice, PurchaseDocType } from '../../types';
 
 export const NewPurchaseInvoicePage: React.FC = () => {
@@ -315,7 +316,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
                       onChange={e => updateItem(idx, 'productId', e.target.value)}
                       className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded font-semibold text-slate-900"
                     >
-                      {products.map(p => (
+                      {sortProductsAZ(products).map(p => (
                         <option key={p.id} value={p.id}>
                           {p.name} (Stock: {p.currentStock} {p.primaryUnit})
                         </option>

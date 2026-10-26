@@ -29,7 +29,7 @@ import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../utils/rbac';
 import { DataTable, Column } from '../../components/common/DataTable';
 import { StatusBadge } from '../../components/common/StatusBadge';
-import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatNumber, formatDate, formatPaymentMethod } from '../../utils/formatters';
 import { SalesInvoice, Product, InvoiceItem, HeldInvoice } from '../../types';
 import { InvoicePrintModal } from '../../components/invoice/InvoicePrintModal';
 import { Modal } from '../../components/common/Modal';
@@ -423,9 +423,12 @@ export const SalesInvoicesPage: React.FC = () => {
       key: 'paymentMethod',
       header: 'Mode',
       align: 'center',
+      minWidth: '70px',
+      sortable: true,
+      sortValue: row => formatPaymentMethod(row.paymentMethod),
       render: row => (
-        <span className="text-[11px] text-slate-500 font-medium px-2 py-0.5 bg-slate-50 rounded border border-slate-200">
-          {row.paymentMethod}
+        <span className="text-[11px] text-slate-500 font-medium px-2 py-0.5 bg-slate-50 rounded border border-slate-200 whitespace-nowrap">
+          {formatPaymentMethod(row.paymentMethod)}
         </span>
       )
     }
@@ -612,8 +615,8 @@ export const SalesInvoicesPage: React.FC = () => {
             subtitle={`Showing ${confirmedInvoices.length} billed transactions`}
             columns={standardColumns}
             data={confirmedInvoices}
-            searchPlaceholder="Search invoice #, customer name..."
-            searchKeys={['invoiceNumber', 'customerName', 'paymentStatus']}
+            searchPlaceholder="Search invoice #, customer name, payment mode..."
+            searchKeys={['invoiceNumber', 'customerName', 'paymentStatus', 'paymentMethod']}
             onRowClick={row => {
               setSelectedInvoice(row);
               setIsPrintOpen(true);
@@ -689,8 +692,8 @@ export const SalesInvoicesPage: React.FC = () => {
         subtitle={`Showing ${salesInvoices.length} invoices generated for ${company.name}`}
         columns={standardColumns}
         data={salesInvoices}
-        searchPlaceholder="Search by invoice number, customer name, GSTIN..."
-        searchKeys={['invoiceNumber', 'customerName', 'customerGstin', 'paymentStatus']}
+        searchPlaceholder="Search by invoice number, customer name, GSTIN, payment mode..."
+        searchKeys={['invoiceNumber', 'customerName', 'customerGstin', 'paymentStatus', 'paymentMethod']}
         filters={[
           {
             key: 'paymentStatus',

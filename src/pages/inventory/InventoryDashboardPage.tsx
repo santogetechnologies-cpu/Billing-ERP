@@ -24,11 +24,12 @@ import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { StatCard } from '../../components/common/StatCard';
 import { DataTable, Column } from '../../components/common/DataTable';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import { StatusBadge, StockStatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { InventoryTransaction } from '../../types';
 import { Modal } from '../../components/common/Modal';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
+import { compareProductsAZ } from '../../utils/sortUtils';
 import { sortNotifications } from '../../services/notificationService';
 import { SalespersonInventoryPage } from './SalespersonInventoryPage';
 
@@ -104,7 +105,7 @@ const InventoryDashboardInner: React.FC = () => {
   const [opWarehouse, setOpWarehouse] = useState('ALL');
   const [opCategory, setOpCategory] = useState('ALL');
   const [opStatus, setOpStatus] = useState<'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK'>('ALL');
-  const [opSort, setOpSort] = useState<'qty_desc' | 'qty_asc' | 'name_asc' | 'threshold_desc'>('qty_desc');
+  const [opSort, setOpSort] = useState<'qty_desc' | 'qty_asc' | 'name_asc' | 'threshold_desc'>('name_asc');
   const [opPage, setOpPage] = useState(1);
   const opPageSize = 10;
   const [movementProductFilter, setMovementProductFilter] = useState<string | null>(null);
@@ -392,23 +393,30 @@ const InventoryDashboardInner: React.FC = () => {
       list = list.filter(item => item.status === 'Out of Stock');
     }
 
-    // Sort
+    // Sort: Default A-Z by product name with case-insensitive compare & SKU tiebreaker
     list.sort((a, b) => {
-      if (opSort === 'qty_desc') return b.availableQty - a.availableQty;
-      if (opSort === 'qty_asc') return a.availableQty - b.availableQty;
-      if (opSort === 'name_asc') return a.product.name.localeCompare(b.product.name);
-      if (opSort === 'threshold_desc') return (b.reorderLevel || 0) - (a.reorderLevel || 0);
-      return 0;
+      if (opSort === 'qty_desc') {
+        const diff = b.availableQty - a.availableQty;
+        if (diff !== 0) return diff;
+        return compareProductsAZ(a.product, b.product);
+      }
+      if (opSort === 'qty_asc') {
+        const diff = a.availableQty - b.availableQty;
+        if (diff !== 0) return diff;
+        return compareProductsAZ(a.product, b.product);
+      }
+      if (opSort === 'threshold_desc') {
+        const diff = (b.reorderLevel || 0) - (a.reorderLevel || 0);
+        if (diff !== 0) return diff;
+        return compareProductsAZ(a.product, b.product);
+      }
+      return compareProductsAZ(a.product, b.product);
     });
 
     return list;
   }, [products, opWarehouse, opSearch, opCategory, opStatus, opSort, warehouses, getWarehouseStock]);
 
-  const totalOpPages = Math.ceil(filteredOperationalStock.length / opPageSize) || 1;
-  const paginatedOpStock = useMemo(() => {
-    const start = (opPage - 1) * opPageSize;
-    return filteredOperationalStock.slice(start, start + opPageSize);
-  }, [filteredOperationalStock, opPage, opPageSize]);
+  const paginatedOpStock = filteredOperationalStock;
 
   const displayMovementTransactions = useMemo(() => {
     let txs = inventoryTransactions;
@@ -1143,15 +1151,19 @@ const InventoryDashboardInner: React.FC = () => {
                           {/* Stock Status */}
                           <td className="py-3 px-2 text-center align-middle whitespace-nowrap">
                             <div className="flex justify-center">
-                              <StatusBadge
-                              status={
-                                item.status === 'Active'
-                                  ? 'In Stock'
-                                  : item.status === 'Limited Stock'
-                                  ? 'Low Stock'
-                                  : 'Out of Stock'
-                              }
-                            />
+                              <StockStatusBadge
+                                status={
+                                  item.status === 'Active'
+                                    ? 'In Stock'
+                                    : item.status === 'Limited Stock'
+                                    ? 'Low Stock'
+                                    : 'Out of Stock'
+                                }
+                                currentStock={item.availableQty}
+                                unit={item.product.primaryUnit || 'Piece'}
+                                size="sm"
+                                align="center"
+                              />
                             </div>
                           </td>
 
@@ -1188,34 +1200,6 @@ const InventoryDashboardInner: React.FC = () => {
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
-            {totalOpPages > 1 && (
-              <div className="flex items-center justify-between pt-2 text-xs text-slate-500">
-                <span>
-                  Showing {(opPage - 1) * opPageSize + 1}–{Math.min(opPage * opPageSize, filteredOperationalStock.length)} of {filteredOperationalStock.length} products
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    disabled={opPage === 1}
-                    onClick={() => setOpPage(p => Math.max(1, p - 1))}
-                    className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    Previous
-                  </button>
-                  <span className="px-2 font-semibold text-slate-700">
-                    Page {opPage} of {totalOpPages}
-                  </span>
-                  <button
-                    disabled={opPage === totalOpPages}
-                    onClick={() => setOpPage(p => Math.min(totalOpPages, p + 1))}
-                    className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1658,7 +1642,13 @@ const InventoryDashboardInner: React.FC = () => {
                           {formatCurrency(effectiveValuation)}
                         </td>
                         <td className="py-2 px-2 text-center font-sans whitespace-nowrap align-middle">
-                          <StatusBadge status={status} size="sm" />
+                          <StockStatusBadge
+                            status={status}
+                            currentStock={effectiveQty}
+                            unit={p.primaryUnit || 'Piece'}
+                            size="sm"
+                            align="center"
+                          />
                         </td>
                         <td className="py-2 px-3 text-right font-sans overflow-hidden align-middle">
                           <button
@@ -2462,7 +2452,15 @@ const InventoryDashboardInner: React.FC = () => {
                         <button
                           onClick={() => {
                             setStockModal(null);
-                            navigate('/sales/new');
+                            navigate(`/inventory/batches?search=${encodeURIComponent(b.batchNumber || b.productName)}`, {
+                              state: {
+                                batchId: b.id,
+                                batchNumber: b.batchNumber,
+                                productId: b.productId,
+                                productName: b.productName,
+                                fromDispatch: true
+                              }
+                            });
                           }}
                           className="inline-flex items-center justify-center px-3 py-1 text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-2xs cursor-pointer"
                         >

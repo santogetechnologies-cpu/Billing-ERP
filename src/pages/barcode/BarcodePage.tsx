@@ -24,18 +24,21 @@ import {
   ShieldAlert,
   DollarSign,
   Info,
-  CheckCircle
+  CheckCircle,
+  Zap
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { BarcodeCanvas } from '../../components/barcode/BarcodeCanvas';
 import { barcodeService } from '../../services/barcodeService';
+import { directPrintService, PrinterConfig } from '../../services/directPrintService';
 import { supabase } from '../../lib/supabase';
 import { hasPermission, canManageBarcodeOverride } from '../../utils/rbac';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import { Modal } from '../../components/common/Modal';
 import { Product } from '../../types';
 import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../../utils/schemaDetector';
+import { sortProductsAZ } from '../../utils/sortUtils';
 
 export const BarcodePage: React.FC = () => {
   const navigate = useNavigate();
@@ -55,6 +58,23 @@ export const BarcodePage: React.FC = () => {
 
   // General Notification / Feedback banner
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Direct Printing Configuration & State
+  const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(() => directPrintService.getConfig());
+  const [labelWidthMm, setLabelWidthMm] = useState<number>(() => directPrintService.getConfig().barcodeLabelWidthMm || 50);
+  const [labelHeightMm, setLabelHeightMm] = useState<number>(() => directPrintService.getConfig().barcodeLabelHeightMm || 25);
+  const [labelDimensionPreset, setLabelDimensionPreset] = useState<string>('50x25');
+  const [isPrintingDirect, setIsPrintingDirect] = useState<boolean>(false);
+
+  // Reload printer settings on mount
+  useEffect(() => {
+    const cfg = directPrintService.getConfig();
+    setPrinterConfig(cfg);
+    if (cfg.barcodeLabelWidthMm && cfg.barcodeLabelHeightMm) {
+      setLabelWidthMm(cfg.barcodeLabelWidthMm);
+      setLabelHeightMm(cfg.barcodeLabelHeightMm);
+    }
+  }, []);
 
   // =========================================================================
   // OPTION 1: GENERATE NEW BARCODE STATE
@@ -78,7 +98,7 @@ export const BarcodePage: React.FC = () => {
   const [showGenConflictModal, setShowGenConflictModal] = useState<boolean>(false);
 
   // Label Designer Options (Option 1 & Printing)
-  const [copiesCount, setCopiesCount] = useState<string>('8');
+  const [copiesCount, setCopiesCount] = useState<string>(() => String(directPrintService.getConfig().defaultCopies || 8));
   const [columnsCount, setColumnsCount] = useState<number>(3);
   const [showLogo, setShowLogo] = useState(true);
   const [showPrice, setShowPrice] = useState(true);
@@ -429,7 +449,115 @@ export const BarcodePage: React.FC = () => {
       alert('Copies count must be a positive whole number (at least 1).');
       return;
     }
-    window.print();
+
+    // If currently on Option 2 and a product was matched, transfer it to Option 1 for printing
+    if (activeTab === 'update' && matchedProduct) {
+      setGenProductId(matchedProduct.id);
+      if (matchedProduct.barcode) {
+        setCustomValue(matchedProduct.barcode);
+      }
+      setActiveTab('generate');
+      setSearchParams({ tab: 'generate' });
+    } else if (activeTab !== 'generate') {
+      setActiveTab('generate');
+      setSearchParams({ tab: 'generate' });
+    }
+
+    // Mark body for isolated barcode printing
+    document.body.classList.add('barcode-printing-active');
+
+    const cleanupPrint = () => {
+      document.body.classList.remove('barcode-printing-active');
+      window.removeEventListener('afterprint', cleanupPrint);
+    };
+    window.addEventListener('afterprint', cleanupPrint);
+
+    // Wait two animation frames to ensure layout and SVG elements are completely rendered and flushed
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          window.print();
+        } finally {
+          // Fallback cleanup in case afterprint does not fire in some PDF driver dialogs
+          setTimeout(() => {
+            document.body.classList.remove('barcode-printing-active');
+          }, 1000);
+        }
+      });
+    });
+  };
+
+  // Direct Print Barcode Sticker Action (Silent spool to configured label printer)
+  const handleDirectPrintSticker = async (customProduct?: Product) => {
+    const targetProduct = customProduct || (activeTab === 'update' && matchedProduct ? matchedProduct : selectedGenProduct);
+    if (!targetProduct) {
+      setFeedback({
+        type: 'error',
+        message: 'Please select or scan an existing product to print barcode stickers.'
+      });
+      return;
+    }
+
+    const barcodeVal = (
+      (customProduct ? customProduct.barcode : '') ||
+      (activeTab === 'update' && matchedProduct ? matchedProduct.barcode : activeGenBarcodeValue) ||
+      targetProduct.barcode ||
+      ''
+    ).trim();
+
+    if (!barcodeVal) {
+      setFeedback({
+        type: 'error',
+        message: `Product "${targetProduct.name}" does not have a valid barcode to print.`
+      });
+      return;
+    }
+
+    const trimmed = copiesCount.trim();
+    const parsed = Math.max(1, parseInt(trimmed, 10) || 1);
+
+    setIsPrintingDirect(true);
+    setFeedback(null);
+
+    try {
+      const result = await directPrintService.printBarcodeSticker(
+        {
+          name: targetProduct.name,
+          barcode: barcodeVal,
+          sku: targetProduct.sku,
+          sellingPrice: targetProduct.sellingPrice,
+          mrp: targetProduct.mrp,
+          category: targetProduct.category,
+          batchNumber: showBatch ? batchNo : undefined,
+          expiryDate: showBatch ? expDate : undefined
+        },
+        parsed,
+        {
+          widthMm: labelWidthMm,
+          heightMm: labelHeightMm,
+          printerName: printerConfig.barcodePrinterName
+        }
+      );
+
+      if (result.success) {
+        setFeedback({
+          type: 'success',
+          message: result.message
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          message: result.message || 'Direct label printing failed. Check printer configuration.'
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err?.message || 'Error occurred while spooling barcode label.'
+      });
+    } finally {
+      setIsPrintingDirect(false);
+    }
   };
 
   // =========================================================================
@@ -643,14 +771,29 @@ export const BarcodePage: React.FC = () => {
           </p>
         </div>
 
-        {/* Global Print button */}
-        <button
-          onClick={handlePrintLabels}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors self-start sm:self-auto"
-        >
-          <Printer className="w-4 h-4" />
-          <span>Print Sticker Sheet</span>
-        </button>
+        {/* Action: Print Barcode Sticker (Direct) */}
+        <div className="flex items-center self-start sm:self-auto shrink-0">
+          <button
+            type="button"
+            id="direct-print-sticker-btn"
+            disabled={isPrintingDirect}
+            onClick={() => handleDirectPrintSticker()}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+            title="Send barcode sticker directly to the configured label printer without opening print preview"
+          >
+            {isPrintingDirect ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Printing Sticker...</span>
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5 fill-white" />
+                <span>Print Barcode Sticker (Direct)</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* TWO PRIMARY OPTIONS NAVIGATION CARDS */}
@@ -794,9 +937,9 @@ export const BarcodePage: React.FC = () => {
       {/* ===================================================================== */}
       {activeTab === 'generate' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 barcode-grid-parent print:block print:w-full">
             {/* Left: Option 1 Generator Form & Controls */}
-            <div className="no-print bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-4 text-xs">
+            <div className="no-print barcode-screen-only bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-4 text-xs">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-blue-600" />
@@ -836,8 +979,8 @@ export const BarcodePage: React.FC = () => {
                   }}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer"
                 >
-                  {products
-                    .filter(p => {
+                  {sortProductsAZ(
+                    products.filter(p => {
                       if (!genProductSearch.trim()) return true;
                       const q = genProductSearch.toLowerCase();
                       return (
@@ -846,11 +989,11 @@ export const BarcodePage: React.FC = () => {
                         (p.barcode && p.barcode.toLowerCase().includes(q))
                       );
                     })
-                    .map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.sku}) {p.barcode ? `— [${p.barcode}]` : '— (No Barcode)'}
-                      </option>
-                    ))}
+                  ).map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.sku}) {p.barcode ? `— [${p.barcode}]` : '— (No Barcode)'}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1004,14 +1147,77 @@ export const BarcodePage: React.FC = () => {
 
               {/* 5. Label Designer Studio Layout Parameters */}
               <div className="pt-3 border-t border-slate-100 space-y-3">
-                <h3 className="font-bold text-slate-900 flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                  Label Designer Studio
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                    Label Designer Studio
+                  </h3>
+                  <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded font-mono font-bold">
+                    {labelWidthMm} x {labelHeightMm} mm
+                  </span>
+                </div>
+
+                {/* Label Dimensions (Width & Height) */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                  <span className="block font-bold text-slate-800 text-[11px]">
+                    Sticker Label Dimensions:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">Preset Size</label>
+                      <select
+                        value={labelDimensionPreset}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setLabelDimensionPreset(val);
+                          if (val === '50x25') { setLabelWidthMm(50); setLabelHeightMm(25); }
+                          else if (val === '38x25') { setLabelWidthMm(38); setLabelHeightMm(25); }
+                          else if (val === '50x30') { setLabelWidthMm(50); setLabelHeightMm(30); }
+                          else if (val === '60x40') { setLabelWidthMm(60); setLabelHeightMm(40); }
+                        }}
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 cursor-pointer"
+                      >
+                        <option value="50x25">50 x 25 mm (Standard Retail)</option>
+                        <option value="38x25">38 x 25 mm (Compact / Jewelry)</option>
+                        <option value="50x30">50 x 30 mm (Grocery / Apparel)</option>
+                        <option value="60x40">60 x 40 mm (Shipping Carton)</option>
+                        <option value="custom">Custom Size (mm)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">Width (mm)</label>
+                      <input
+                        type="number"
+                        min="20"
+                        max="200"
+                        value={labelWidthMm}
+                        onChange={e => {
+                          setLabelDimensionPreset('custom');
+                          setLabelWidthMm(Math.max(10, Number(e.target.value) || 20));
+                        }}
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 text-center"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">Height (mm)</label>
+                      <input
+                        type="number"
+                        min="10"
+                        max="200"
+                        value={labelHeightMm}
+                        onChange={e => {
+                          setLabelDimensionPreset('custom');
+                          setLabelHeightMm(Math.max(10, Number(e.target.value) || 10));
+                        }}
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 text-center"
+                      />
+                    </div>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Copies Count</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Copies to Print</label>
                     <input
                       type="number"
                       min="1"
@@ -1036,6 +1242,7 @@ export const BarcodePage: React.FC = () => {
                       onChange={e => setColumnsCount(Number(e.target.value))}
                       className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold cursor-pointer"
                     >
+                      <option value={1}>1 Column (Thermal Roll)</option>
                       <option value={2}>2 Columns</option>
                       <option value={3}>3 Columns (Standard)</option>
                       <option value={4}>4 Columns (Compact)</option>
@@ -1121,8 +1328,11 @@ export const BarcodePage: React.FC = () => {
             </div>
 
             {/* Right: Live Printable Sticker Sheet Preview */}
-            <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200/90 shadow-2xs space-y-4">
-              <div className="no-print flex items-center justify-between pb-3 border-b border-slate-100">
+            <div
+              id="barcode-printable-sheet"
+              className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200/90 shadow-2xs space-y-4 print:p-0 print:border-none print:shadow-none print:bg-white print:w-full print:m-0 barcode-printable-area"
+            >
+              <div className="no-print barcode-screen-only flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
                     Printable Sticker Sheet Preview (A4 / Thermal Roll)
@@ -1131,24 +1341,19 @@ export const BarcodePage: React.FC = () => {
                     Ready to feed into Zebra, TSC or standard laser adhesive sticker paper
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center shrink-0">
                   <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">
-                    {parsedCopies} Stickers
+                    {parsedCopies} Sticker{parsedCopies !== 1 ? 's' : ''} ({labelWidthMm}x{labelHeightMm}mm)
                   </span>
-                  <button
-                    onClick={handlePrintLabels}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>Print</span>
-                  </button>
                 </div>
               </div>
 
               {/* Dynamic Grid of Barcode Stickers */}
               <div
-                className={`grid gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 print:bg-white print:border-none print:p-0 ${
-                  columnsCount === 2
+                className={`grid gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 print:bg-white print:border-none print:p-0 print:m-0 barcode-printable-grid cols-${columnsCount} ${
+                  columnsCount === 1
+                    ? 'grid-cols-1 max-w-xs mx-auto'
+                    : columnsCount === 2
                     ? 'grid-cols-2'
                     : columnsCount === 4
                     ? 'grid-cols-2 sm:grid-cols-4'
@@ -1156,7 +1361,7 @@ export const BarcodePage: React.FC = () => {
                 }`}
               >
                 {parsedCopies === 0 ? (
-                  <div className="col-span-full py-12 text-center text-slate-400">
+                  <div className="col-span-full py-12 text-center text-slate-400 no-print">
                     <p className="text-sm font-medium text-slate-500">No stickers to display</p>
                     <p className="text-xs text-slate-400 mt-1">Enter a copies count (e.g. 8) to preview sticker sheet</p>
                   </div>
@@ -1164,16 +1369,16 @@ export const BarcodePage: React.FC = () => {
                   Array.from({ length: parsedCopies }).map((_, idx) => (
                     <div
                       key={idx}
-                      className="bg-white p-3 rounded-xl border border-slate-300 shadow-2xs flex flex-col justify-between text-center space-y-1.5 print:shadow-none print:border-slate-800 text-xs w-full min-w-0 overflow-hidden"
+                      className="barcode-label-item bg-white p-3 rounded-xl border border-slate-300 shadow-2xs flex flex-col justify-between text-center space-y-1.5 print:shadow-none print:border-slate-800 text-xs w-full min-w-0 overflow-hidden print:overflow-visible print:rounded-xs print:p-2.5"
                     >
                       {showLogo && (
-                        <span className="font-bold text-[10px] uppercase text-slate-500 tracking-wider block truncate px-1">
+                        <span className="font-bold text-[10px] uppercase text-slate-500 print:text-black tracking-wider block truncate px-1">
                           {company.name}
                         </span>
                       )}
 
                       <h4
-                        className="font-bold text-xs text-slate-900 line-clamp-2 leading-tight break-words px-1 min-h-[1.75rem] flex items-center justify-center"
+                        className="font-bold text-xs text-slate-900 print:text-black line-clamp-2 leading-tight break-words px-1 min-h-[1.75rem] flex items-center justify-center print:min-h-0"
                         title={selectedGenProduct?.name}
                       >
                         {selectedGenProduct?.name || 'Sample Item'}
@@ -1181,7 +1386,7 @@ export const BarcodePage: React.FC = () => {
 
                       {showSku && (
                         <span
-                          className="text-[10px] font-mono text-slate-500 block truncate w-full px-1"
+                          className="text-[10px] font-mono text-slate-500 print:text-black block truncate w-full px-1"
                           title={`SKU: ${selectedGenProduct?.sku || 'SMP-001'}`}
                         >
                           SKU: {selectedGenProduct?.sku || 'SMP-001'}
@@ -1189,7 +1394,7 @@ export const BarcodePage: React.FC = () => {
                       )}
 
                       {/* Barcode Canvas */}
-                      <div className="py-1 w-full max-w-full flex justify-center items-center overflow-hidden px-1">
+                      <div className="py-1 w-full max-w-full flex justify-center items-center overflow-hidden print:overflow-visible px-1">
                         <BarcodeCanvas
                           value={activeGenBarcodeValue}
                           type={genBarcodeType}
@@ -1199,21 +1404,23 @@ export const BarcodePage: React.FC = () => {
                       </div>
 
                       {/* Pricing / MRP */}
-                      <div className="flex items-center justify-center gap-2 pt-1.5 border-t border-slate-100 font-bold text-xs w-full overflow-hidden">
-                        {showPrice && (
-                          <span className="text-slate-900 whitespace-nowrap text-xs">
-                            Price: {formatCurrency(selectedGenProduct?.sellingPrice || 0)}
-                          </span>
-                        )}
-                        {showMrp && (
-                          <span className="text-slate-400 line-through text-[10px] whitespace-nowrap">
-                            MRP: {formatCurrency(selectedGenProduct?.mrp || 0)}
-                          </span>
-                        )}
-                      </div>
+                      {(showPrice || showMrp) && (
+                        <div className="flex items-center justify-center gap-2 pt-1.5 border-t border-slate-100 print:border-slate-300 font-bold text-xs w-full overflow-hidden print:overflow-visible">
+                          {showPrice && (
+                            <span className="text-slate-900 print:text-black whitespace-nowrap text-xs">
+                              Price: {formatCurrency(selectedGenProduct?.sellingPrice || 0)}
+                            </span>
+                          )}
+                          {showMrp && (
+                            <span className="text-slate-400 print:text-slate-700 line-through text-[10px] whitespace-nowrap">
+                              MRP: {formatCurrency(selectedGenProduct?.mrp || 0)}
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {showBatch && (
-                        <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono pt-0.5 px-0.5 w-full">
+                        <div className="flex items-center justify-between text-[9px] text-slate-500 print:text-black font-mono pt-0.5 px-0.5 w-full">
                           <span className="truncate mr-1">B: {batchNo}</span>
                           <span className="truncate shrink-0">EXP: {expDate}</span>
                         </div>
@@ -1297,7 +1504,7 @@ export const BarcodePage: React.FC = () => {
       {/* OPTION 2 CONTENT: UPDATE EXISTING PRODUCT BARCODE */}
       {/* ===================================================================== */}
       {activeTab === 'update' && (
-        <div className="space-y-6">
+        <div className="space-y-6 barcode-screen-only no-print">
           {/* Step 1: Scanner Input & Search Bar */}
           <div className="no-print bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
@@ -1388,7 +1595,7 @@ export const BarcodePage: React.FC = () => {
                     className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-slate-900 font-medium"
                   >
                     <option value="">-- Choose an existing product to update --</option>
-                    {products.map(p => (
+                    {sortProductsAZ(products).map(p => (
                       <option key={p.id} value={p.id}>
                         {p.name} ({p.sku}) {p.barcode ? `— [Barcode: ${p.barcode}]` : ''}
                       </option>
@@ -1423,6 +1630,36 @@ export const BarcodePage: React.FC = () => {
                     <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-200 text-slate-700">
                       Unit: {matchedProduct.primaryUnit || 'Piece'}
                     </span>
+                    <button
+                      type="button"
+                      disabled={isPrintingDirect}
+                      onClick={() => handleDirectPrintSticker(matchedProduct)}
+                      className="px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                      title="Direct print barcode sticker for this product"
+                    >
+                      {isPrintingDirect ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 fill-white" />
+                      )}
+                      <span>Direct Print Sticker</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGenProductId(matchedProduct.id);
+                        if (matchedProduct.barcode) {
+                          setCustomValue(matchedProduct.barcode);
+                        }
+                        setActiveTab('generate');
+                        setSearchParams({ tab: 'generate' });
+                      }}
+                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                      title="Open in Barcode Generator & Print Sticker Sheet"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Sticker Sheet</span>
+                    </button>
                   </div>
                 </div>
 

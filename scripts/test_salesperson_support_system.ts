@@ -80,12 +80,13 @@ async function runTests() {
   // Navigation Menus
   const allowedMenus = ROLE_ALLOWED_NAV_MENUS.Salesperson;
   assert(
-    allowedMenus.length === 4 &&
+    allowedMenus.length === 5 &&
     allowedMenus.includes('Dashboard') &&
     allowedMenus.includes('Sales') &&
     allowedMenus.includes('Customers') &&
+    allowedMenus.includes('Inventory') &&
     allowedMenus.includes('Settings'),
-    `Salesperson navigation menus restricted to Dashboard, Sales, Customers, Settings. Got: ${JSON.stringify(allowedMenus)}`
+    `Salesperson navigation menus restricted to Dashboard, Sales, Customers, Inventory, Settings. Got: ${JSON.stringify(allowedMenus)}`
   );
 
   // TEST 2: Strict Recipient Isolation - Customer Support Notifications
@@ -237,7 +238,7 @@ async function runTests() {
     'sales-rep-1'
   );
   assert(damageCase.category === 'customer_product_damage', 'Product damage category recorded');
-  assert(damageCase.priority === 'Normal', 'Routine damage/defect is Normal priority, not false alarm High');
+  assert(damageCase.priority === 'High', 'Product Damage & Defects is High priority per Master Prompt');
 
   // Case Category 4: Return & Replacement Request
   const returnCase = await customerSupportService.createSupportCase(
@@ -253,6 +254,7 @@ async function runTests() {
     'sales-rep-1'
   );
   assert(returnCase.category === 'customer_return_request', 'Return/replacement request recorded');
+  assert(returnCase.priority === 'High', 'Return & Replacement Request is High priority per Master Prompt');
 
   // TEST 4: Return Authorization Forwarding (Requirement 4 & 8)
   console.log('\n4. Testing Return Request Management Forwarding...');

@@ -1,6 +1,7 @@
 import React from 'react';
 import { StockStatusType } from '../../types';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
+import { formatNumber } from '../../utils/formatters';
 
 interface StatusBadgeProps {
   status: string;
@@ -50,8 +51,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', c
 export interface StockStatusBadgeProps {
   currentStock?: number | null;
   reorderLevel?: number | null;
-  status?: StockStatusType;
+  status?: StockStatusType | string;
+  unit?: string;
   size?: 'sm' | 'md';
+  align?: 'center' | 'left' | 'right';
+  showQuantity?: boolean;
   className?: string;
 }
 
@@ -59,9 +63,47 @@ export const StockStatusBadge: React.FC<StockStatusBadgeProps> = ({
   currentStock,
   reorderLevel,
   status: explicitStatus,
+  unit,
   size = 'sm',
+  align = 'center',
+  showQuantity,
   className = ''
 }) => {
   const status = explicitStatus || calculateStockStatus(currentStock, reorderLevel);
-  return <StatusBadge status={status} size={size} className={className} />;
+  const normalized = (status || '').toLowerCase().trim();
+
+  const shouldShowQty =
+    showQuantity !== undefined
+      ? showQuantity
+      : currentStock !== undefined && currentStock !== null;
+
+  if (!shouldShowQty || currentStock === undefined || currentStock === null) {
+    return <StatusBadge status={status} size={size} className={className} />;
+  }
+
+  const safeStock = Math.max(0, Number(currentStock));
+  const isOutOfStock = safeStock <= 0 || normalized === 'out of stock';
+  const isLimited = ['limited', 'limited stock', 'warning', 'low stock'].includes(normalized);
+
+  const qtyColorClass = isOutOfStock
+    ? 'text-rose-600 font-extrabold'
+    : isLimited
+    ? 'text-amber-600'
+    : 'text-emerald-600';
+
+  const alignClass =
+    align === 'left'
+      ? 'items-start text-left'
+      : align === 'right'
+      ? 'items-end text-right'
+      : 'items-center text-center';
+
+  return (
+    <div className={`inline-flex flex-col ${alignClass} justify-center gap-0.5 py-0.5 min-w-0 ${className}`}>
+      <StatusBadge status={status} size={size} />
+      <span className={`font-mono font-bold text-xs tabular-nums whitespace-nowrap ${qtyColorClass}`}>
+        {formatNumber(safeStock)} {unit || 'Piece'}
+      </span>
+    </div>
+  );
 };
