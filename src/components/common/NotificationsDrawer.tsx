@@ -415,11 +415,20 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
               Clear all
             </button>
             <button
-              onClick={() => {
-                if (markAllNotificationsAsRead) {
-                  markAllNotificationsAsRead().catch(() => {});
-                } else {
-                  notifications.filter(n => !n.read).forEach(n => markNotificationAsRead(n.id).catch(() => {}));
+              onClick={async () => {
+                try {
+                  if (markAllNotificationsAsRead) {
+                    await markAllNotificationsAsRead();
+                  } else {
+                    await Promise.all(
+                      notifications.filter(n => !n.read).map(n => markNotificationAsRead(n.id))
+                    );
+                  }
+                } catch (err: any) {
+                  setErrorAlert({
+                    title: 'Update Failed',
+                    message: err?.message || 'Failed to mark all notifications as read. Please try again.'
+                  });
                 }
               }}
               className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 cursor-pointer"
@@ -638,7 +647,28 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                         </span>
 
                         {!item.read && (
-                          <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" title="Unread" />
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  await markNotificationAsRead(item.id);
+                                } catch (err: any) {
+                                  setErrorAlert({
+                                    title: 'Update Failed',
+                                    message: err?.message || 'Failed to mark notification as read.'
+                                  });
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-0.5 rounded transition-colors"
+                              title="Mark as read"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span className="hidden sm:inline">Mark read</span>
+                            </button>
+                            <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" title="Unread" />
+                          </div>
                         )}
                       </div>
                     </div>

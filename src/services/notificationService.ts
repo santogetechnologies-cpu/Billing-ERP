@@ -3,7 +3,11 @@ import { NotificationItem, SalesInvoice, PaymentRecord, CustomerSupportPriority 
 import { getAppStorage } from '../utils/storageUtils';
 import { filterSupportedNotificationPayload, hasNotificationColumn } from '../utils/schemaDetector';
 
-const STORAGE_KEY = (cId: string) => `universal_billing_notifications_${cId}`;
+const isUuid = (id?: string | null): boolean =>
+  Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+
+const STORAGE_KEY = (cId: string, uId?: string | null) =>
+  `universal_billing_notifications_${cId}${uId ? `_${uId}` : ''}`;
 
 /**
  * Safely parses the notification creation timestamp to epoch milliseconds.
@@ -382,11 +386,11 @@ export const notificationService = {
         } else {
           query = query.in('type', csTypes);
         }
-      } else if (role === 'Warehouse Manager' && userId) {
+      } else if (role === 'Warehouse Manager' && isUuid(userId)) {
         query = query.eq('user_id', userId);
       }
 
-      query = query.order('created_at', { ascending: false }).limit(100);
+      query = query.order('created_at', { ascending: false }).limit(250);
 
       const { data, error } = await query;
 
@@ -429,7 +433,7 @@ export const notificationService = {
               ? new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : 'Just now',
             createdAt: d.created_at || new Date().toISOString(),
-            read: d.read ?? d.is_read ?? false,
+            read: Boolean(d.is_read ?? d.read ?? false),
             link: d.link || undefined,
             userId: d.user_id || null,
             warehouseId: d.warehouse_id || null,
@@ -457,11 +461,11 @@ export const notificationService = {
       console.warn('Supabase getNotifications note:', err);
     }
 
-    // Fallback/merge with local storage cache
+    // Fallback/merge with user-scoped local storage cache
     const storage = getAppStorage();
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
         if (raw) {
           const cached: NotificationItem[] = JSON.parse(raw);
           const existingMap = new Map(items.map(i => [i.id, i]));
@@ -474,7 +478,7 @@ export const notificationService = {
                 read: Boolean(c.read)
               });
             } else {
-              // Synchronize read status if cache has newer read status
+              // Synchronize read status: if cache has read: true that was persisted, ensure it is kept
               if (c.read && !existing.read) {
                 existing.read = true;
               }
@@ -484,6 +488,8 @@ export const notificationService = {
             }
           });
         }
+        // Save current user-authorized list back to user-scoped cache
+        storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(items.slice(0, 200)));
       } catch {}
     }
 
@@ -496,12 +502,11 @@ export const notificationService = {
    * Marks a notification as read in database and local cache.
    * Throws if database update fails so the caller does not falsely confirm read status.
    */
-  async markAsRead(id: string, companyId?: string): Promise<void> {
+  async markAsRead(id: string, companyId?: string, userId?: string): Promise<void> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     let dbError: any = null;
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    if (isUuid) {
+    if (isUuid(id)) {
       try {
         // Primary Supabase column is `is_read`
         let { error } = await supabase
@@ -534,13 +539,13 @@ export const notificationService = {
     const storage = getAppStorage();
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
         if (raw) {
           const list: NotificationItem[] = JSON.parse(raw);
           const updated = sortNotifications(
             list.map(item => (item.id === id ? { ...item, read: true } : item))
           );
-          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+          storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(updated));
         }
       } catch {}
     }
@@ -548,37 +553,60 @@ export const notificationService = {
 
   /**
    * Marks all authorized notifications as read for company/user.
+   * Supports target notification IDs for precise user-scoped persistence.
    */
-  async markAllAsRead(companyId?: string, userId?: string, role?: string): Promise<void> {
+  async markAllAsRead(
+    companyId?: string,
+    userId?: string,
+    role?: string,
+    notificationIds?: string[]
+  ): Promise<void> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     let dbError: any = null;
 
     try {
-      let query = supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('company_id', finalCompanyId);
+      // 1. Resolve target notification IDs to mark as read:
+      let targetIds = notificationIds && notificationIds.length > 0
+        ? notificationIds
+        : (await this.getNotifications(companyId, userId, role)).filter(n => !n.read).map(n => n.id);
 
-      if (role && role !== 'Owner' && role !== 'Admin' && userId) {
-        query = query.eq('user_id', userId);
-      }
+      const validUuids = targetIds.filter(id => isUuid(id));
 
-      let { error } = await query;
-      if (error && (error.code === 'PGRST204' || error.message?.includes('is_read'))) {
-        let fbQuery = supabase
-          .from('notifications')
-          .update({ read: true })
-          .eq('company_id', finalCompanyId);
-        if (role && role !== 'Owner' && role !== 'Admin' && userId) {
-          fbQuery = fbQuery.eq('user_id', userId);
+      if (validUuids.length > 0) {
+        // Update in batches of 100 to respect query limits
+        for (let i = 0; i < validUuids.length; i += 100) {
+          const batch = validUuids.slice(i, i + 100);
+          let { error } = await supabase
+            .from('notifications')
+            .update({ is_read: true })
+            .in('id', batch);
+
+          if (error && (error.code === 'PGRST204' || error.message?.includes('is_read'))) {
+            const fb = await supabase
+              .from('notifications')
+              .update({ read: true })
+              .in('id', batch);
+            error = fb.error;
+          }
+
+          if (error) {
+            dbError = error;
+            console.warn('Failed to mark batch as read in DB:', error);
+            break;
+          }
         }
-        const fbRes = await fbQuery;
-        error = fbRes.error;
-      }
+      } else if (isUuid(userId)) {
+        let query = supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('company_id', finalCompanyId)
+          .eq('user_id', userId);
 
-      if (error) {
-        dbError = error;
-        console.warn('Failed to mark all as read in DB:', error);
+        const { error } = await query;
+        if (error) {
+          dbError = error;
+          console.warn('Failed to mark all as read by user_id in DB:', error);
+        }
       }
     } catch (e) {
       dbError = e;
@@ -592,18 +620,13 @@ export const notificationService = {
     const storage = getAppStorage();
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
         if (raw) {
           const list: NotificationItem[] = JSON.parse(raw);
           const updated = sortNotifications(
-            list.map(item => {
-              if (!role || role === 'Owner' || role === 'Admin' || item.userId === userId) {
-                return { ...item, read: true };
-              }
-              return item;
-            })
+            list.map(item => ({ ...item, read: true }))
           );
-          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+          storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(updated));
         }
       } catch {}
     }
@@ -667,21 +690,21 @@ export const notificationService = {
     if (storage) {
       try {
         if (!role || role === 'Owner' || role === 'Admin') {
-          storage.removeItem(STORAGE_KEY(finalCompanyId));
+          storage.removeItem(STORAGE_KEY(finalCompanyId, userId));
         } else if (role === 'Salesperson') {
-          const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+          const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
           if (raw) {
             const list: NotificationItem[] = JSON.parse(raw);
             // Retain shared company warehouse alerts; only remove this salesperson's customer support notifications
             const remaining = list.filter(n => !(isCustomerSupportNotification(n) && n.userId === userId));
-            storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(remaining));
+            storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(remaining));
           }
         } else if (userId) {
-          const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+          const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
           if (raw) {
             const list: NotificationItem[] = JSON.parse(raw);
             const remaining = list.filter(n => n.userId && n.userId !== userId);
-            storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(remaining));
+            storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(remaining));
           }
         }
       } catch {}
@@ -774,24 +797,16 @@ export const notificationService = {
       notif.dedupKey ||
       (notif.caseId ? `${notif.type}_${notif.caseId}_${notif.userId || 'unassigned'}` : undefined);
 
-    // Stable deduplication (Requirement 9): if an unread notification with identical dedupKey already exists,
-    // update it rather than creating a duplicate alert copy.
+    // Stable deduplication: if a notification with identical dedupKey already exists,
+    // preserve it rather than resetting read status or creating a duplicate copy.
     const storage = getAppStorage();
     if (storage && dedupKey) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, notif.userId));
         const list: NotificationItem[] = raw ? JSON.parse(raw) : [];
-        const existingIdx = list.findIndex(n => n.dedupKey === dedupKey && !n.read);
+        const existingIdx = list.findIndex(n => n.dedupKey === dedupKey);
         if (existingIdx !== -1) {
           const existing = list[existingIdx];
-          existing.message = notif.message;
-          existing.title = notif.title;
-          existing.timestamp = 'Just now';
-          existing.createdAt = createdAt;
-          if (notif.caseStatus) existing.caseStatus = notif.caseStatus;
-          list.splice(existingIdx, 1);
-          const updated = sortNotifications([existing, ...list]);
-          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated.slice(0, 100)));
           return existing;
         }
       } catch {}
@@ -808,19 +823,11 @@ export const notificationService = {
               .select('id, is_read')
               .eq('company_id', finalCompanyId)
               .eq('dedup_key', dedupKey)
-              .eq('is_read', false)
               .maybeSingle();
 
             if (existingDb?.id) {
               createdId = existingDb.id;
-              await supabase
-                .from('notifications')
-                .update({
-                  title: notif.title,
-                  message: notif.message,
-                  created_at: createdAt
-                })
-                .eq('id', existingDb.id);
+              // If it already exists in DB, do not reset is_read to false!
             }
           }
         } catch {}
@@ -918,10 +925,10 @@ export const notificationService = {
     // Save to local storage cache for offline / test resilience, preserving required sort
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, notif.userId));
         const list: NotificationItem[] = raw ? JSON.parse(raw) : [];
         const updated = sortNotifications([item, ...list.filter(n => n.id !== item.id)]);
-        storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated.slice(0, 100)));
+        storage.setItem(STORAGE_KEY(finalCompanyId, notif.userId), JSON.stringify(updated.slice(0, 100)));
       } catch {}
     }
 

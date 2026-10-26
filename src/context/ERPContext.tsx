@@ -541,7 +541,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             currentRole
           );
           if (generatedAlerts && generatedAlerts.length > 0) {
-            setNotifications(prev => sortNotifications(dedupeById([...generatedAlerts, ...prev])));
+            setNotifications(prev => sortNotifications(dedupeById([...prev, ...generatedAlerts])));
           }
         } catch (e) {
           console.warn('Initial stock alert check note:', e);
@@ -576,7 +576,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             item => item.userId === user.id
           );
           if (allNewBatchAlerts.length > 0) {
-            setNotifications(prev => sortNotifications(dedupeById([...allNewBatchAlerts, ...prev])));
+            setNotifications(prev => sortNotifications(dedupeById([...prev, ...allNewBatchAlerts])));
           }
         } catch (e) {
           console.warn('Initial batch expiry check note:', e);
@@ -591,10 +591,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const followUpAlerts = await customerSupportService.checkPendingFollowups(
               targetCompId,
               supportCases,
-              customersData || []
+              customersData || [],
+              notifData || []
             );
             if (followUpAlerts && followUpAlerts.length > 0) {
-              setNotifications(prev => sortNotifications(dedupeById([...followUpAlerts, ...prev])));
+              setNotifications(prev => sortNotifications(dedupeById([...prev, ...followUpAlerts])));
             }
           }
         } catch (e) {
@@ -1898,14 +1899,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications(sortNotifications(updated));
 
     try {
-      await notificationService.markAsRead(id, activeCompanyId);
+      await notificationService.markAsRead(id, activeCompanyId, user?.id);
     } catch (err) {
       console.error('Failed to mark notification as read in database:', err);
       // Restore previous state to prevent false confirmation
       setNotifications(previousNotifications);
       throw err;
     }
-  }, [notifications, activeCompanyId]);
+  }, [notifications, activeCompanyId, user?.id]);
 
   const markAllNotificationsAsRead = useCallback(async () => {
     const unread = notifications.filter(n => !n.read);
@@ -1913,12 +1914,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const previousNotifications = notifications;
     const currentRole = profile?.role || (user as any)?.role;
+    const unreadIds = unread.map(n => n.id);
 
     const updated = notifications.map(n => ({ ...n, read: true }));
     setNotifications(sortNotifications(updated));
 
     try {
-      await notificationService.markAllAsRead(activeCompanyId, user?.id, currentRole);
+      await notificationService.markAllAsRead(activeCompanyId, user?.id, currentRole, unreadIds);
     } catch (err) {
       console.error('Failed to mark all notifications as read in database:', err);
       setNotifications(previousNotifications);

@@ -300,7 +300,6 @@ export const stockAlertService = {
             .join(', ');
           const missingAlertExists = existingNotifications.some(
             n =>
-              !n.read &&
               n.type === 'system' &&
               n.warehouseId === w.id &&
               n.title === 'Missing Warehouse Manager Assignment'
@@ -381,7 +380,6 @@ export const stockAlertService = {
               const dedupKey = `out_of_stock_${w.id}_${p.id}_${managerId}`;
               const duplicateExists = existingNotifications.some(
                 n =>
-                  !n.read &&
                   n.type === 'out_of_stock' &&
                   (n.dedupKey === dedupKey ||
                     ((n.productId === p.id || n.title.includes(p.name)) &&
@@ -449,7 +447,6 @@ export const stockAlertService = {
               const dedupKey = `limited_stock_${w.id}_${p.id}_${managerId}`;
               const duplicateExists = existingNotifications.some(
                 n =>
-                  !n.read &&
                   (n.type === 'limited_stock' || n.type === 'low_stock') &&
                   (n.dedupKey === dedupKey ||
                     ((n.productId === p.id || n.title.includes(p.name)) &&
@@ -649,7 +646,6 @@ export const stockAlertService = {
 
           const duplicateExists = existingNotifications.some(
             n =>
-              !n.read &&
               n.type === 'expiring_batch' &&
               (n.dedupKey === dedupKey ||
                 (n.title === 'Product Expiring Soon' &&

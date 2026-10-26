@@ -607,7 +607,8 @@ export const customerSupportService = {
   async checkPendingFollowups(
     companyId: string,
     cases: CustomerSupportCase[],
-    customers: Customer[]
+    customers: Customer[],
+    existingNotifications: NotificationItem[] = []
   ): Promise<NotificationItem[]> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const notificationsGenerated: NotificationItem[] = [];
@@ -621,6 +622,14 @@ export const customerSupportService = {
 
       const due = new Date(c.followupDue);
       if (due.getTime() <= now.getTime()) {
+        const dedupKey = `followup_${c.id}_${due.toISOString().split('T')[0]}`;
+        const alreadyExists = existingNotifications.some(
+          n =>
+            n.dedupKey === dedupKey ||
+            (n.type === 'customer_followup' && n.caseId === c.id)
+        );
+        if (alreadyExists) continue;
+
         const cust = customerMap.get(c.customerId);
         const repId = c.assignedSalespersonId || cust?.assignedSalespersonId || null;
 
@@ -644,7 +653,7 @@ export const customerSupportService = {
             followupDue: c.followupDue,
             link: `/customers/${c.customerId}?caseId=${c.id}`,
             actionText: 'View Case',
-            dedupKey: `followup_${c.id}_${due.toISOString().split('T')[0]}`
+            dedupKey
           },
           finalCompanyId
         );
