@@ -21,7 +21,6 @@ import {
   hasPermission
 } from '../src/utils/rbac';
 import { customerReturnService } from '../src/services/customerReturnService';
-import { inventoryService } from '../src/services/inventoryService';
 import { CustomerReturn, CreateCustomerReturnInput } from '../src/types';
 
 console.log('================================================================================');
@@ -31,24 +30,12 @@ console.log('===================================================================
 let totalTests = 0;
 let passedTests = 0;
 
-function test(name: string, fn: () => void | Promise<void>) {
+async function test(name: string, fn: () => void | Promise<void>) {
   totalTests++;
   try {
-    const result = fn();
-    if (result && typeof (result as any).then === 'function') {
-      return (result as Promise<void>)
-        .then(() => {
-          console.log(`  ✓ PASS: ${name}`);
-          passedTests++;
-        })
-        .catch((err: any) => {
-          console.error(`  ✗ FAIL: ${name} -> ${err?.message || err}`);
-          process.exitCode = 1;
-        });
-    } else {
-      console.log(`  ✓ PASS: ${name}`);
-      passedTests++;
-    }
+    await fn();
+    console.log(`  ✓ PASS: ${name}`);
+    passedTests++;
   } catch (err: any) {
     console.error(`  ✗ FAIL: ${name} -> ${err?.message || err}`);
     process.exitCode = 1;
@@ -56,10 +43,11 @@ function test(name: string, fn: () => void | Promise<void>) {
 }
 
 async function runAllTests() {
-  const companyId = 'test-company-' + Date.now();
-  const testProductId = 'prod-test-' + Date.now();
-  const testWarehouseId = 'wh-main-' + Date.now();
-  const testInvoiceId = 'inv-test-' + Date.now();
+  // Valid UUIDs for DB schema compatibility
+  const companyId = '00000000-0000-4000-8000-000000000001';
+  const testProductId = '11111111-1111-4111-8111-111111111111';
+  const testWarehouseId = '22222222-2222-4222-8222-222222222222';
+  const testInvoiceId = '33333333-3333-4333-8333-333333333333';
   const testInvoiceNumber = 'INV-2026-9999';
 
   // -----------------------------------------------------------------------------
@@ -67,15 +55,15 @@ async function runAllTests() {
   // -----------------------------------------------------------------------------
   console.log('--- 1. Navigation, Routes & Sidebar Configuration ---');
 
-  test('Sidebar.tsx includes "Customer Returns" under Inventory menu', () => {
+  await test('Sidebar.tsx includes "Purchase Return" under Inventory submenu', () => {
     const sidebarCode = fs.readFileSync(path.resolve('src/components/layout/Sidebar.tsx'), 'utf-8');
     assert.ok(
-      sidebarCode.includes("name: 'Customer Returns'"),
-      'Sidebar must have "Customer Returns" item'
+      sidebarCode.includes("name: 'Purchase Return'"),
+      'Sidebar must have "Purchase Return" item under Inventory'
     );
     assert.ok(
-      sidebarCode.includes("path: '/inventory/customer-returns'"),
-      'Sidebar must point to /inventory/customer-returns'
+      sidebarCode.includes("path: '/inventory/purchase-returns'"),
+      'Sidebar must point to /inventory/purchase-returns'
     );
     assert.ok(
       sidebarCode.includes('RotateCcw'),
@@ -83,15 +71,19 @@ async function runAllTests() {
     );
   });
 
-  test('App.tsx defines route for /inventory/customer-returns and redirect for /inventory/returns', () => {
+  await test('App.tsx defines route for /inventory/purchase-returns and redirect for /inventory/returns', () => {
     const appCode = fs.readFileSync(path.resolve('src/App.tsx'), 'utf-8');
     assert.ok(
       appCode.includes('CustomerReturnsPage'),
       'App.tsx must import CustomerReturnsPage'
     );
     assert.ok(
+      appCode.includes('path="inventory/purchase-returns"'),
+      'App.tsx must define route path="inventory/purchase-returns"'
+    );
+    assert.ok(
       appCode.includes('path="inventory/customer-returns"'),
-      'App.tsx must define route path="inventory/customer-returns"'
+      'App.tsx must define route path="inventory/customer-returns" for compatibility'
     );
     assert.ok(
       appCode.includes('path="inventory/returns"'),
@@ -104,50 +96,75 @@ async function runAllTests() {
   // -----------------------------------------------------------------------------
   console.log('\n--- 2. Role-Based Access Control (RBAC) ---');
 
-  test('Sales Person can access /inventory/customer-returns to submit and view returns', () => {
+  await test('Sales Person can access /inventory/purchase-returns to submit and view returns', () => {
     assert.strictEqual(
-      canAccessRoute('Sales Person', '/inventory/customer-returns'),
+      canAccessRoute('Salesperson', '/inventory/purchase-returns'),
       true,
-      'Sales Person must have access to customer returns'
+      'Salesperson must have access to purchase returns route'
     );
     assert.strictEqual(
-      canRoleAccessSubItem('Sales Person', 'Inventory', 'Customer Returns', '/inventory/customer-returns'),
+      canAccessRoute('Sales Person', '/inventory/purchase-returns'),
       true,
-      'Sales Person must see Customer Returns in submenu'
-    );
-  });
-
-  test('Warehouse Manager can access /inventory/customer-returns for stock verification', () => {
-    assert.strictEqual(
-      canAccessRoute('Warehouse Manager', '/inventory/customer-returns'),
-      true,
-      'Warehouse Manager must have access to customer returns'
+      'Sales Person alias must normalize and allow access to purchase returns route'
     );
     assert.strictEqual(
-      canRoleAccessSubItem('Warehouse Manager', 'Inventory', 'Customer Returns', '/inventory/customer-returns'),
+      canRoleAccessSubItem('Salesperson', 'Inventory', 'Purchase Return', '/inventory/purchase-returns'),
       true,
-      'Warehouse Manager must see Customer Returns in submenu'
+      'Salesperson must see Purchase Return in submenu'
+    );
+    assert.strictEqual(
+      canRoleAccessSubItem('Sales Person', 'Inventory', 'Purchase Return', '/inventory/purchase-returns'),
+      true,
+      'Sales Person alias must see Purchase Return in submenu'
     );
   });
 
-  test('Cashier can access /inventory/customer-returns for refund processing', () => {
+  await test('Warehouse Manager can access /inventory/purchase-returns route if authorized for stock verification, but submenu is hidden', () => {
     assert.strictEqual(
-      canAccessRoute('Cashier', '/inventory/customer-returns'),
+      canAccessRoute('Warehouse Manager', '/inventory/purchase-returns'),
       true,
-      'Cashier must have access to customer returns'
+      'Warehouse Manager can access route for warehouse stock verification'
     );
-  });
-
-  test('Admin and Owner retain full access to /inventory/customer-returns', () => {
-    assert.strictEqual(canAccessRoute('Admin', '/inventory/customer-returns'), true);
-    assert.strictEqual(canAccessRoute('Owner', '/inventory/customer-returns'), true);
-  });
-
-  test('Purchase Manager is excluded from customer returns under Inventory', () => {
     assert.strictEqual(
-      canRoleAccessSubItem('Purchase Manager', 'Inventory', 'Customer Returns', '/inventory/customer-returns'),
+      canRoleAccessSubItem('Warehouse Manager', 'Inventory', 'Purchase Return', '/inventory/purchase-returns'),
       false,
-      'Customer Returns are not supplier returns and must not appear in Purchase Manager inventory menu'
+      'Purchase Return in Inventory submenu is strictly scoped to Salesperson role only'
+    );
+  });
+
+  await test('Cashier can access /inventory/purchase-returns for refund processing, but submenu is hidden', () => {
+    assert.strictEqual(
+      canAccessRoute('Cashier', '/inventory/purchase-returns'),
+      true,
+      'Cashier must have access to purchase returns to process refunds'
+    );
+    assert.strictEqual(
+      canRoleAccessSubItem('Cashier', 'Inventory', 'Purchase Return', '/inventory/purchase-returns'),
+      false,
+      'Purchase Return in Inventory submenu is strictly scoped to Salesperson role only'
+    );
+  });
+
+  await test('Admin and Owner retain full access to route, but generic Inventory submenu remains unchanged', () => {
+    assert.strictEqual(canAccessRoute('Admin', '/inventory/purchase-returns'), true);
+    assert.strictEqual(canAccessRoute('Owner', '/inventory/purchase-returns'), true);
+    assert.strictEqual(
+      canRoleAccessSubItem('Admin', 'Inventory', 'Purchase Return', '/inventory/purchase-returns'),
+      false,
+      'Purchase Return submenu under Inventory is strictly for Salesperson; Admin Inventory submenu is unchanged'
+    );
+    assert.strictEqual(
+      canRoleAccessSubItem('Owner', 'Inventory', 'Purchase Return', '/inventory/purchase-returns'),
+      false,
+      'Purchase Return submenu under Inventory is strictly for Salesperson; Owner Inventory submenu is unchanged'
+    );
+  });
+
+  await test('Purchase Manager is excluded from Purchase Return under Inventory', () => {
+    assert.strictEqual(
+      canRoleAccessSubItem('Purchase Manager', 'Inventory', 'Purchase Return', '/inventory/purchase-returns'),
+      false,
+      'Customer Purchase Returns are not vendor purchase returns and must not appear in Purchase Manager inventory menu'
     );
   });
 
@@ -160,10 +177,10 @@ async function runAllTests() {
 
   await test('Can create a customer return from an original sales invoice with valid quantity', async () => {
     const returnInput: CreateCustomerReturnInput = {
-      invoiceId: testInvoiceId,
-      invoiceNumber: testInvoiceNumber,
-      invoiceDate: '2026-10-20',
-      customerId: 'cust-123',
+      originalInvoiceId: testInvoiceId,
+      originalInvoiceNumber: testInvoiceNumber,
+      returnDate: '2026-10-26',
+      customerId: '00000000-0000-4000-8000-000000000999',
       customerName: 'Aarav Sharma',
       customerPhone: '9876543210',
       productId: testProductId,
@@ -173,13 +190,12 @@ async function runAllTests() {
       soldQty: 10,
       returnedQty: 3,
       unitPrice: 250,
-      totalRefundAmount: 750,
+      refundAmount: 750,
       condition: 'Resalable',
       reason: 'Ordered wrong flavor by mistake',
       notes: 'Unopened box sealed in original packaging',
       warehouseId: testWarehouseId,
-      warehouseName: 'Main Warehouse',
-      returnDate: '2026-10-26'
+      warehouseName: 'Main Warehouse'
     };
 
     initialReturn = await customerReturnService.createCustomerReturn(
@@ -213,10 +229,10 @@ async function runAllTests() {
     try {
       await customerReturnService.createCustomerReturn(
         {
-          invoiceId: testInvoiceId,
-          invoiceNumber: testInvoiceNumber,
-          invoiceDate: '2026-10-20',
-          customerId: 'cust-123',
+          originalInvoiceId: testInvoiceId,
+          originalInvoiceNumber: testInvoiceNumber,
+          returnDate: '2026-10-26',
+          customerId: '00000000-0000-4000-8000-000000000999',
           customerName: 'Aarav Sharma',
           productId: testProductId,
           productName: 'Organic Green Tea 250g',
@@ -225,12 +241,11 @@ async function runAllTests() {
           soldQty: 10,
           returnedQty: 8, // Remaining is 7, 8 exceeds it!
           unitPrice: 250,
-          totalRefundAmount: 2000,
+          refundAmount: 2000,
           condition: 'Resalable',
           reason: 'Defective item',
           warehouseId: testWarehouseId,
-          warehouseName: 'Main Warehouse',
-          returnDate: '2026-10-26'
+          warehouseName: 'Main Warehouse'
         },
         companyId
       );
@@ -262,7 +277,7 @@ async function runAllTests() {
       companyId
     );
     assert.strictEqual(approved.returnStatus, 'Approved');
-    assert.strictEqual(approved.reviewedBy, 'admin-1');
+    assert.strictEqual(approved.approvedBy, 'admin-1');
     assert.strictEqual(approved.restockedAt, undefined, 'Approval alone must not prematurely update inventory');
     initialReturn = approved;
   });
@@ -277,11 +292,10 @@ async function runAllTests() {
       companyId
     );
 
-    assert.strictEqual(restockRes.success, true);
-    assert.strictEqual(restockRes.restocked, true);
+    assert.strictEqual(restockRes.restocked, true, 'Resalable return must restock stock');
     assert.strictEqual(restockRes.returnRecord.returnStatus, 'Stock Restocked');
     assert.ok(restockRes.returnRecord.restockedAt, 'Must set restockedAt timestamp');
-    assert.strictEqual(restockRes.returnRecord.destinationWarehouseId, testWarehouseId);
+    assert.strictEqual(restockRes.returnRecord.warehouseId, testWarehouseId);
 
     initialReturn = restockRes.returnRecord;
   });
@@ -296,19 +310,18 @@ async function runAllTests() {
       companyId
     );
 
-    assert.strictEqual(secondCall.success, true);
     assert.strictEqual(secondCall.restocked, false, 'Second call must NOT restock stock again');
-    assert.ok(secondCall.message.includes('already restocked'), 'Message should indicate already restocked');
+    assert.ok(secondCall.message.toLowerCase().includes('already') && secondCall.message.toLowerCase().includes('restocked'), 'Message should indicate already restocked');
   });
 
   await test('Rule 5: Approved + Damaged/Defective/Expired does NOT increase sellable stock', async () => {
-    // Create a damaged return for the remaining 7 units
+    // Create a damaged return for 2 units
     const damagedReturn = await customerReturnService.createCustomerReturn(
       {
-        invoiceId: testInvoiceId,
-        invoiceNumber: testInvoiceNumber,
-        invoiceDate: '2026-10-20',
-        customerId: 'cust-123',
+        originalInvoiceId: testInvoiceId,
+        originalInvoiceNumber: testInvoiceNumber,
+        returnDate: '2026-10-26',
+        customerId: '00000000-0000-4000-8000-000000000999',
         customerName: 'Aarav Sharma',
         productId: testProductId,
         productName: 'Organic Green Tea 250g',
@@ -317,12 +330,11 @@ async function runAllTests() {
         soldQty: 10,
         returnedQty: 2,
         unitPrice: 250,
-        totalRefundAmount: 500,
+        refundAmount: 500,
         condition: 'Damaged',
         reason: 'Crushed packaging in transit',
         warehouseId: testWarehouseId,
-        warehouseName: 'Main Warehouse',
-        returnDate: '2026-10-26'
+        warehouseName: 'Main Warehouse'
       },
       companyId
     );
@@ -343,10 +355,9 @@ async function runAllTests() {
       companyId
     );
 
-    assert.strictEqual(damagedRestockRes.success, true);
     assert.strictEqual(damagedRestockRes.restocked, false, 'Non-resalable items must NOT increment sellable stock');
     assert.ok(
-      damagedRestockRes.message.includes('Quarantined/Damaged') || damagedRestockRes.message.includes('quarantine'),
+      damagedRestockRes.message.includes('quarantine') || damagedRestockRes.message.includes('Quarantined'),
       'Must record item to quarantine/damaged ledger without sellable stock'
     );
   });
@@ -355,10 +366,10 @@ async function runAllTests() {
     // Create another return to test rejection
     const toReject = await customerReturnService.createCustomerReturn(
       {
-        invoiceId: testInvoiceId,
-        invoiceNumber: testInvoiceNumber,
-        invoiceDate: '2026-10-20',
-        customerId: 'cust-123',
+        originalInvoiceId: testInvoiceId,
+        originalInvoiceNumber: testInvoiceNumber,
+        returnDate: '2026-10-26',
+        customerId: '00000000-0000-4000-8000-000000000999',
         customerName: 'Aarav Sharma',
         productId: testProductId,
         productName: 'Organic Green Tea 250g',
@@ -367,12 +378,11 @@ async function runAllTests() {
         soldQty: 10,
         returnedQty: 1,
         unitPrice: 250,
-        totalRefundAmount: 250,
+        refundAmount: 250,
         condition: 'Defective',
         reason: 'Customer claims sour taste',
         warehouseId: testWarehouseId,
-        warehouseName: 'Main Warehouse',
-        returnDate: '2026-10-26'
+        warehouseName: 'Main Warehouse'
       },
       companyId
     );
@@ -433,7 +443,7 @@ async function runAllTests() {
   // -----------------------------------------------------------------------------
   console.log('\n--- 6. CustomerReturnsPage UI Verification ---');
 
-  test('CustomerReturnsPage.tsx has all required columns, filters and modals', () => {
+  await test('CustomerReturnsPage.tsx has all required columns, filters and modals', () => {
     const pageCode = fs.readFileSync(path.resolve('src/pages/inventory/CustomerReturnsPage.tsx'), 'utf-8');
 
     // Required columns
@@ -454,22 +464,14 @@ async function runAllTests() {
       assert.ok(pageCode.includes(col), `Page must contain column or header for: ${col}`);
     }
 
-    // Required filters
-    const filters = [
-      'All Returns',
-      'Pending Review',
-      'Approved',
-      'Rejected',
-      'Stock Restocked',
-      'Refunded'
-    ];
-    for (const filter of filters) {
-      assert.ok(pageCode.includes(filter), `Page must contain filter: ${filter}`);
-    }
+    // Condition & Date filters are present, and Status filter section has been removed per user prompt
+    assert.ok(pageCode.includes('All Conditions'), 'Page must contain Condition filter');
+    assert.ok(pageCode.includes('From:'), 'Page must contain From Date filter');
+    assert.ok(pageCode.includes('To:'), 'Page must contain To Date filter');
 
     // Modal forms and actions
-    assert.ok(pageCode.includes('New Customer Return'), 'Page must have New Customer Return button/modal');
-    assert.ok(pageCode.includes('Remaining eligible quantity'), 'Modal must display remaining eligible quantity');
+    assert.ok(pageCode.includes('New Purchase Return') || pageCode.includes('New Customer Return'), 'Page must have New Purchase Return button/modal');
+    assert.ok(pageCode.includes('Remaining Eligible Quantity'), 'Modal must display remaining eligible quantity');
     assert.ok(pageCode.includes('Resalable'), 'Modal must support Resalable condition');
     assert.ok(pageCode.includes('Damaged'), 'Modal must support Damaged condition');
     assert.ok(pageCode.includes('Defective'), 'Modal must support Defective condition');

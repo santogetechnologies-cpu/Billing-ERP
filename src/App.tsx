@@ -418,6 +418,14 @@ export function App() {
                 }
               />
               <Route
+                path="inventory/purchase-returns"
+                element={
+                  <ProtectedRoute requiredModule="inventory">
+                    <CustomerReturnsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="inventory/customer-returns"
                 element={
                   <ProtectedRoute requiredModule="inventory">
@@ -427,7 +435,7 @@ export function App() {
               />
               <Route
                 path="inventory/returns"
-                element={<Navigate to="/inventory/customer-returns" replace />}
+                element={<Navigate to="/inventory/purchase-returns" replace />}
               />
 
               {/* Customers & Suppliers */}

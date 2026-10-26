@@ -85,17 +85,37 @@ export const inventoryService = {
     companyId?: string
   ): Promise<number> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
-    const { data } = await supabase
-      .from('stock_balances')
-      .select('quantity')
-      .eq('company_id', finalCompanyId)
-      .eq('warehouse_id', warehouseId)
-      .eq('product_id', productId)
-      .maybeSingle();
+    try {
+      const { data } = await supabase
+        .from('stock_balances')
+        .select('quantity')
+        .eq('company_id', finalCompanyId)
+        .eq('warehouse_id', warehouseId)
+        .eq('product_id', productId)
+        .maybeSingle();
 
-    if (data?.quantity !== null && data?.quantity !== undefined) {
-      return Number(data.quantity);
+      if (data?.quantity !== null && data?.quantity !== undefined) {
+        return Number(data.quantity);
+      }
+    } catch {}
+
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(`universal_billing_stock_balances_${finalCompanyId}`);
+        if (raw) {
+          const list: any[] = JSON.parse(raw);
+          const found = list.find((b: any) =>
+            (b.warehouseId === warehouseId || b.warehouse_id === warehouseId) &&
+            (b.productId === productId || b.product_id === productId)
+          );
+          if (found && found.quantity !== undefined && found.quantity !== null) {
+            return Number(found.quantity);
+          }
+        }
+      } catch {}
     }
+
     return 0;
   },
 
@@ -109,37 +129,33 @@ export const inventoryService = {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
 
     // 1. Fetch current balance
-    const { data: existing } = await supabase
-      .from('stock_balances')
-      .select('id, quantity')
-      .eq('warehouse_id', warehouseId)
-      .eq('product_id', productId)
-      .maybeSingle();
-
-    const currentQty = existing?.quantity !== null && existing?.quantity !== undefined ? Number(existing.quantity) : 0;
+    const currentQty = await this.getStockBalance(warehouseId, productId, finalCompanyId);
     const newQty = currentQty + deltaQty;
 
-    const { error } = await supabase
-      .from('stock_balances')
-      .upsert(
-        {
-          company_id: finalCompanyId,
-          warehouse_id: warehouseId,
-          product_id: productId,
-          quantity: newQty,
-          updated_at: new Date().toISOString()
-        },
-        { onConflict: 'warehouse_id,product_id' }
-      );
+    try {
+      const { error } = await supabase
+        .from('stock_balances')
+        .upsert(
+          {
+            company_id: finalCompanyId,
+            warehouse_id: warehouseId,
+            product_id: productId,
+            quantity: newQty,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'warehouse_id,product_id' }
+        );
 
-    if (error) {
-      console.warn('Error upserting stock_balances in Supabase:', error.message);
-    }
+      if (error) {
+        console.warn('Error upserting stock_balances in Supabase:', error.message);
+      }
+    } catch {}
 
     // Also update local cache
-    if (typeof window !== 'undefined' && window.localStorage) {
+    const storage = getAppStorage();
+    if (storage) {
       try {
-        const raw = localStorage.getItem(`universal_billing_stock_balances_${finalCompanyId}`);
+        const raw = storage.getItem(`universal_billing_stock_balances_${finalCompanyId}`);
         const list: StockBalance[] = raw ? JSON.parse(raw) : [];
         const idx = list.findIndex(b => b.warehouseId === warehouseId && b.productId === productId);
         if (idx >= 0) {
@@ -154,7 +170,7 @@ export const inventoryService = {
             updatedAt: new Date().toISOString()
           });
         }
-        localStorage.setItem(`universal_billing_stock_balances_${finalCompanyId}`, JSON.stringify(list));
+        storage.setItem(`universal_billing_stock_balances_${finalCompanyId}`, JSON.stringify(list));
       } catch {}
     }
 
@@ -753,12 +769,23 @@ export const inventoryService = {
     warehouse: string;
     referenceDoc: string;
     notes: string;
+    updateBalance?: boolean;
   }, companyId?: string): Promise<InventoryTransaction> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const dateStr = new Date().toISOString().split('T')[0];
 
-    // Update warehouse stock balance
-    if (movement.warehouse) {
+    const isQuarantineOrNonSellable =
+      movement.type.toLowerCase().includes('quarantine') ||
+      movement.type.toLowerCase().includes('damaged') ||
+      movement.type.toLowerCase().includes('defective') ||
+      movement.type.toLowerCase().includes('expired');
+
+    const shouldUpdateBalance = movement.updateBalance !== undefined
+      ? movement.updateBalance
+      : !isQuarantineOrNonSellable;
+
+    // Update warehouse stock balance only for sellable movements when requested
+    if (movement.warehouse && shouldUpdateBalance) {
       try {
         await this.updateStockBalance(movement.warehouse, movement.productId, movement.qty, finalCompanyId);
       } catch (e) {}

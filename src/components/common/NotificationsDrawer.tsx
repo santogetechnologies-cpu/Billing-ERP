@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -33,6 +33,23 @@ import { NotificationItem, SalesInvoice, PaymentRecord } from '../../types';
 import { InvoicePrintModal } from '../invoice/InvoicePrintModal';
 import { PaymentDetailModal } from '../payment/PaymentDetailModal';
 
+export interface NotificationCategoryTab {
+  id: string;
+  label: string;
+  high?: boolean;
+}
+
+export const NOTIFICATION_CATEGORY_TABS: NotificationCategoryTab[] = [
+  { id: 'all', label: 'All' },
+  { id: 'unread', label: 'Unread' },
+  { id: 'customer_complaint', label: 'Complaints', high: true },
+  { id: 'customer_product_damage', label: 'Product Damage', high: true },
+  { id: 'customer_support_request', label: 'Support' },
+  { id: 'customer_return_request', label: 'Returns & Replacements', high: true },
+  { id: 'customer_followup', label: 'Follow-ups' },
+  { id: 'customer_update', label: 'Customer Updates' }
+];
+
 interface NotificationsDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -64,6 +81,86 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all');
+
+  // Category tabs centering and smooth navigation
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const prevCategoryFilterRef = useRef<string>(categoryFilter);
+
+  const centerTab = useCallback((tabId: string, smooth: boolean = true) => {
+    const container = tabsContainerRef.current;
+    const tabEl = tabRefs.current.get(tabId);
+    if (!container || !tabEl) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const tabRect = tabEl.getBoundingClientRect();
+
+    if (containerRect.width === 0) return;
+
+    // Calculate distance needed to position the tab's center at container's center
+    const tabCenter = tabRect.left + tabRect.width / 2;
+    const containerCenter = containerRect.left + containerRect.width / 2;
+    const offset = tabCenter - containerCenter;
+
+    // If already centered within 1.5 pixels, avoid redundant scroll
+    if (Math.abs(offset) < 1.5) return;
+
+    const currentScrollLeft = container.scrollLeft;
+    const targetScrollLeft = currentScrollLeft + offset;
+    const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    const clampedScrollLeft = Math.max(0, Math.min(maxScrollLeft, targetScrollLeft));
+
+    if (Math.abs(clampedScrollLeft - currentScrollLeft) < 1.5) return;
+
+    container.scrollTo({
+      left: clampedScrollLeft,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  }, []);
+
+  const handleTabClick = (tabId: string) => {
+    setCategoryFilter(tabId);
+    centerTab(tabId, true);
+  };
+
+  const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let nextIndex = index;
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      nextIndex = (index + 1) % NOTIFICATION_CATEGORY_TABS.length;
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      nextIndex = (index - 1 + NOTIFICATION_CATEGORY_TABS.length) % NOTIFICATION_CATEGORY_TABS.length;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      nextIndex = NOTIFICATION_CATEGORY_TABS.length - 1;
+    } else {
+      return;
+    }
+
+    const nextTab = NOTIFICATION_CATEGORY_TABS[nextIndex];
+    if (nextTab) {
+      setCategoryFilter(nextTab.id);
+      const nextEl = tabRefs.current.get(nextTab.id);
+      nextEl?.focus();
+      centerTab(nextTab.id, true);
+    }
+  };
+
+  // Center selected tab when active category changes or drawer opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const timer = setTimeout(() => {
+      centerTab(categoryFilter, prevCategoryFilterRef.current !== categoryFilter);
+      prevCategoryFilterRef.current = categoryFilter;
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [categoryFilter, isOpen, centerTab]);
 
   const currentRole = profile?.role || (user as any)?.role;
   const isSalesperson = currentRole === 'Salesperson';
@@ -336,23 +433,29 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
           {/* Filter Bar: Category Tabs & Priority Selector (Section 7) */}
           <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2 text-xs">
             {/* Category pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-none">
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'unread', label: 'Unread' },
-                { id: 'customer_complaint', label: 'Complaints', high: true },
-                { id: 'customer_product_damage', label: 'Product Damage', high: true },
-                { id: 'customer_support_request', label: 'Support' },
-                { id: 'customer_return_request', label: 'Returns & Replacements', high: true },
-                { id: 'customer_followup', label: 'Follow-ups' },
-                { id: 'customer_update', label: 'Customer Updates' }
-              ].map(tab => {
+            <div
+              ref={tabsContainerRef}
+              role="tablist"
+              aria-label="Notification Categories"
+              className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-none [&::-webkit-scrollbar]:hidden"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {NOTIFICATION_CATEGORY_TABS.map((tab, idx) => {
                 const isSelected = categoryFilter === tab.id;
                 return (
                   <button
                     key={tab.id}
+                    ref={el => {
+                      if (el) tabRefs.current.set(tab.id, el);
+                      else tabRefs.current.delete(tab.id);
+                    }}
+                    role="tab"
+                    aria-selected={isSelected}
+                    tabIndex={isSelected ? 0 : -1}
+                    data-tab-id={tab.id}
                     type="button"
-                    onClick={() => setCategoryFilter(tab.id)}
+                    onClick={() => handleTabClick(tab.id)}
+                    onKeyDown={e => handleTabKeyDown(e, idx)}
                     className={`px-2 py-1 rounded-md font-semibold shrink-0 transition-colors cursor-pointer flex items-center gap-1 ${
                       isSelected
                         ? 'bg-blue-600 text-white shadow-2xs'

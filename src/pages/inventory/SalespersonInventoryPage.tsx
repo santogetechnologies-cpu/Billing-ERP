@@ -356,16 +356,16 @@ export const SalespersonInventoryPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="w-full overflow-hidden">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50/90 text-slate-700 font-semibold uppercase text-[11px] tracking-wider border-b border-slate-200">
               <tr>
-                <th className="py-3.5 pl-5 pr-4 text-left min-w-[220px]">Product Name</th>
-                <th className="py-3.5 px-4 text-left min-w-[150px]">Product Code / SKU</th>
-                <th className="py-3.5 px-4 text-left min-w-[280px]">Warehouse Stock Breakdown</th>
-                <th className="py-3.5 px-4 text-right min-w-[130px]">Selling Price</th>
-                <th className="py-3.5 px-4 text-center min-w-[140px]">Stock Status</th>
-                <th className="py-3.5 pl-4 pr-5 text-center min-w-[80px]">Actions</th>
+                <th className="py-3.5 pl-5 pr-3 text-left w-[24%]">Product Name</th>
+                <th className="py-3.5 px-3 text-left w-[18%]">Product Code / SKU</th>
+                <th className="py-3.5 px-3 text-left w-[28%]">Warehouse Stock Breakdown</th>
+                <th className="py-3.5 px-3 text-right w-[13%]">Selling Price</th>
+                <th className="py-3.5 px-3 text-center w-[12%]">Stock Status</th>
+                <th className="py-3.5 pl-2 pr-5 text-center w-[5%]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
@@ -388,33 +388,33 @@ export const SalespersonInventoryPage: React.FC = () => {
                       onClick={() => setInspectedProduct(product)}
                     >
                       {/* Product Name */}
-                      <td className="py-3.5 pl-5 pr-4 align-middle">
-                        <div className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-sm">
+                      <td className="py-3.5 pl-5 pr-3 align-middle">
+                        <div className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-sm line-clamp-1">
                           {product.name}
                         </div>
                         {product.brand && (
-                          <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                          <div className="text-[11px] text-slate-500 font-normal mt-0.5 line-clamp-1">
                             Brand: {product.brand}
                           </div>
                         )}
                       </td>
 
                       {/* Product Code / SKU */}
-                      <td className="py-3.5 px-4 align-middle">
-                        <div className="font-mono text-slate-800 font-semibold text-xs">
+                      <td className="py-3.5 px-3 align-middle">
+                        <div className="font-mono text-slate-800 font-semibold text-xs break-all">
                           {product.code || product.sku || '—'}
                         </div>
                         {product.code && product.sku && product.code !== product.sku && (
-                          <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                          <div className="text-[11px] font-mono text-slate-400 mt-0.5 break-all">
                             SKU: {product.sku}
                           </div>
                         )}
                       </td>
 
                       {/* Warehouse Stock Breakdown */}
-                      <td className="py-3.5 px-4 align-middle">
+                      <td className="py-3.5 px-3 align-middle">
                         {selectedWarehouseId !== 'ALL' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-xs border border-blue-200/60 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-xs border border-blue-200/60">
                             <Building className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                             <span>
                               {warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Godown'}: <strong className="font-mono text-blue-900 font-bold ml-1">{formatNumber(product.computedStock)}</strong>
@@ -433,10 +433,10 @@ export const SalespersonInventoryPage: React.FC = () => {
                               {whBreakdown.slice(0, 3).map(({ warehouse, stock }) => (
                                 <span
                                   key={warehouse.id}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/70 whitespace-nowrap"
-                                  title={`${warehouse.name}: ${formatNumber(stock)} ${product.primaryUnit || 'Units'}`}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/70"
+                                  title={`${warehouse.name}: ${formatNumber(stock)}`}
                                 >
-                                  <span className="truncate max-w-[120px]">{warehouse.name}:</span>
+                                  <span className="truncate max-w-[110px]">{warehouse.name}:</span>
                                   <strong className="font-mono text-slate-900 font-bold">{formatNumber(stock)}</strong>
                                 </span>
                               ))}
@@ -447,7 +447,7 @@ export const SalespersonInventoryPage: React.FC = () => {
                               )}
                             </div>
                           ) : product.computedStock > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/70 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/70">
                               <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                               <span>Main Store:</span>
                               <strong className="font-mono text-slate-900 font-bold">{formatNumber(product.computedStock)}</strong>
@@ -462,7 +462,7 @@ export const SalespersonInventoryPage: React.FC = () => {
                       </td>
 
                       {/* Selling Price */}
-                      <td className="py-3.5 px-4 text-right align-middle">
+                      <td className="py-3.5 px-3 text-right align-middle">
                         <span className="font-bold text-slate-900 font-mono text-xs">
                           {formatCurrency(product.sellingPrice)}
                         </span>
@@ -473,19 +473,19 @@ export const SalespersonInventoryPage: React.FC = () => {
                         ) : null}
                       </td>
 
-                      {/* Stock Status */}
-                      <td className="py-3.5 px-4 text-center align-middle">
+                      {/* Stock Status - Unit Removed per user request */}
+                      <td className="py-3.5 px-3 text-center align-middle">
                         <StockStatusBadge
                           status={product.computedStatus}
                           currentStock={product.computedStock}
-                          unit={product.primaryUnit || 'Piece'}
+                          showUnit={false}
                           size="sm"
                           align="center"
                         />
                       </td>
 
                       {/* Actions: View Details Only */}
-                      <td className="py-3.5 pl-4 pr-5 text-center align-middle">
+                      <td className="py-3.5 pl-2 pr-5 text-center align-middle">
                         <button
                           onClick={e => {
                             e.stopPropagation();

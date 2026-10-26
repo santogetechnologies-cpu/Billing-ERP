@@ -160,6 +160,13 @@ export function isNavItemActive(
     if (target === '/inventory/alerts') {
       return current === '/inventory/alerts' || current === '/inventory/reorder';
     }
+    if (target === '/inventory/purchase-returns' || target === '/inventory/customer-returns') {
+      return (
+        current === '/inventory/purchase-returns' ||
+        current === '/inventory/customer-returns' ||
+        current === '/inventory/returns'
+      );
+    }
     if (target === '/inventory/valuation' || target === '/inventory/total-cost') {
       return current === '/inventory/valuation' || current === '/inventory/total-cost';
     }
@@ -221,6 +228,7 @@ export function isNavItemActive(
       current.startsWith('/inventory/alerts') ||
       current.startsWith('/inventory/reorder') ||
       current.startsWith('/inventory/purchase-requests') ||
+      current.startsWith('/inventory/purchase-returns') ||
       current.startsWith('/inventory/customer-returns') ||
       current.startsWith('/inventory/returns')
     ) {
@@ -276,6 +284,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       try {
         sessionStorage.setItem('ub_originating_route', location.pathname + location.search);
       } catch {}
+    }
+    if (location.pathname.startsWith('/inventory')) {
+      setExpandedMenus(prev => (prev.Inventory ? prev : { ...prev, Inventory: true }));
     }
   }, [location.pathname, location.search]);
 
@@ -351,7 +362,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ]
         : [
             { name: 'Stock Overview', path: '/inventory', end: true },
-            { name: 'Customer Returns', path: '/inventory/customer-returns', icon: RotateCcw, end: true },
             { name: 'Low Stock & Reorder', path: '/inventory/alerts', icon: AlertTriangle, end: true },
             { name: 'Purchase Requests', path: '/inventory/purchase-requests', icon: ClipboardList, end: true },
             { name: 'Batch Tracking', path: '/inventory/batches', end: true },
@@ -431,12 +441,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
     })
     .filter((item): item is NavItem => item !== null);
 
-  // Dedicated Sales Person Navigation: Dashboard, Sales, Customers, Inventory, Settings, My Profile
+  // Dedicated Sales Person Navigation: Dashboard, Sales, Customers, Inventory (with Stock Overview & Purchase Return), Settings, My Profile
   const salespersonNavItems: NavItem[] = [
     { name: 'Dashboard', path: '/sales/dashboard', icon: LayoutDashboard, end: true },
     { name: 'Sales', path: '/sales', icon: ShoppingCart },
     { name: 'Customers', path: '/customers', icon: Users },
-    { name: 'Inventory', path: '/inventory', icon: Boxes, end: true },
+    {
+      name: 'Inventory',
+      path: '/inventory',
+      icon: Boxes,
+      children: [
+        { name: 'Stock Overview', path: '/inventory', end: true },
+        { name: 'Purchase Return', path: '/inventory/purchase-returns', icon: RotateCcw, end: true }
+      ]
+    },
     { name: 'Settings', path: '/settings', icon: Settings },
     { name: 'My Profile', path: '#profile', icon: UserCheck, action: 'profile' }
   ];

@@ -299,6 +299,7 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
 
   // Inventory
   '/inventory': { module: 'inventory', action: 'view' },
+  '/inventory/purchase-returns': { module: 'inventory', action: 'view' },
   '/inventory/customer-returns': { module: 'inventory', action: 'view' },
   '/inventory/returns': { module: 'inventory', action: 'view' },
   '/inventory/alerts': { module: 'inventory', action: 'view' },
@@ -445,6 +446,15 @@ export function canManageBarcodeOverride(role?: UserRole | string | null): boole
 // CORE AUTHORIZATION HELPERS
 // ---------------------------------------------------------------------------
 
+export function normalizeRole(role: UserRole | string | undefined | null): UserRole | null {
+  if (!role) return null;
+  const trimmed = role.trim();
+  if (trimmed === 'Sales Person' || trimmed === 'Sales person' || trimmed === 'salesperson') {
+    return 'Salesperson';
+  }
+  return trimmed as UserRole;
+}
+
 /**
  * Validates whether a specific role has permission to execute an action on a module.
  */
@@ -456,7 +466,8 @@ export function hasPermission(
   if (!role) return false;
 
   // Normalized role check
-  const normalizedRole = (role as UserRole);
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
   const rolePermissions = ROLE_PERMISSIONS_MATRIX[normalizedRole];
 
   if (!rolePermissions) {
@@ -478,10 +489,27 @@ export function canAccessRoute(
   path: string
 ): boolean {
   if (!role || !path || typeof path !== 'string') return false;
-  const normalizedRole = role as UserRole;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
 
   // Clean trailing slashes
   const cleanPath = path === '/' ? '/' : path.replace(/\/$/, '');
+
+  // Purchase Return / Customer Returns under Inventory:
+  // Authorized for Owner, Admin, Warehouse Manager, Salesperson (submit/view returns), and Cashier (refund processing)
+  if (
+    cleanPath === '/inventory/purchase-returns' ||
+    cleanPath === '/inventory/customer-returns' ||
+    cleanPath === '/inventory/returns'
+  ) {
+    return (
+      normalizedRole === 'Owner' ||
+      normalizedRole === 'Admin' ||
+      normalizedRole === 'Warehouse Manager' ||
+      normalizedRole === 'Salesperson' ||
+      normalizedRole === 'Cashier'
+    );
+  }
 
   // Prevent Purchase Manager from accessing Warehouse Manager's Barcode Management page or purchase barcode routes
   if (normalizedRole === 'Purchase Manager') {
@@ -500,6 +528,12 @@ export function canAccessRoute(
       cleanPath.startsWith('/inventory/reorder/') ||
       cleanPath === '/inventory/purchase-requests' ||
       cleanPath.startsWith('/inventory/purchase-requests/') ||
+      cleanPath === '/inventory/purchase-returns' ||
+      cleanPath.startsWith('/inventory/purchase-returns/') ||
+      cleanPath === '/inventory/customer-returns' ||
+      cleanPath.startsWith('/inventory/customer-returns/') ||
+      cleanPath === '/inventory/returns' ||
+      cleanPath.startsWith('/inventory/returns/') ||
       cleanPath === '/inventory/transfers' ||
       cleanPath.startsWith('/inventory/transfers/') ||
       cleanPath === '/inventory/adjustments' ||
@@ -557,9 +591,10 @@ export function canAccessRoute(
       cleanPath === '/barcode' ||
       cleanPath.startsWith('/barcode/') ||
       // Salespersons can view-only /inventory via Check Inventory dashboard button,
-      // and Customer Returns (/inventory/customer-returns) to submit/view customer return requests,
+      // and Purchase / Customer Returns (/inventory/purchase-returns) to submit/view customer return requests,
       // but are strictly forbidden from all warehouse stock management sub-routes
       (cleanPath.startsWith('/inventory/') &&
+        cleanPath !== '/inventory/purchase-returns' &&
         cleanPath !== '/inventory/customer-returns' &&
         cleanPath !== '/inventory/returns')
     ) {
@@ -734,7 +769,8 @@ export function canRoleAccessNavItem(
   navItemName: string
 ): boolean {
   if (!role) return false;
-  const normalizedRole = role as UserRole;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
   if (navItemName === 'User Activity' && !canAccessUserActivity(normalizedRole)) {
     return false;
   }
@@ -760,11 +796,26 @@ export function canRoleAccessSubItem(
   subItemPath: string
 ): boolean {
   if (!role) return false;
-  const normalizedRole = role as UserRole;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
 
   // First verify underlying route access permission
   if (!canAccessRoute(normalizedRole, subItemPath)) {
     return false;
+  }
+
+  // Purchase Return submenu under Inventory is strictly for the Salesperson role only
+  if (
+    parentName === 'Inventory' &&
+    (subItemPath === '/inventory/purchase-returns' ||
+      subItemPath === '/inventory/customer-returns' ||
+      subItemPath === '/inventory/returns' ||
+      _subItemName === 'Purchase Return' ||
+      _subItemName === 'Purchase Returns' ||
+      _subItemName === 'Customer Return' ||
+      _subItemName === 'Customer Returns')
+  ) {
+    return normalizedRole === 'Salesperson';
   }
 
   // Role-specific operational submenu scoping
@@ -773,9 +824,14 @@ export function canRoleAccessSubItem(
     if (parentName === 'Sales') {
       return subItemPath === '/sales';
     }
-    // In Inventory: Salesperson accesses view-only stock lookup
+    // In Inventory: Salesperson accesses view-only stock lookup and Purchase Return / Customer Returns
     if (parentName === 'Inventory') {
-      return subItemPath === '/inventory';
+      return (
+        subItemPath === '/inventory' ||
+        subItemPath === '/inventory/purchase-returns' ||
+        subItemPath === '/inventory/customer-returns' ||
+        subItemPath === '/inventory/returns'
+      );
     }
     return false;
   }

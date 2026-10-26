@@ -39,7 +39,7 @@ export const SalesInvoicesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const targetInvoiceId = searchParams.get('invoiceId') || searchParams.get('id');
   const targetInvoiceNumber = searchParams.get('invoiceNumber');
-  const initialTab = searchParams.get('tab') || (searchParams.get('filter') === 'today' ? 'invoices' : 'orders');
+  const tabParam = searchParams.get('tab');
   const initialAction = searchParams.get('action');
 
   const { profile } = useAuth();
@@ -60,9 +60,22 @@ export const SalesInvoicesPage: React.FC = () => {
   const [isPrintOpen, setIsPrintOpen] = useState(false);
 
   // Salesperson Tabs: 'orders' | 'invoices' | 'products'
+  // Default to Confirmed Invoices ('invoices') on initial page load
   const [salesTab, setSalesTab] = useState<'orders' | 'invoices' | 'products'>(
-    initialTab === 'products' ? 'products' : initialTab === 'invoices' ? 'invoices' : 'orders'
+    tabParam === 'orders' ? 'orders' : tabParam === 'products' ? 'products' : 'invoices'
   );
+
+  // Reset or sync tab state: if no explicit tab query param, always default to 'invoices'
+  useEffect(() => {
+    const currentTab = searchParams.get('tab');
+    if (currentTab === 'orders') {
+      setSalesTab('orders');
+    } else if (currentTab === 'products') {
+      setSalesTab('products');
+    } else {
+      setSalesTab('invoices');
+    }
+  }, [searchParams]);
 
   // Product Catalog Search & Category Filter
   const [productSearch, setProductSearch] = useState('');
@@ -480,7 +493,11 @@ export const SalesInvoicesPage: React.FC = () => {
           <button
             onClick={() => {
               setSalesTab('invoices');
-              setSearchParams({ tab: 'invoices' });
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev);
+                next.delete('tab');
+                return next;
+              });
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
               salesTab === 'invoices'
@@ -495,7 +512,11 @@ export const SalesInvoicesPage: React.FC = () => {
           <button
             onClick={() => {
               setSalesTab('orders');
-              setSearchParams({ tab: 'orders' });
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev);
+                next.set('tab', 'orders');
+                return next;
+              });
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
               salesTab === 'orders'

@@ -26,9 +26,9 @@ export const SalespersonSalesView: React.FC = () => {
   const [isPrintOpen, setIsPrintOpen] = useState(false);
 
   // Tab: 'all' | 'orders' | 'invoices'
-  const initialTab = searchParams.get('tab') || (searchParams.get('filter') === 'today' ? 'invoices' : 'all');
+  const initialTab = searchParams.get('tab') || 'invoices';
   const [salesTab, setSalesTab] = useState<'all' | 'orders' | 'invoices'>(
-    initialTab === 'orders' ? 'orders' : initialTab === 'invoices' ? 'invoices' : 'all'
+    initialTab === 'orders' ? 'orders' : initialTab === 'all' ? 'all' : 'invoices'
   );
 
   const [searchQuery, setSearchQuery] = useState('');

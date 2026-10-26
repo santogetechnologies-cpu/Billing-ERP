@@ -13,6 +13,12 @@ import {
 import { notificationService } from './notificationService';
 import { userService } from './userService';
 import { getAppStorage } from '../utils/storageUtils';
+import {
+  isTableMarkedMissing,
+  markTableMissing,
+  isTableNotFoundError,
+  markTableAvailable
+} from '../utils/schemaDetector';
 
 const SUPPORT_CASES_STORAGE_KEY = (cId: string) => `universal_billing_support_cases_${cId}`;
 
@@ -119,49 +125,58 @@ export const customerSupportService = {
 
     let cases: CustomerSupportCase[] = [];
 
-    try {
-      let query = supabase
-        .from('customer_support_cases')
-        .select('*')
-        .eq('company_id', finalCompanyId)
-        .order('created_at', { ascending: false });
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        let query = supabase
+          .from('customer_support_cases')
+          .select('*')
+          .eq('company_id', finalCompanyId)
+          .order('created_at', { ascending: false });
 
-      if (userRole === 'Salesperson' && currentUserId) {
-        // Salesperson sees their assigned cases or unassigned queue
-        query = query.or(`assigned_salesperson_id.eq.${currentUserId},assigned_salesperson_id.is.null`);
+        if (userRole === 'Salesperson' && currentUserId) {
+          // Salesperson sees their assigned cases or unassigned queue
+          query = query.or(`assigned_salesperson_id.eq.${currentUserId},assigned_salesperson_id.is.null`);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          if (isTableNotFoundError(error)) {
+            markTableMissing('customer_support_cases');
+          }
+        } else if (data) {
+          markTableAvailable('customer_support_cases');
+          if (data.length > 0) {
+            cases = data.map((d: any) => ({
+              id: d.id,
+              companyId: d.company_id,
+              caseNumber: d.case_number,
+              customerId: d.customer_id,
+              customerName: d.customer_name,
+              customerPhone: d.customer_phone,
+              category: d.category,
+              priority: d.priority || 'Normal',
+              status: d.status || 'Open',
+              title: d.title,
+              description: d.description,
+              productId: d.product_id,
+              productName: d.product_name,
+              invoiceId: d.invoice_id,
+              invoiceNumber: d.invoice_number,
+              assignedSalespersonId: d.assigned_salesperson_id,
+              assignedSalespersonName: d.assigned_salesperson_name,
+              followupDue: d.followup_due,
+              resolutionNotes: d.resolution_notes,
+              notes: Array.isArray(d.notes) ? d.notes : [],
+              isEscalated: Boolean(d.is_escalated),
+              createdAt: d.created_at,
+              updatedAt: d.updated_at
+            }));
+          }
+        }
+      } catch (e) {
+        console.warn('Supabase get support cases query warning:', e);
       }
-
-      const { data, error } = await query;
-
-      if (!error && data && data.length > 0) {
-        cases = data.map((d: any) => ({
-          id: d.id,
-          companyId: d.company_id,
-          caseNumber: d.case_number,
-          customerId: d.customer_id,
-          customerName: d.customer_name,
-          customerPhone: d.customer_phone,
-          category: d.category,
-          priority: d.priority || 'Normal',
-          status: d.status || 'Open',
-          title: d.title,
-          description: d.description,
-          productId: d.product_id,
-          productName: d.product_name,
-          invoiceId: d.invoice_id,
-          invoiceNumber: d.invoice_number,
-          assignedSalespersonId: d.assigned_salesperson_id,
-          assignedSalespersonName: d.assigned_salesperson_name,
-          followupDue: d.followup_due,
-          resolutionNotes: d.resolution_notes,
-          notes: Array.isArray(d.notes) ? d.notes : [],
-          isEscalated: Boolean(d.is_escalated),
-          createdAt: d.created_at,
-          updatedAt: d.updated_at
-        }));
-      }
-    } catch (e) {
-      console.warn('Supabase get support cases query warning:', e);
     }
 
     // Fall back to local storage cache if Supabase returned empty
@@ -251,37 +266,41 @@ export const customerSupportService = {
       updatedAt: nowIso
     };
 
-    // 2. Persist to Supabase
-    try {
-      const { data, error } = await supabase
-        .from('customer_support_cases')
-        .insert({
-          id: caseRecord.id,
-          company_id: finalCompanyId,
-          case_number: caseRecord.caseNumber,
-          customer_id: caseRecord.customerId,
-          category: caseRecord.category,
-          priority: caseRecord.priority,
-          status: caseRecord.status,
-          title: caseRecord.title,
-          description: caseRecord.description,
-          product_id: caseRecord.productId,
-          invoice_id: caseRecord.invoiceId,
-          assigned_salesperson_id: caseRecord.assignedSalespersonId,
-          followup_due: caseRecord.followupDue,
-          is_escalated: caseRecord.isEscalated,
-          created_by: createdByUserId || null,
-          created_at: nowIso,
-          updated_at: nowIso
-        })
-        .select()
-        .single();
+    // 2. Persist to Supabase if table is available
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data, error } = await supabase
+          .from('customer_support_cases')
+          .insert({
+            id: caseRecord.id,
+            company_id: finalCompanyId,
+            case_number: caseRecord.caseNumber,
+            customer_id: caseRecord.customerId,
+            category: caseRecord.category,
+            priority: caseRecord.priority,
+            status: caseRecord.status,
+            title: caseRecord.title,
+            description: caseRecord.description,
+            product_id: caseRecord.productId,
+            invoice_id: caseRecord.invoiceId,
+            assigned_salesperson_id: caseRecord.assignedSalespersonId,
+            followup_due: caseRecord.followupDue,
+            is_escalated: caseRecord.isEscalated,
+            created_by: createdByUserId || null,
+            created_at: nowIso,
+            updated_at: nowIso
+          })
+          .select()
+          .single();
 
-      if (!error && data?.id) {
-        caseRecord.id = data.id;
+        if (error && isTableNotFoundError(error)) {
+          markTableMissing('customer_support_cases');
+        } else if (!error && data?.id) {
+          caseRecord.id = data.id;
+        }
+      } catch (e) {
+        console.warn('Supabase support case insert note:', e);
       }
-    } catch (e) {
-      console.warn('Supabase support case insert note:', e);
     }
 
     // 3. Persist to localStorage cache
@@ -421,44 +440,50 @@ export const customerSupportService = {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const nowIso = new Date().toISOString();
 
-    try {
-      const { data, error } = await supabase
-        .from('customer_support_cases')
-        .update({
-          status,
-          resolution_notes: resolutionNotes || null,
-          updated_at: nowIso
-        })
-        .eq('id', caseId)
-        .eq('company_id', finalCompanyId)
-        .select()
-        .single();
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data, error } = await supabase
+          .from('customer_support_cases')
+          .update({
+            status,
+            resolution_notes: resolutionNotes || null,
+            updated_at: nowIso
+          })
+          .eq('id', caseId)
+          .eq('company_id', finalCompanyId)
+          .select()
+          .single();
 
-      if (!error && data) {
-        // Sync local cache
-        const storage = getAppStorage();
-        if (storage) {
-          const raw = storage.getItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId));
-          if (raw) {
-            const list: CustomerSupportCase[] = JSON.parse(raw);
-            const updated = list.map(c =>
-              c.id === caseId
-                ? { ...c, status, resolutionNotes: resolutionNotes || c.resolutionNotes, updatedAt: nowIso }
-                : c
-            );
-            storage.setItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+        if (error) {
+          if (isTableNotFoundError(error)) {
+            markTableMissing('customer_support_cases');
           }
-        }
+        } else if (data) {
+          // Sync local cache
+          const storage = getAppStorage();
+          if (storage) {
+            const raw = storage.getItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId));
+            if (raw) {
+              const list: CustomerSupportCase[] = JSON.parse(raw);
+              const updated = list.map(c =>
+                c.id === caseId
+                  ? { ...c, status, resolutionNotes: resolutionNotes || c.resolutionNotes, updatedAt: nowIso }
+                  : c
+              );
+              storage.setItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+            }
+          }
 
-        // When a case is resolved or closed, stop follow-up reminders (Requirement 5 & 10)
-        if (status === 'Resolved' || status === 'Closed') {
-          await this.stopFollowupReminders(caseId, finalCompanyId);
-        }
+          // When a case is resolved or closed, stop follow-up reminders (Requirement 5 & 10)
+          if (status === 'Resolved' || status === 'Closed') {
+            await this.stopFollowupReminders(caseId, finalCompanyId);
+          }
 
-        return data as CustomerSupportCase;
+          return data as CustomerSupportCase;
+        }
+      } catch (e) {
+        console.warn('Supabase update support case note:', e);
       }
-    } catch (e) {
-      console.warn('Supabase update support case note:', e);
     }
 
     // Local storage update fallback
@@ -507,21 +532,31 @@ export const customerSupportService = {
     };
 
     // Update in Supabase & local cache
-    try {
-      const { data: existing } = await supabase
-        .from('customer_support_cases')
-        .select('notes')
-        .eq('id', caseId)
-        .single();
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data: existing, error: selError } = await supabase
+          .from('customer_support_cases')
+          .select('notes')
+          .eq('id', caseId)
+          .single();
 
-      const existingNotes = Array.isArray(existing?.notes) ? existing.notes : [];
-      const updatedNotes = [...existingNotes, note];
+        if (selError && isTableNotFoundError(selError)) {
+          markTableMissing('customer_support_cases');
+        } else {
+          const existingNotes = Array.isArray(existing?.notes) ? existing.notes : [];
+          const updatedNotes = [...existingNotes, note];
 
-      await supabase
-        .from('customer_support_cases')
-        .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
-        .eq('id', caseId);
-    } catch {}
+          const { error: updError } = await supabase
+            .from('customer_support_cases')
+            .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
+            .eq('id', caseId);
+
+          if (updError && isTableNotFoundError(updError)) {
+            markTableMissing('customer_support_cases');
+          }
+        }
+      } catch {}
+    }
 
     const storage = getAppStorage();
     if (storage) {
@@ -680,20 +715,26 @@ export const customerSupportService = {
     let updatedCase: CustomerSupportCase | null = null;
     const nowIso = new Date().toISOString();
 
-    try {
-      const { data } = await supabase
-        .from('customer_support_cases')
-        .update({
-          is_escalated: true,
-          status: 'Pending Cashier / Admin Authorization',
-          updated_at: nowIso
-        })
-        .eq('id', caseId)
-        .select()
-        .single();
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data, error } = await supabase
+          .from('customer_support_cases')
+          .update({
+            is_escalated: true,
+            status: 'Pending Cashier / Admin Authorization',
+            updated_at: nowIso
+          })
+          .eq('id', caseId)
+          .select()
+          .single();
 
-      if (data) updatedCase = data as CustomerSupportCase;
-    } catch {}
+        if (error && isTableNotFoundError(error)) {
+          markTableMissing('customer_support_cases');
+        } else if (data) {
+          updatedCase = data as CustomerSupportCase;
+        }
+      } catch {}
+    }
 
     const storage = getAppStorage();
     if (storage) {

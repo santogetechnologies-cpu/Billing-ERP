@@ -31,7 +31,8 @@ import {
   PurchaseRequestStatus,
   PaymentMethod,
   CustomerReturn,
-  CreateCustomerReturnInput
+  CreateCustomerReturnInput,
+  UpdateCustomerReturnInput
 } from '../types';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -267,6 +268,7 @@ export interface ERPContextType {
   customerReturns: CustomerReturn[];
   refreshCustomerReturns: () => Promise<void>;
   addCustomerReturn: (input: CreateCustomerReturnInput) => Promise<CustomerReturn>;
+  updateCustomerReturn: (returnId: string, input: UpdateCustomerReturnInput) => Promise<CustomerReturn>;
   approveCustomerReturn: (returnId: string, reviewerId?: string, reviewerName?: string) => Promise<CustomerReturn>;
   rejectCustomerReturn: (returnId: string, reason: string, reviewerId?: string, reviewerName?: string) => Promise<CustomerReturn>;
   restockCustomerReturn: (returnId: string, warehouseId?: string, restockedById?: string, restockedByName?: string) => Promise<{ returnRecord: CustomerReturn; restocked: boolean; message: string }>;
@@ -1331,14 +1333,136 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       company.id
     );
     setCustomerReturns(prev => [newReturn, ...prev.filter(r => r.id !== newReturn.id)]);
-    addAuditLog(
-      'Created Customer Return',
-      'Inventory',
-      newReturn.returnNumber,
-      'Created',
-      `Return created for ${newReturn.customerName} - ${newReturn.productName} (${newReturn.returnedQty} ${newReturn.unit})`
-    );
+
+    // If directly restocked upon return (Instant Stock Update workflow)
+    if (newReturn.returnStatus === 'Stock Restocked' || Boolean(newReturn.restockedAt) || Boolean(input.directRestock)) {
+      if (newReturn.condition === 'Resalable') {
+        let updatedProductsList: Product[] = [];
+        setProducts(prev => {
+          updatedProductsList = prev.map(p => {
+            if (p.id === newReturn.productId) {
+              return { ...p, currentStock: Math.max(0, (p.currentStock || 0) + newReturn.returnedQty) };
+            }
+            return p;
+          });
+          return updatedProductsList;
+        });
+        if (updatedProductsList.length > 0) {
+          checkStockAlerts(updatedProductsList);
+        }
+
+        const targetWarehouseId = newReturn.warehouseId || warehouses.find(w => w.isDefault)?.id || warehouses[0]?.id;
+        if (targetWarehouseId) {
+          setStockBalances(prev => {
+            const idx = prev.findIndex(b => b.warehouseId === targetWarehouseId && b.productId === newReturn.productId);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + newReturn.returnedQty, updatedAt: new Date().toISOString() };
+              return copy;
+            }
+            return [...prev, {
+              id: `sb_${Date.now()}`,
+              warehouseId: targetWarehouseId,
+              productId: newReturn.productId,
+              quantity: newReturn.returnedQty,
+              updatedAt: new Date().toISOString()
+            }];
+          });
+        }
+
+        addAuditLog(
+          'Customer Return Restocked',
+          'Inventory',
+          newReturn.returnNumber,
+          'Restocked',
+          `Directly restocked ${newReturn.returnedQty} ${newReturn.unit} ${newReturn.productName} to ${newReturn.warehouseName || 'Godown'}`
+        );
+      } else {
+        addAuditLog(
+          'Customer Return Quarantined',
+          'Inventory',
+          newReturn.returnNumber,
+          'Quarantined',
+          `Logged ${newReturn.returnedQty} ${newReturn.unit} to quarantine (${newReturn.condition}). Sellable stock preserved.`
+        );
+      }
+    } else {
+      addAuditLog(
+        'Created Customer Return',
+        'Inventory',
+        newReturn.returnNumber,
+        'Created',
+        `Return created for ${newReturn.customerName} - ${newReturn.productName} (${newReturn.returnedQty} ${newReturn.unit})`
+      );
+    }
     return newReturn;
+  };
+
+  const updateCustomerReturn = async (returnId: string, input: UpdateCustomerReturnInput) => {
+    const { updatedReturn, auditLogs: changes, productStockDelta, warehouseStockDeltas } =
+      await customerReturnService.updateCustomerReturn(
+        returnId,
+        {
+          ...input,
+          updatedBy: user?.id,
+          updatedByName: profile?.full_name || user?.email || 'Sales Person'
+        },
+        company.id
+      );
+
+    setCustomerReturns(prev => prev.map(r => r.id === updatedReturn.id ? updatedReturn : r));
+
+    // If product master stock changed
+    if (productStockDelta !== 0) {
+      let updatedProductsList: Product[] = [];
+      setProducts(prev => {
+        updatedProductsList = prev.map(p => {
+          if (p.id === updatedReturn.productId) {
+            return { ...p, currentStock: Math.max(0, (p.currentStock || 0) + productStockDelta) };
+          }
+          return p;
+        });
+        return updatedProductsList;
+      });
+      if (updatedProductsList.length > 0) {
+        checkStockAlerts(updatedProductsList);
+      }
+    }
+
+    // If warehouse balances changed
+    if (warehouseStockDeltas.length > 0) {
+      setStockBalances(prev => {
+        let copy = [...prev];
+        for (const whDelta of warehouseStockDeltas) {
+          const idx = copy.findIndex(b => b.warehouseId === whDelta.warehouseId && b.productId === updatedReturn.productId);
+          if (idx >= 0) {
+            copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + whDelta.delta, updatedAt: new Date().toISOString() };
+          } else if (whDelta.delta > 0) {
+            copy.push({
+              id: `sb_${Date.now()}_${Math.random()}`,
+              warehouseId: whDelta.warehouseId,
+              productId: updatedReturn.productId,
+              quantity: whDelta.delta,
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }
+        return copy;
+      });
+    }
+
+    // Record audit trail entries in ERP audit log
+    for (const log of changes) {
+      addAuditLog(
+        'Updated Customer Return',
+        'Inventory',
+        updatedReturn.returnNumber,
+        `${log.field}: ${log.oldValue}`,
+        `${log.field}: ${log.newValue}`
+      );
+    }
+
+    return updatedReturn;
   };
 
   const approveCustomerReturn = async (returnId: string, reviewerId?: string, reviewerName?: string) => {
@@ -2072,6 +2196,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     customerReturns,
     refreshCustomerReturns,
     addCustomerReturn,
+    updateCustomerReturn,
     approveCustomerReturn,
     rejectCustomerReturn,
     restockCustomerReturn,

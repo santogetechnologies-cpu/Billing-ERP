@@ -13,18 +13,23 @@ import {
   AlertTriangle,
   FileText,
   Eye,
+  Edit2,
   Info,
   DollarSign,
   Package,
   ArrowRight,
   ShieldCheck,
-  Check
+  Check,
+  Tag,
+  Calendar,
+  Save
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import {
   CustomerReturn,
   CreateCustomerReturnInput,
+  UpdateCustomerReturnInput,
   CustomerReturnCondition,
   CustomerReturnStatus,
   CustomerReturnRefundStatus,
@@ -34,6 +39,69 @@ import {
 import { formatCurrency, formatDate, formatNumber } from '../../utils/formatters';
 import { Modal } from '../../components/common/Modal';
 
+// Formats date with time for detailed audit views
+const formatDateTime = (dateStr?: string): string => {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const dateFormatted = d.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    if (dateStr.length <= 10) {
+      return dateFormatted;
+    }
+    const timeFormatted = d.toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+    return `${dateFormatted} at ${timeFormatted}`;
+  } catch {
+    return dateStr;
+  }
+};
+
+// Formats detailed stock status and quarantine explanation
+const getStockUpdateStatus = (ret: CustomerReturn): { label: string; badgeClass: string; description: string } => {
+  if (ret.returnStatus === 'Stock Restocked' || ret.restockedAt) {
+    if (ret.condition === 'Resalable') {
+      return {
+        label: 'Stock Restocked',
+        badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        description: `Added +${formatNumber(ret.returnedQty)} ${ret.unit || 'Piece'} to available warehouse stock.`
+      };
+    } else {
+      return {
+        label: 'Quarantined (Non-Sellable)',
+        badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+        description: `Logged in quarantine ledger (${ret.condition}). Sellable stock was preserved.`
+      };
+    }
+  }
+  if (ret.returnStatus === 'Approved') {
+    return {
+      label: 'Awaiting Warehouse Restock',
+      badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
+      description: 'Approved by manager. Awaiting physical intake at warehouse.'
+    };
+  }
+  if (ret.returnStatus === 'Rejected') {
+    return {
+      label: 'Not Restocked (Rejected)',
+      badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
+      description: 'Return request rejected. Inventory stock was not modified.'
+    };
+  }
+  return {
+    label: 'Pending Inspection',
+    badgeClass: 'bg-slate-50 text-slate-700 border-slate-200',
+    description: 'Awaiting inspection. Available inventory is currently unchanged.'
+  };
+};
+
 export const CustomerReturnsPage: React.FC = () => {
   const {
     customerReturns,
@@ -41,6 +109,7 @@ export const CustomerReturnsPage: React.FC = () => {
     products,
     warehouses,
     addCustomerReturn,
+    updateCustomerReturn,
     approveCustomerReturn,
     rejectCustomerReturn,
     restockCustomerReturn,
@@ -59,15 +128,30 @@ export const CustomerReturnsPage: React.FC = () => {
   const canRestock = isOwnerOrAdmin || isWarehouseManager;
   const canRefund = isOwnerOrAdmin || isCashier;
   const canCreateReturn = true; // Salesperson, Warehouse Manager, Cashier, Owner, Admin
+  const canEditReturn = isSalesperson || isOwnerOrAdmin;
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'RESTOCKED' | 'REFUNDED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'REFUNDED'>('ALL');
   const [conditionFilter, setConditionFilter] = useState<string>('ALL');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
-  // Modals
+  // Modals & Record Detail Lookup
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [inspectingReturn, setInspectingReturn] = useState<CustomerReturn | null>(null);
+  const [modalInvoiceSearch, setModalInvoiceSearch] = useState('');
+  const [inspectingReturnId, setInspectingReturnId] = useState<string | null>(null);
+
+  // Fetch full details of the return record by its unique record ID
+  const inspectingReturn = useMemo(() => {
+    if (!inspectingReturnId) return null;
+    return customerReturns.find(r => r.id === inspectingReturnId) || null;
+  }, [inspectingReturnId, customerReturns]);
+
+  const setInspectingReturn = (ret: CustomerReturn | null) => {
+    setInspectingReturnId(ret ? ret.id : null);
+  };
+
   const [restockTarget, setRestockTarget] = useState<CustomerReturn | null>(null);
   const [selectedRestockWarehouseId, setSelectedRestockWarehouseId] = useState<string>('');
   const [refundTarget, setRefundTarget] = useState<CustomerReturn | null>(null);
@@ -75,6 +159,155 @@ export const CustomerReturnsPage: React.FC = () => {
   const [refundAmountInput, setRefundAmountInput] = useState<string>('');
   const [rejectTarget, setRejectTarget] = useState<CustomerReturn | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit Return State (Integrated into View Details modal)
+  const [isEditingInspect, setIsEditingInspect] = useState(false);
+  const [editingReturn, setEditingReturn] = useState<CustomerReturn | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editCustomerPhone, setEditCustomerPhone] = useState('');
+  const [editReturnedQty, setEditReturnedQty] = useState('');
+  const [editReason, setEditReason] = useState('Customer Return');
+  const [editCondition, setEditCondition] = useState<CustomerReturnCondition>('Resalable');
+  const [editWarehouseId, setEditWarehouseId] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Activates editing mode directly within the View Return Details form
+  const startEditingInspect = (ret: CustomerReturn) => {
+    setEditingReturn(ret);
+    setEditCustomerName(ret.customerName || '');
+    setEditCustomerPhone(ret.customerPhone || '');
+    setEditReturnedQty(String(ret.returnedQty || ''));
+    setEditReason(ret.reason || 'Customer Return');
+    setEditCondition(ret.condition || 'Resalable');
+    setEditWarehouseId(ret.warehouseId || warehouses[0]?.id || '');
+    setEditNotes(ret.notes || '');
+    setEditError(null);
+    setIsEditingInspect(true);
+  };
+
+  const cancelEditingInspect = () => {
+    setIsEditingInspect(false);
+    setEditError(null);
+  };
+
+  const handleCloseInspect = () => {
+    if (!isSavingEdit) {
+      setInspectingReturn(null);
+      setIsEditingInspect(false);
+      setEditingReturn(null);
+      setEditError(null);
+    }
+  };
+
+  // Keep handleOpenEditModal for programmatic triggers, which now opens in-form editing
+  const handleOpenEditModal = (ret: CustomerReturn) => {
+    setInspectingReturn(ret);
+    startEditingInspect(ret);
+  };
+
+  const targetEditingReturn = editingReturn || inspectingReturn;
+
+  // Max eligible quantity for return being edited (cannot exceed soldQty minus OTHER valid returns)
+  const editingReturnMaxEligible = useMemo(() => {
+    if (!targetEditingReturn) return 0;
+    const otherReturnsSum = customerReturns
+      .filter(r => r.originalInvoiceId === targetEditingReturn.originalInvoiceId &&
+                   r.productId === targetEditingReturn.productId &&
+                   r.id !== targetEditingReturn.id &&
+                   r.returnStatus !== 'Rejected')
+      .reduce((sum, r) => sum + Number(r.returnedQty || 0), 0);
+    return Math.max(0, targetEditingReturn.soldQty - otherReturnsSum);
+  }, [targetEditingReturn, customerReturns]);
+
+  // Live stock delta adjustment preview for the edit form
+  const editingStockDeltaPreview = useMemo(() => {
+    if (!targetEditingReturn) return { delta: 0, explanation: '', isRestocked: false };
+    const isRestocked = targetEditingReturn.returnStatus === 'Stock Restocked' || Boolean(targetEditingReturn.restockedAt);
+    if (!isRestocked) {
+      return {
+        delta: 0,
+        explanation: 'This return is pending and has not updated warehouse stock yet. Edits will not alter live stock balances.',
+        isRestocked: false
+      };
+    }
+
+    const oldSellable = targetEditingReturn.condition === 'Resalable' ? Number(targetEditingReturn.returnedQty || 0) : 0;
+    const newQty = Number(editReturnedQty) || 0;
+    const newSellable = editCondition === 'Resalable' ? newQty : 0;
+    const delta = newSellable - oldSellable;
+
+    let explanation = '';
+    if (delta > 0) {
+      explanation = `+${delta} ${targetEditingReturn.unit || 'Piece'} will be added to available inventory stock.`;
+    } else if (delta < 0) {
+      explanation = `${delta} ${targetEditingReturn.unit || 'Piece'} will be deducted from available inventory stock.`;
+    } else {
+      explanation = 'No net change in sellable stock balance.';
+    }
+
+    if (targetEditingReturn.warehouseId && editWarehouseId && targetEditingReturn.warehouseId !== editWarehouseId) {
+      const oldWh = warehouses.find(w => w.id === targetEditingReturn.warehouseId)?.name || 'Previous Godown';
+      const newWh = warehouses.find(w => w.id === editWarehouseId)?.name || 'New Godown';
+      explanation += ` Stock will be moved from ${oldWh} to ${newWh}.`;
+    }
+
+    return { delta, explanation, isRestocked: true };
+  }, [targetEditingReturn, editReturnedQty, editCondition, editWarehouseId, warehouses]);
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const activeReturn = editingReturn || inspectingReturn;
+    if (!activeReturn || isSavingEdit) return;
+    setEditError(null);
+
+    const qty = Number(editReturnedQty);
+    if (isNaN(qty) || qty <= 0) {
+      setEditError('Returned quantity must be greater than zero.');
+      return;
+    }
+    if (qty > editingReturnMaxEligible) {
+      setEditError(
+        `Returned quantity (${qty}) cannot exceed maximum allowed (${editingReturnMaxEligible}). Original sold: ${activeReturn.soldQty}.`
+      );
+      return;
+    }
+    if (!editCustomerName.trim()) {
+      setEditError('Customer name cannot be empty.');
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      const selectedWh = warehouses.find(w => w.id === editWarehouseId);
+      const input: UpdateCustomerReturnInput = {
+        customerName: editCustomerName.trim(),
+        customerPhone: editCustomerPhone.trim() || undefined,
+        returnedQty: qty,
+        reason: editReason,
+        condition: editCondition,
+        warehouseId: editWarehouseId || undefined,
+        warehouseName: selectedWh?.name || activeReturn.warehouseName,
+        notes: editNotes.trim() || undefined
+      };
+
+      const result = await updateCustomerReturn(activeReturn.id, input);
+      showToast(`Return ${activeReturn.returnNumber} updated successfully.`);
+      const updated = result.updatedReturn;
+      setEditingReturn(updated);
+      setIsEditingInspect(false);
+      if (inspectingReturnId === updated.id) {
+        setInspectingReturn(updated);
+      }
+    } catch (err: any) {
+      console.error('Failed to update customer return:', err);
+      setEditError(err.message || 'Failed to update return. Please check inventory stock levels and try again.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const showToast = (msg: string) => {
@@ -82,34 +315,6 @@ export const CustomerReturnsPage: React.FC = () => {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // ---------------------------------------------------------------------------
-  // KPI Metrics Calculation
-  // ---------------------------------------------------------------------------
-  const metrics = useMemo(() => {
-    let pendingCount = 0;
-    let approvedCount = 0;
-    let restockedCount = 0;
-    let refundedCount = 0;
-    let totalRefundValue = 0;
-
-    customerReturns.forEach(r => {
-      totalRefundValue += Number(r.refundAmount || 0);
-      if (r.returnStatus === 'Pending Review') pendingCount++;
-      else if (r.returnStatus === 'Approved') approvedCount++;
-      else if (r.returnStatus === 'Stock Restocked') restockedCount++;
-
-      if (r.refundStatus === 'Refunded') refundedCount++;
-    });
-
-    return {
-      total: customerReturns.length,
-      pending: pendingCount,
-      approved: approvedCount,
-      restocked: restockedCount,
-      refunded: refundedCount,
-      totalRefundValue
-    };
-  }, [customerReturns]);
 
   // ---------------------------------------------------------------------------
   // Filtered Returns List
@@ -133,18 +338,34 @@ export const CustomerReturnsPage: React.FC = () => {
       }
 
       // 2. Status Filter
-      if (statusFilter === 'PENDING' && r.returnStatus !== 'Pending Review') return false;
-      if (statusFilter === 'APPROVED' && r.returnStatus !== 'Approved') return false;
+      if (statusFilter === 'PENDING') {
+        if (isSalesperson) return false;
+        if (r.returnStatus !== 'Pending Review' && r.returnStatus !== 'Pending') return false;
+      }
+      if (statusFilter === 'APPROVED') {
+        const isApprovedStatus = r.returnStatus === 'Approved' || r.returnStatus === 'Stock Restocked' || (isSalesperson && r.returnStatus !== 'Rejected');
+        if (!isApprovedStatus) return false;
+      }
       if (statusFilter === 'REJECTED' && r.returnStatus !== 'Rejected') return false;
-      if (statusFilter === 'RESTOCKED' && r.returnStatus !== 'Stock Restocked') return false;
+      if (statusFilter === 'COMPLETED' && r.returnStatus !== 'Stock Restocked' && r.returnStatus !== 'Completed') return false;
       if (statusFilter === 'REFUNDED' && r.refundStatus !== 'Refunded') return false;
 
       // 3. Condition Filter
       if (conditionFilter !== 'ALL' && r.condition !== conditionFilter) return false;
 
+      // 4. Date Range Filter
+      if (startDate) {
+        const retDate = (r.returnDate || '').split('T')[0];
+        if (retDate < startDate) return false;
+      }
+      if (endDate) {
+        const retDate = (r.returnDate || '').split('T')[0];
+        if (retDate > endDate) return false;
+      }
+
       return true;
     });
-  }, [customerReturns, searchQuery, statusFilter, conditionFilter]);
+  }, [customerReturns, searchQuery, statusFilter, conditionFilter, startDate, endDate]);
 
   // ---------------------------------------------------------------------------
   // Create Return Form State
@@ -153,10 +374,20 @@ export const CustomerReturnsPage: React.FC = () => {
     return salesInvoices.filter(inv => inv.docType !== 'credit_note');
   }, [salesInvoices]);
 
+  const searchedEligibleInvoices = useMemo(() => {
+    const q = modalInvoiceSearch.toLowerCase().trim();
+    if (!q) return eligibleInvoices;
+    return eligibleInvoices.filter(inv =>
+      inv.invoiceNumber.toLowerCase().includes(q) ||
+      inv.customerName.toLowerCase().includes(q) ||
+      (inv.customerPhone && inv.customerPhone.toLowerCase().includes(q))
+    );
+  }, [eligibleInvoices, modalInvoiceSearch]);
+
   const [formInvoiceId, setFormInvoiceId] = useState('');
   const [formProductId, setFormProductId] = useState('');
   const [formReturnedQty, setFormReturnedQty] = useState('');
-  const [formReason, setFormReason] = useState('Customer received wrong product / specification mismatch');
+  const [formReason, setFormReason] = useState('Customer Return');
   const [formCondition, setFormCondition] = useState<CustomerReturnCondition>('Resalable');
   const [formWarehouseId, setFormWarehouseId] = useState('');
   const [formReturnDate, setFormReturnDate] = useState(new Date().toISOString().split('T')[0]);
@@ -177,6 +408,11 @@ export const CustomerReturnsPage: React.FC = () => {
   const selectedItem = useMemo(() => {
     return invoiceItems.find(it => it.productId === formProductId);
   }, [invoiceItems, formProductId]);
+
+  // Selected Product Master record (for live current stock display)
+  const selectedProductMaster = useMemo(() => {
+    return products.find(p => p.id === formProductId);
+  }, [products, formProductId]);
 
   // Calculate remaining eligible return quantity for selected product
   const remainingEligibleQty = useMemo(() => {
@@ -209,12 +445,13 @@ export const CustomerReturnsPage: React.FC = () => {
   };
 
   const handleOpenCreateModal = () => {
+    setModalInvoiceSearch('');
     if (eligibleInvoices.length > 0) {
       handleInvoiceChange(eligibleInvoices[0].id);
     }
     setFormReturnDate(new Date().toISOString().split('T')[0]);
     setFormCondition('Resalable');
-    setFormReason('Customer received wrong product / specification mismatch');
+    setFormReason('Customer Return');
     setFormNotes('');
     setFormError(null);
     setIsCreateModalOpen(true);
@@ -222,6 +459,7 @@ export const CustomerReturnsPage: React.FC = () => {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setFormError(null);
 
     if (!selectedInvoice || !selectedItem) {
@@ -243,6 +481,9 @@ export const CustomerReturnsPage: React.FC = () => {
     const unitPrice = selectedItem.rate || (selectedItem.total / selectedItem.qty);
     const refundAmount = Math.round(unitPrice * qty);
 
+    // Direct Return: Sales Person role updates inventory stock immediately upon submit
+    const isDirectReturn = isSalesperson;
+
     const input: CreateCustomerReturnInput = {
       originalInvoiceId: selectedInvoice.id,
       originalInvoiceNumber: selectedInvoice.invoiceNumber,
@@ -263,15 +504,24 @@ export const CustomerReturnsPage: React.FC = () => {
       condition: formCondition,
       warehouseId: wh?.id,
       warehouseName: wh?.name,
-      notes: formNotes
+      notes: formNotes,
+      directRestock: isDirectReturn,
+      returnStatus: isDirectReturn ? 'Approved' : 'Pending Review'
     };
 
+    setIsSubmitting(true);
     try {
       const created = await addCustomerReturn(input);
       setIsCreateModalOpen(false);
-      showToast(`Customer Return ${created.returnNumber} submitted successfully (Pending Review).`);
+      if (isDirectReturn || created.returnStatus === 'Approved' || created.returnStatus === 'Stock Restocked') {
+        showToast('Product returned successfully. Inventory stock has been updated.');
+      } else {
+        showToast(`Customer Return ${created.returnNumber} submitted successfully.`);
+      }
     } catch (err: any) {
       setFormError(err.message || 'Failed to submit customer return.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -365,14 +615,14 @@ export const CustomerReturnsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
               <RotateCcw className="w-5 h-5 text-indigo-600" />
-              <span>Customer Returns</span>
+              <span>Purchase Return Management</span>
             </h1>
             <span className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-              Inventory Inbound
+              Inventory 
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Manage customer returns of sold merchandise, inspection workflows, godown restocking, and refund processing.
+            Manage products returned by customers and return eligible stock to inventory when appropriate.
           </p>
         </div>
 
@@ -382,155 +632,44 @@ export const CustomerReturnsPage: React.FC = () => {
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs hover:shadow-sm transition-all cursor-pointer self-start sm:self-auto shrink-0"
           >
             <Plus className="w-4 h-4" />
-            <span>New Customer Return</span>
+            <span>New Purchase Return</span>
           </button>
         )}
       </div>
 
-      {/* 2. KPI Summary Cards (Interactive Filter Shortcuts) */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-        {/* Total Returns */}
-        <button
-          onClick={() => setStatusFilter('ALL')}
-          className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-            statusFilter === 'ALL'
-              ? 'bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-500/20 shadow-xs'
-              : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/50 shadow-2xs'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Returns</span>
-            <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
-              <Boxes className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-900">{metrics.total}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Value: {formatCurrency(metrics.totalRefundValue)}</p>
-        </button>
-
-        {/* Pending Review */}
-        <button
-          onClick={() => setStatusFilter('PENDING')}
-          className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-            statusFilter === 'PENDING'
-              ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-500/20 shadow-xs'
-              : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/50 shadow-2xs'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Pending Review</span>
-            <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-amber-700">{metrics.pending}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Awaiting manager inspection</p>
-        </button>
-
-        {/* Approved */}
-        <button
-          onClick={() => setStatusFilter('APPROVED')}
-          className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-            statusFilter === 'APPROVED'
-              ? 'bg-blue-50/70 border-blue-300 ring-2 ring-blue-500/20 shadow-xs'
-              : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/50 shadow-2xs'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">Approved</span>
-            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-blue-700">{metrics.approved}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Ready for warehouse restocking</p>
-        </button>
-
-        {/* Stock Restocked */}
-        <button
-          onClick={() => setStatusFilter('RESTOCKED')}
-          className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-            statusFilter === 'RESTOCKED'
-              ? 'bg-emerald-50/70 border-emerald-300 ring-2 ring-emerald-500/20 shadow-xs'
-              : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/50 shadow-2xs'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Restocked</span>
-            <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
-              <Package className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-emerald-700">{metrics.restocked}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Added to warehouse stock</p>
-        </button>
-
-        {/* Refunded */}
-        <button
-          onClick={() => setStatusFilter('REFUNDED')}
-          className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-            statusFilter === 'REFUNDED'
-              ? 'bg-purple-50/70 border-purple-300 ring-2 ring-purple-500/20 shadow-xs'
-              : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/50 shadow-2xs'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">Refunded</span>
-            <div className="p-1.5 rounded-lg bg-purple-50 text-purple-600">
-              <CreditCard className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-purple-700">{metrics.refunded}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Settled payments</p>
-        </button>
-      </div>
-
-      {/* 3. Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        {/* Search */}
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* 2. Filter and Search Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+        {/* Search Bar */}
+        <div className="relative w-full">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             placeholder="Search return ID, invoice #, customer name, phone, product, SKU, barcode..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white text-slate-800 placeholder-slate-400"
+            className="w-full h-10 pl-10 pr-9 text-xs bg-slate-50 hover:bg-slate-100/60 focus:bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 placeholder-slate-400 transition-all shadow-2xs"
           />
           {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs p-1 cursor-pointer"
+              title="Clear search query"
+            >
               ✕
             </button>
           )}
         </div>
 
-        {/* Filter Dropdowns */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Status Filter */}
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value as any)}
-              className="text-xs text-slate-700 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none font-medium"
-              aria-label="Filter by Status"
-            >
-              <option value="ALL">All Returns</option>
-              <option value="PENDING">Pending Review</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="RESTOCKED">Stock Restocked</option>
-              <option value="REFUNDED">Refunded</option>
-            </select>
-          </div>
-
+        {/* Filter Controls Row */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
           {/* Condition Filter */}
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+          <div className="h-9 px-3 bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl flex items-center gap-2 transition-colors shadow-2xs">
+            <Tag className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span className="text-xs text-slate-400 font-medium">Condition:</span>
             <select
               value={conditionFilter}
               onChange={e => setConditionFilter(e.target.value)}
-              className="text-xs text-slate-700 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none font-medium"
+              className="text-xs text-slate-700 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none font-medium pr-1"
               aria-label="Filter by Condition"
             >
               <option value="ALL">All Conditions</option>
@@ -541,18 +680,31 @@ export const CustomerReturnsPage: React.FC = () => {
             </select>
           </div>
 
-          {(searchQuery || statusFilter !== 'ALL' || conditionFilter !== 'ALL') && (
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setStatusFilter('ALL');
-                setConditionFilter('ALL');
-              }}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 px-2 py-1.5 cursor-pointer whitespace-nowrap"
-            >
-              Reset Filters
-            </button>
-          )}
+          {/* Date Filter: Start Date */}
+          <div className="h-9 px-3 bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl flex items-center gap-2 transition-colors shadow-2xs">
+            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="text-xs text-slate-400 font-medium">From:</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="text-xs text-slate-700 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none font-medium"
+              aria-label="From Date"
+            />
+          </div>
+
+          {/* Date Filter: End Date */}
+          <div className="h-9 px-3 bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl flex items-center gap-2 transition-colors shadow-2xs">
+            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="text-xs text-slate-400 font-medium">To:</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              className="text-xs text-slate-700 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none font-medium"
+              aria-label="To Date"
+            />
+          </div>
         </div>
       </div>
 
@@ -573,32 +725,28 @@ export const CustomerReturnsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse table-auto sm:table-fixed">
             <thead className="bg-slate-50/90 text-slate-700 font-semibold uppercase text-[11px] tracking-wider border-b border-slate-200">
               <tr>
-                <th className="py-3.5 pl-5 pr-3 text-left min-w-[120px]">Return ID</th>
-                <th className="py-3.5 px-3 text-left min-w-[130px]">Original Invoice / Bill</th>
-                <th className="py-3.5 px-3 text-left min-w-[100px]">Return Date</th>
-                <th className="py-3.5 px-3 text-left min-w-[160px]">Customer Name</th>
-                <th className="py-3.5 px-3 text-left min-w-[180px]">Product Name</th>
-                <th className="py-3.5 px-3 text-left min-w-[120px]">SKU / Barcode</th>
-                <th className="py-3.5 px-3 text-center min-w-[110px]">Returned Qty</th>
-                <th className="py-3.5 px-3 text-left min-w-[160px]">Return Reason</th>
-                <th className="py-3.5 px-3 text-center min-w-[110px]">Refund Status</th>
-                <th className="py-3.5 px-3 text-center min-w-[120px]">Return Status</th>
-                <th className="py-3.5 pl-3 pr-5 text-center min-w-[110px]">Actions</th>
+                <th className="py-3.5 pl-5 pr-3 text-left w-[14%] sm:w-[130px]">Return ID</th>
+                <th className="py-3.5 px-3 text-left w-[15%] sm:w-[140px]">Original Bill / Invoice</th>
+                <th className="py-3.5 px-3 text-left w-[18%] sm:w-[150px]">Customer Name</th>
+                <th className="py-3.5 px-3 text-left w-[24%] sm:w-[200px]">Product Name & SKU</th>
+                <th className="py-3.5 px-3 text-center w-[13%] sm:w-[110px]">Returned Qty</th>
+                <th className="py-3.5 px-3 text-center w-[10%] sm:w-[100px]">Return Status</th>
+                <th className="py-3.5 pl-2 pr-5 text-center w-[6%] sm:w-[70px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
               {filteredReturns.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <RotateCcw className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                    <p className="font-semibold text-slate-600 text-sm">No customer returns found</p>
+                    <p className="font-semibold text-slate-600 text-sm">No purchase returns found</p>
                     <p className="text-xs text-slate-400 mt-1">
                       {customerReturns.length === 0
-                        ? 'No customer returns have been recorded yet. Click "New Customer Return" to submit a return.'
+                        ? 'No purchase returns have been recorded yet. Click "New Purchase Return" to submit a return.'
                         : 'No return records match the active search or filter selection.'}
                     </p>
                   </td>
@@ -611,119 +759,78 @@ export const CustomerReturnsPage: React.FC = () => {
                       className="hover:bg-slate-50/70 transition-colors group cursor-pointer border-b border-slate-100 last:border-b-0"
                       onClick={() => setInspectingReturn(ret)}
                     >
-                      {/* Return ID */}
+                      {/* 1. Return ID */}
                       <td className="py-3.5 pl-5 pr-3 align-middle font-mono font-bold text-indigo-700">
                         {ret.returnNumber}
                       </td>
 
-                      {/* Original Invoice */}
+                      {/* 2. Original Bill/Invoice Number */}
                       <td className="py-3.5 px-3 align-middle">
-                        <span className="font-mono font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
+                        <span className="font-mono font-semibold text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded text-[11px] border border-slate-200">
                           {ret.originalInvoiceNumber}
                         </span>
                       </td>
 
-                      {/* Return Date */}
-                      <td className="py-3.5 px-3 align-middle text-slate-600 font-mono text-[11px]">
-                        {formatDate(ret.returnDate)}
-                      </td>
-
-                      {/* Customer Name */}
+                      {/* 3. Customer Name */}
                       <td className="py-3.5 px-3 align-middle">
-                        <div className="font-bold text-slate-900">{ret.customerName}</div>
+                        <div className="font-bold text-slate-900 truncate" title={ret.customerName}>{ret.customerName}</div>
                         {ret.customerPhone && (
                           <div className="text-[11px] text-slate-400 font-normal">{ret.customerPhone}</div>
                         )}
                       </td>
 
-                      {/* Product Name */}
+                      {/* 4. Product Name and SKU */}
                       <td className="py-3.5 px-3 align-middle">
-                        <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                        <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors truncate" title={ret.productName}>
                           {ret.productName}
                         </div>
-                        <div className="mt-1 flex items-center gap-1.5">
-                          <span
-                            className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold uppercase tracking-wider ${
-                              ret.condition === 'Resalable'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : ret.condition === 'Damaged'
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : ret.condition === 'Defective'
-                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                : 'bg-purple-50 text-purple-700 border border-purple-200'
-                            }`}
-                          >
-                            {ret.condition}
-                          </span>
+                        <div className="text-[11px] font-mono text-slate-400 mt-0.5 truncate">
+                          SKU: {ret.sku || ret.barcode || '—'}
                         </div>
                       </td>
 
-                      {/* SKU / Barcode */}
-                      <td className="py-3.5 px-3 align-middle font-mono text-slate-600 text-xs">
-                        <div>{ret.sku || ret.barcode || '—'}</div>
-                      </td>
-
-                      {/* Returned Quantity and Unit */}
+                      {/* 5. Returned Quantity and Unit */}
                       <td className="py-3.5 px-3 text-center align-middle font-mono">
                         <span className="font-bold text-slate-900">
                           {formatNumber(ret.returnedQty)}
                         </span>{' '}
-                        <span className="text-[11px] text-slate-500 font-normal">{ret.unit}</span>
+                        <span className="text-[11px] text-slate-500 font-normal">{ret.unit || 'Piece'}</span>
                         <div className="text-[10px] text-slate-400 font-normal">
                           (sold: {ret.soldQty})
                         </div>
                       </td>
 
-                      {/* Return Reason */}
-                      <td className="py-3.5 px-3 align-middle max-w-[200px] truncate text-slate-700 text-xs" title={ret.reason}>
-                        {ret.reason}
-                      </td>
-
-                      {/* Refund Status */}
+                      {/* 6. Return Status */}
                       <td className="py-3.5 px-3 text-center align-middle">
                         <span
                           className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
-                            ret.refundStatus === 'Refunded'
+                            ret.returnStatus === 'Approved' || ret.returnStatus === 'Stock Restocked' || ret.returnStatus === 'Completed'
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : ret.refundStatus === 'Rejected'
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}
-                        >
-                          {ret.refundStatus}
-                        </span>
-                        {ret.refundStatus === 'Refunded' && ret.refundMethod && (
-                          <div className="text-[10px] text-slate-400 mt-0.5">
-                            via {ret.refundMethod}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Return Status */}
-                      <td className="py-3.5 px-3 text-center align-middle">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
-                            ret.returnStatus === 'Stock Restocked'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : ret.returnStatus === 'Approved'
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
                               : ret.returnStatus === 'Rejected'
                               ? 'bg-rose-50 text-rose-700 border border-rose-200'
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}
                         >
-                          {ret.returnStatus}
+                          {ret.returnStatus === 'Stock Restocked' || ret.returnStatus === 'Completed'
+                            ? 'Approved'
+                            : isSalesperson && (ret.returnStatus === 'Pending Review' || ret.returnStatus === 'Pending')
+                            ? 'Approved'
+                            : ret.returnStatus === 'Pending Review'
+                            ? 'Pending'
+                            : ret.returnStatus}
                         </span>
                       </td>
 
-                      {/* Actions */}
-                      <td className="py-3.5 pl-3 pr-5 text-center align-middle">
+                      {/* 7. Actions */}
+                      <td className="py-3.5 pl-2 pr-5 text-center align-middle">
                         <div className="flex items-center justify-center gap-1.5" onClick={e => e.stopPropagation()}>
-                          {/* View Inspection */}
+                          {/* View Return Details (Eye Icon) */}
                           <button
+                            type="button"
                             onClick={() => setInspectingReturn(ret)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-colors cursor-pointer shadow-2xs"
                             title="View Return Details"
+                            aria-label="View Return Details"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
@@ -798,7 +905,7 @@ export const CustomerReturnsPage: React.FC = () => {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Create Customer Return"
+        title="Record Purchase Return"
         size="lg"
       >
         <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
@@ -809,21 +916,43 @@ export const CustomerReturnsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Original Invoice Selector */}
+          {/* Original Bill Search & Selector */}
           <div>
-            <label className="block text-slate-700 font-semibold mb-1">
-              Select Original Sales Invoice / Bill <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-slate-700 font-semibold">
+                Find Original Bill / Invoice <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10px] text-slate-400">Search by invoice #, customer name, or phone</span>
+            </div>
+            <div className="relative mb-2">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search invoice number, customer name, or phone number..."
+                value={modalInvoiceSearch}
+                onChange={e => setModalInvoiceSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-indigo-500"
+              />
+              {modalInvoiceSearch && (
+                <button
+                  type="button"
+                  onClick={() => setModalInvoiceSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             <select
               value={formInvoiceId}
               onChange={e => handleInvoiceChange(e.target.value)}
               required
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:bg-white focus:ring-1 focus:ring-indigo-500"
             >
-              <option value="">-- Choose Sales Invoice --</option>
-              {eligibleInvoices.map(inv => (
+              <option value="">-- Choose Sales Invoice ({searchedEligibleInvoices.length} found) --</option>
+              {searchedEligibleInvoices.map(inv => (
                 <option key={inv.id} value={inv.id}>
-                  {inv.invoiceNumber} — {inv.customerName} ({formatDate(inv.date)}) [₹{formatNumber(inv.grandTotal)}]
+                  {inv.invoiceNumber} — {inv.customerName} {inv.customerPhone ? `(${inv.customerPhone})` : ''} ({formatDate(inv.date)}) [₹{formatNumber(inv.grandTotal)}]
                 </option>
               ))}
             </select>
@@ -869,24 +998,31 @@ export const CustomerReturnsPage: React.FC = () => {
 
           {/* Quantity verification & input */}
           {selectedItem && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-2.5">
               <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Sold Quantity</span>
+                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Sold Qty</span>
                 <span className="font-mono font-bold text-slate-800 text-sm">
-                  {selectedItem.qty} {selectedItem.unit || 'Piece'}
+                  {selectedItem.qty} <span className="text-[10px] text-slate-500 font-normal">{selectedItem.unit || 'Piece'}</span>
                 </span>
               </div>
 
               <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Eligible to Return</span>
+                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Remaining Eligible Quantity</span>
                 <span className="font-mono font-bold text-emerald-700 text-sm">
-                  {remainingEligibleQty} {selectedItem.unit || 'Piece'}
+                  {remainingEligibleQty} <span className="text-[10px] text-slate-500 font-normal">{selectedItem.unit || 'Piece'}</span>
+                </span>
+              </div>
+
+              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Current Stock</span>
+                <span className="font-mono font-bold text-indigo-700 text-sm">
+                  {formatNumber(selectedProductMaster?.currentStock || 0)} <span className="text-[10px] text-slate-500 font-normal">{selectedItem.unit || 'Piece'}</span>
                 </span>
               </div>
 
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
-                  Quantity Returning <span className="text-rose-500">*</span>
+                  Return Qty <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -898,6 +1034,11 @@ export const CustomerReturnsPage: React.FC = () => {
                   placeholder="Qty"
                   className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 font-bold font-mono focus:ring-1 focus:ring-indigo-500"
                 />
+                {formCondition === 'Resalable' && Number(formReturnedQty) > 0 && (
+                  <span className="block text-[9px] text-emerald-600 font-semibold mt-0.5">
+                    ➔ New Stock: {(selectedProductMaster?.currentStock || 0) + Number(formReturnedQty)}
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -928,9 +1069,17 @@ export const CustomerReturnsPage: React.FC = () => {
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-slate-500 mt-1">
-              * Note: Only items marked <strong>Resalable</strong> will enter available inventory upon approval. Damaged, Defective, or Expired items are strictly kept out of sellable stock.
-            </p>
+            {formCondition === 'Resalable' ? (
+              <div className="mt-1.5 p-2 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-1.5 text-[11px] text-emerald-800 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span><strong>Resalable:</strong> Returned quantity will immediately add to available warehouse inventory stock.</span>
+              </div>
+            ) : (
+              <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-1.5 text-[11px] text-amber-800 font-medium">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span><strong>{formCondition} Product:</strong> Recorded separately in quarantine tracking. Will <strong>NOT</strong> be added to sellable stock to prevent selling unusable goods.</span>
+              </div>
+            )}
           </div>
 
           {/* Destination Warehouse & Return Date */}
@@ -972,11 +1121,11 @@ export const CustomerReturnsPage: React.FC = () => {
               onChange={e => setFormReason(e.target.value)}
               className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:bg-white mb-2"
             >
-              <option value="Customer received wrong product / specification mismatch">Customer received wrong product / specification mismatch</option>
-              <option value="Defective / Quality issue on delivery">Defective / Quality issue on delivery</option>
-              <option value="Damaged packaging during transit">Damaged packaging during transit</option>
-              <option value="Customer changed mind / surplus project stock">Customer changed mind / surplus project stock</option>
-              <option value="Expired stock returned">Expired stock returned</option>
+              <option value="Customer Return">Customer Return</option>
+              <option value="Wrong Item">Wrong Item</option>
+              <option value="Damaged in Transit">Damaged in Transit</option>
+              <option value="Defective Product">Defective Product</option>
+              <option value="Expired Product">Expired Product</option>
               <option value="Other">Other (specify in notes)</option>
             </select>
           </div>
@@ -996,21 +1145,38 @@ export const CustomerReturnsPage: React.FC = () => {
           {/* Actions */}
           <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
             <span className="text-[11px] text-slate-500">
-              Starts as <strong>Pending Review</strong>. Inventory is not modified.
+              {isSalesperson ? (
+                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Direct Return: Stock updates immediately upon submit.
+                </span>
+              ) : (
+                <span>
+                  Starts as <strong>Pending Review</strong>. Inventory is not modified.
+                </span>
+              )}
             </span>
             <div className="flex gap-2">
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => setIsCreateModalOpen(false)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 cursor-pointer font-medium"
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 cursor-pointer font-medium disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold cursor-pointer shadow-xs"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
               >
-                Submit Customer Return
+                {isSubmitting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Updating Stock...</span>
+                  </>
+                ) : (
+                  <span>Submit Return</span>
+                )}
               </button>
             </div>
           </div>
@@ -1020,109 +1186,539 @@ export const CustomerReturnsPage: React.FC = () => {
       {/* --------------------------------------------------------------------- */}
       {/* MODAL 2: Return Inspection Details                                     */}
       {/* --------------------------------------------------------------------- */}
+      {/* --------------------------------------------------------------------- */}
+      {/* MODAL 2: View Return Details (Clean, Read-Only Full Details Panel)     */}
+      {/* --------------------------------------------------------------------- */}
       <Modal
         isOpen={Boolean(inspectingReturn)}
-        onClose={() => setInspectingReturn(null)}
-        title={inspectingReturn ? `Customer Return ${inspectingReturn.returnNumber}` : 'Return Details'}
-        size="md"
+        onClose={handleCloseInspect}
+        title={
+          inspectingReturn
+            ? isEditingInspect
+              ? `Edit Return Details — ${inspectingReturn.returnNumber}`
+              : `Return Details — ${inspectingReturn.returnNumber}`
+            : 'Return Details'
+        }
+        subtitle={inspectingReturn ? `Original Bill #${inspectingReturn.originalInvoiceNumber}` : undefined}
+        size="lg"
       >
         {inspectingReturn && (
-          <div className="space-y-4 text-xs">
-            {/* Statuses Header */}
-            <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl">
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">Return Status</span>
-                <span className="font-bold text-slate-900 text-sm">{inspectingReturn.returnStatus}</span>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">Refund Status</span>
-                <span className="font-bold text-indigo-700 text-sm">{inspectingReturn.refundStatus}</span>
-              </div>
-            </div>
+          isEditingInspect ? (
+            <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
+              {editError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
 
-            {/* Main Specs */}
-            <div className="grid grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-slate-200">
-              <div>
-                <span className="text-[10px] text-slate-400 font-semibold block">Original Invoice</span>
-                <span className="font-mono font-bold text-slate-800">{inspectingReturn.originalInvoiceNumber}</span>
+              {/* Read-Only Reference Information */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                  Original Sale Reference (Read-Only)
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-slate-700">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block uppercase">Return ID</span>
+                    <span className="font-mono font-bold text-indigo-700 text-xs">
+                      {inspectingReturn.returnNumber}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block uppercase">Original Invoice</span>
+                    <span className="font-mono font-bold text-slate-800 text-xs">
+                      {inspectingReturn.originalInvoiceNumber}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block uppercase">Product & SKU</span>
+                    <span className="font-semibold text-slate-900 block truncate" title={inspectingReturn.productName}>
+                      {inspectingReturn.productName}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      SKU: {inspectingReturn.sku || inspectingReturn.barcode || '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block uppercase">Original Sold Qty</span>
+                    <span className="font-mono font-bold text-slate-800 text-xs">
+                      {inspectingReturn.soldQty} {inspectingReturn.unit || 'Piece'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">
+                      Rate: {formatCurrency(inspectingReturn.unitPrice)}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-semibold block">Return Date</span>
-                <span className="font-mono text-slate-800">{formatDate(inspectingReturn.returnDate)}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-semibold block">Customer</span>
-                <span className="font-bold text-slate-900">{inspectingReturn.customerName}</span>
-                <span className="text-[11px] text-slate-500 block">{inspectingReturn.customerPhone || 'No phone'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-semibold block">Destination Warehouse</span>
-                <span className="font-medium text-slate-800">{inspectingReturn.warehouseName || 'Main Godown'}</span>
-              </div>
-            </div>
 
-            {/* Product & Quantity */}
-            <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl">
-              <span className="text-[10px] text-indigo-700 font-semibold uppercase block mb-1">Returned Product</span>
-              <div className="flex items-center justify-between">
+              {/* Editable Customer Details */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                  Customer Details
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">
+                      Customer Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editCustomerName}
+                      onChange={e => setEditCustomerName(e.target.value)}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                      placeholder="Customer full name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Customer Phone Number</label>
+                    <input
+                      type="tel"
+                      value={editCustomerPhone}
+                      onChange={e => setEditCustomerPhone(e.target.value)}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                      placeholder="e.g. +91 9876543210"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Editable Quantity & Condition */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                  Returned Quantity & Product Condition
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-slate-700 font-semibold">
+                        Returned Quantity ({inspectingReturn.unit || 'Piece'}) <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[10px] text-slate-500">
+                        Max Allowed: <strong className="text-indigo-700">{editingReturnMaxEligible}</strong>
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      max={editingReturnMaxEligible}
+                      value={editReturnedQty}
+                      onChange={e => setEditReturnedQty(e.target.value)}
+                      required
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono font-bold focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                      <span>Current: {inspectingReturn.returnedQty}</span>
+                      {Number(editReturnedQty) !== inspectingReturn.returnedQty && (
+                        <span className="font-semibold text-indigo-600">
+                          Qty Change: {Number(editReturnedQty) > inspectingReturn.returnedQty ? '+' : ''}{Number(editReturnedQty) - inspectingReturn.returnedQty}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Destination Warehouse</label>
+                    <select
+                      value={editWarehouseId}
+                      onChange={e => setEditWarehouseId(e.target.value)}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                    >
+                      {warehouses.map(w => (
+                        <option key={w.id} value={w.id}>
+                          {w.name} {w.isDefault ? '(Default Godown)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Condition Selector */}
                 <div>
-                  <div className="font-bold text-slate-900 text-sm">{inspectingReturn.productName}</div>
-                  <div className="text-[11px] text-slate-500 font-mono">
-                    SKU: {inspectingReturn.sku || 'N/A'} | Condition: <strong>{inspectingReturn.condition}</strong>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono font-bold text-base text-indigo-900">
-                    {inspectingReturn.returnedQty} {inspectingReturn.unit}
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono">
-                    Est. Value: {formatCurrency(inspectingReturn.refundAmount)}
+                  <label className="block text-slate-700 font-semibold mb-1.5">
+                    Product Condition <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(['Resalable', 'Damaged', 'Defective', 'Expired'] as CustomerReturnCondition[]).map(cond => (
+                      <button
+                        key={cond}
+                        type="button"
+                        onClick={() => setEditCondition(cond)}
+                        className={`p-2 rounded-lg border text-center transition-all cursor-pointer font-medium ${
+                          editCondition === cond
+                            ? cond === 'Resalable'
+                              ? 'bg-emerald-50 border-emerald-400 text-emerald-800 ring-2 ring-emerald-500/20 font-bold'
+                              : 'bg-amber-50 border-amber-400 text-amber-800 ring-2 ring-amber-500/20 font-bold'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="block text-xs">{cond}</span>
+                        <span className="block text-[9px] text-slate-400 font-normal">
+                          {cond === 'Resalable' ? 'Sellable stock' : 'Quarantine only'}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Reason & Notes */}
-            <div className="space-y-2">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase block mb-0.5">Reason</span>
-                <p className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800">
-                  {inspectingReturn.reason}
+              {/* Inventory Safety & Delta Preview */}
+              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1 text-[11px] text-blue-900">
+                <div className="flex items-center gap-1.5 font-bold text-blue-800">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Inventory Safety & Delta Adjustment</span>
+                </div>
+                <p className="text-slate-600">
+                  {editingStockDeltaPreview.explanation}
+                </p>
+                <p className="text-[10px] text-slate-500 font-medium">
+                  * Safe update guarantee: Only the difference between old and new values is applied. Existing stock will never be duplicated.
                 </p>
               </div>
-              {inspectingReturn.notes && (
+
+              {/* Reason & Notes */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-3">
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block mb-0.5">Notes</span>
-                  <p className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600">
-                    {inspectingReturn.notes}
-                  </p>
+                  <label className="block text-slate-700 font-semibold mb-1">
+                    Return Reason <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={editReason}
+                    onChange={e => setEditReason(e.target.value)}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:bg-white"
+                  >
+                    <option value="Customer Return">Customer Return</option>
+                    <option value="Wrong Item">Wrong Item</option>
+                    <option value="Damaged in Transit">Damaged in Transit</option>
+                    <option value="Defective Product">Defective Product</option>
+                    <option value="Expired Product">Expired Product</option>
+                    <option value="Other">Other (specify in notes)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Notes / Supporting Details</label>
+                  <textarea
+                    rows={2}
+                    value={editNotes}
+                    onChange={e => setEditNotes(e.target.value)}
+                    placeholder="Additional inspection notes or return reason details..."
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Save and Cancel Buttons */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={cancelEditingInspect}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 cursor-pointer font-medium disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSavingEdit ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Saving Changes...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-4 text-xs">
+            {/* 1. Header Overview Cards: Statuses & Stock Impact */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              {/* Return Status */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                  Return Status
+                </span>
+                <div className="mt-1">
+                  <span
+                    className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      inspectingReturn.returnStatus === 'Approved' || inspectingReturn.returnStatus === 'Stock Restocked' || inspectingReturn.returnStatus === 'Completed'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : inspectingReturn.returnStatus === 'Rejected'
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                    }`}
+                  >
+                    {inspectingReturn.returnStatus === 'Stock Restocked' || inspectingReturn.returnStatus === 'Completed'
+                      ? 'Approved'
+                      : isSalesperson && (inspectingReturn.returnStatus === 'Pending Review' || inspectingReturn.returnStatus === 'Pending')
+                      ? 'Approved'
+                      : inspectingReturn.returnStatus || 'Approved'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Refund Status */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                  Refund Status
+                </span>
+                <div className="mt-1">
+                  <span
+                    className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      inspectingReturn.refundStatus === 'Refunded'
+                        ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                    }`}
+                  >
+                    {inspectingReturn.refundStatus || 'Pending'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Stock Update Status */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl sm:col-span-2">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                  Stock Update Status
+                </span>
+                <div className="mt-1">
+                  {(() => {
+                    const stockInfo = getStockUpdateStatus(inspectingReturn);
+                    return (
+                      <div>
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold border ${stockInfo.badgeClass}`}>
+                          {stockInfo.label}
+                        </span>
+                        <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                          {stockInfo.description}
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Core Return Specs & Customer Information */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+              <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
+                Transaction & Customer Details
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-slate-700">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Return ID</span>
+                  <span className="font-mono font-bold text-indigo-700 text-sm">
+                    {inspectingReturn.returnNumber || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Original Bill / Invoice</span>
+                  <span className="font-mono font-bold text-slate-800 text-sm">
+                    {inspectingReturn.originalInvoiceNumber || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Return Date & Time</span>
+                  <span className="font-medium text-slate-800">
+                    {formatDateTime(inspectingReturn.createdAt || inspectingReturn.returnDate)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Customer Name</span>
+                  <span className="font-bold text-slate-900">
+                    {inspectingReturn.customerName || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Customer Phone</span>
+                  <span className="font-mono text-slate-800">
+                    {inspectingReturn.customerPhone || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Warehouse Name</span>
+                  <span className="font-medium text-slate-800">
+                    {inspectingReturn.warehouseName || '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Product & Quantity Information */}
+            <div className="bg-indigo-50/40 p-4 rounded-xl border border-indigo-100 space-y-3">
+              <h4 className="text-[11px] font-bold uppercase text-indigo-700 tracking-wider">
+                Product & Quantity Details
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="sm:col-span-2">
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Product Name</span>
+                  <span className="font-bold text-slate-900 text-sm block">
+                    {inspectingReturn.productName || '—'}
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-500">
+                    SKU: {inspectingReturn.sku || inspectingReturn.barcode || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Returned Qty</span>
+                  <span className="font-mono font-bold text-indigo-900 text-sm">
+                    {formatNumber(inspectingReturn.returnedQty)} <span className="text-xs font-normal text-slate-500">{inspectingReturn.unit || 'Piece'}</span>
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Original Qty Sold</span>
+                  <span className="font-mono font-bold text-slate-700 text-sm">
+                    {formatNumber(inspectingReturn.soldQty)} <span className="text-xs font-normal text-slate-500">{inspectingReturn.unit || 'Piece'}</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-indigo-100/70 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Product Condition</span>
+                  <span
+                    className={`inline-block mt-0.5 px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      inspectingReturn.condition === 'Resalable'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : inspectingReturn.condition === 'Damaged'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : inspectingReturn.condition === 'Defective'
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-purple-100 text-purple-800 border border-purple-200'
+                    }`}
+                  >
+                    {inspectingReturn.condition || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Unit Rate / Price</span>
+                  <span className="font-mono font-semibold text-slate-800">
+                    {inspectingReturn.unitPrice ? formatCurrency(inspectingReturn.unitPrice) : '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase">Refund Value</span>
+                  <span className="font-mono font-bold text-emerald-700">
+                    {inspectingReturn.refundAmount ? formatCurrency(inspectingReturn.refundAmount) : '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Reason & Inspection Notes */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+              <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
+                Reason & Additional Information
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase mb-1">Return Reason</span>
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-medium">
+                    {inspectingReturn.reason || '—'}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase mb-1">Notes / Additional Info</span>
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600">
+                    {inspectingReturn.notes || '—'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Audit & Activity Trail */}
+            <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-200 text-[11px] text-slate-600 space-y-1.5">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
+                Activity & Audit History
+              </span>
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span>Created By: <strong className="text-slate-800">{inspectingReturn.createdByName || '—'}</strong></span>
+                <span className="text-slate-400">{formatDateTime(inspectingReturn.createdAt)}</span>
+              </div>
+              {inspectingReturn.approvedAt && (
+                <div className="flex flex-wrap items-center justify-between gap-1 border-t border-slate-200/50 pt-1">
+                  <span>Approved By: <strong className="text-slate-800">{inspectingReturn.approvedByName || '—'}</strong></span>
+                  <span className="text-slate-400">{formatDateTime(inspectingReturn.approvedAt)}</span>
+                </div>
+              )}
+              {inspectingReturn.restockedAt && (
+                <div className="flex flex-wrap items-center justify-between gap-1 border-t border-slate-200/50 pt-1">
+                  <span>Restocked By: <strong className="text-slate-800">{inspectingReturn.restockedByName || '—'}</strong></span>
+                  <span className="text-slate-400">{formatDateTime(inspectingReturn.restockedAt)}</span>
+                </div>
+              )}
+              {inspectingReturn.refundedAt && (
+                <div className="flex flex-wrap items-center justify-between gap-1 border-t border-slate-200/50 pt-1">
+                  <span>
+                    Refund Processed By: <strong className="text-slate-800">{inspectingReturn.refundedByName || '—'}</strong> via {inspectingReturn.refundMethod || 'Bank'}
+                  </span>
+                  <span className="text-slate-400">{formatDateTime(inspectingReturn.refundedAt)}</span>
                 </div>
               )}
             </div>
 
-            {/* Timeline Audit */}
-            <div className="border-t border-slate-100 pt-3 space-y-1 text-[11px] text-slate-500">
-              <div>Submitted by: <strong className="text-slate-700">{inspectingReturn.createdByName || 'Staff'}</strong> on {formatDate(inspectingReturn.createdAt)}</div>
-              {inspectingReturn.approvedAt && (
-                <div>Approved by: <strong className="text-slate-700">{inspectingReturn.approvedByName || 'Manager'}</strong> on {formatDate(inspectingReturn.approvedAt)}</div>
-              )}
-              {inspectingReturn.restockedAt && (
-                <div>Restocked by: <strong className="text-slate-700">{inspectingReturn.restockedByName || 'Warehouse'}</strong> on {formatDate(inspectingReturn.restockedAt)}</div>
-              )}
-              {inspectingReturn.refundedAt && (
-                <div>Refunded by: <strong className="text-slate-700">{inspectingReturn.refundedByName || 'Cashier'}</strong> via {inspectingReturn.refundMethod} on {formatDate(inspectingReturn.refundedAt)}</div>
-              )}
-            </div>
+            {/* Audit Trail for Edits */}
+            {inspectingReturn.auditTrail && inspectingReturn.auditTrail.length > 0 && (
+              <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200 text-[11px] text-slate-700 space-y-2">
+                <span className="text-[10px] text-amber-800 font-bold uppercase tracking-wider block">
+                  Edit History & Audit Trail ({inspectingReturn.auditTrail.length} change{inspectingReturn.auditTrail.length > 1 ? 's' : ''})
+                </span>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {inspectingReturn.auditTrail.map((log, idx) => (
+                    <div key={idx} className="flex flex-wrap items-center justify-between text-[11px] border-b border-amber-100 pb-1 last:border-0 last:pb-0">
+                      <div>
+                        <span className="font-semibold text-slate-800">{log.field}:</span>{' '}
+                        <span className="line-through text-slate-400 font-mono">{String(log.oldValue ?? '—')}</span>
+                        <span className="mx-1 text-slate-400">→</span>
+                        <span className="font-semibold text-emerald-700 font-mono">{String(log.newValue ?? '—')}</span>
+                      </div>
+                      <div className="text-slate-400 text-[10px]">
+                        by {log.editedBy} • {formatDateTime(log.date)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={() => setInspectingReturn(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-lg text-xs cursor-pointer"
-              >
-                Close
-              </button>
+            {/* Footer */}
+            <div className="pt-2 flex items-center justify-between">
+              <div>
+                {inspectingReturn.updatedByName && (
+                  <span className="text-[11px] text-slate-400">
+                    Last edited by <strong className="text-slate-600">{inspectingReturn.updatedByName}</strong>
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {canEditReturn && (
+                  <button
+                    type="button"
+                    onClick={() => startEditingInspect(inspectingReturn)}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Edit Return</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCloseInspect}
+                  className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-xs transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
+          )
         )}
       </Modal>
 
@@ -1325,3 +1921,4 @@ export const CustomerReturnsPage: React.FC = () => {
     </div>
   );
 };
+

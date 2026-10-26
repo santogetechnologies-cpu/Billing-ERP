@@ -989,6 +989,17 @@ export interface CustomerReturn {
   refundedByName?: string;
   refundedAt?: string;
   refundMethod?: string;
+  updatedBy?: string;
+  updatedByName?: string;
+  auditTrail?: Array<{
+    date: string;
+    editedBy: string;
+    field: string;
+    oldValue: any;
+    newValue: any;
+  }>;
+  directRestock?: boolean;
+  isDirectReturn?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -1016,4 +1027,21 @@ export interface CreateCustomerReturnInput {
   notes?: string;
   createdBy?: string;
   createdByName?: string;
+  directRestock?: boolean;
+  returnStatus?: CustomerReturnStatus;
 }
+
+export interface UpdateCustomerReturnInput {
+  customerName?: string;
+  customerPhone?: string;
+  reason?: string;
+  condition?: CustomerReturnCondition;
+  returnedQty?: number;
+  warehouseId?: string;
+  warehouseName?: string;
+  notes?: string;
+  refundAmount?: number;
+  updatedBy?: string;
+  updatedByName?: string;
+}
+

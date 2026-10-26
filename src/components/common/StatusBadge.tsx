@@ -56,6 +56,7 @@ export interface StockStatusBadgeProps {
   size?: 'sm' | 'md';
   align?: 'center' | 'left' | 'right';
   showQuantity?: boolean;
+  showUnit?: boolean;
   className?: string;
 }
 
@@ -67,6 +68,7 @@ export const StockStatusBadge: React.FC<StockStatusBadgeProps> = ({
   size = 'sm',
   align = 'center',
   showQuantity,
+  showUnit = true,
   className = ''
 }) => {
   const status = explicitStatus || calculateStockStatus(currentStock, reorderLevel);
@@ -102,7 +104,7 @@ export const StockStatusBadge: React.FC<StockStatusBadgeProps> = ({
     <div className={`inline-flex flex-col ${alignClass} justify-center gap-0.5 py-0.5 min-w-0 ${className}`}>
       <StatusBadge status={status} size={size} />
       <span className={`font-mono font-bold text-xs tabular-nums whitespace-nowrap ${qtyColorClass}`}>
-        {formatNumber(safeStock)} {unit || 'Piece'}
+        {formatNumber(safeStock)}{showUnit ? ` ${unit || 'Piece'}` : ''}
       </span>
     </div>
   );

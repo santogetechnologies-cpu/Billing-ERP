@@ -292,7 +292,9 @@ const KNOWN_UNMIGRATED_TABLES = [
   'purchase_orders',
   'purchase_order_items',
   'user_sessions',
-  'barcode_audit_logs'
+  'barcode_audit_logs',
+  'customer_returns',
+  'customer_support_cases'
 ];
 
 function getPersistedMissingTables(): Set<string> {
@@ -305,12 +307,12 @@ function getPersistedMissingTables(): Set<string> {
       if (Array.isArray(arr)) {
         arr.forEach((t: string) => set.add(t));
       }
-    } else {
-      // Seed initial unmigrated tables so zero 404 network errors are logged
-      try {
-        storage.setItem(STORAGE_KEY_MISSING_TABLES, JSON.stringify(Array.from(set)));
-      } catch {}
     }
+    // Always ensure known unmigrated tables are seeded to eliminate browser console 404s
+    KNOWN_UNMIGRATED_TABLES.forEach(t => set.add(t));
+    try {
+      storage.setItem(STORAGE_KEY_MISSING_TABLES, JSON.stringify(Array.from(set)));
+    } catch {}
   } catch {
     KNOWN_UNMIGRATED_TABLES.forEach(t => set.add(t));
   }
