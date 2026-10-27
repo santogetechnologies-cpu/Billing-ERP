@@ -295,7 +295,7 @@ export const CustomerReturnsPage: React.FC = () => {
 
       const result = await updateCustomerReturn(activeReturn.id, input);
       showToast(`Return ${activeReturn.returnNumber} updated successfully.`);
-      const updated = result.updatedReturn;
+      const updated = result;
       setEditingReturn(updated);
       setIsEditingInspect(false);
       if (inspectingReturnId === updated.id) {
@@ -340,14 +340,14 @@ export const CustomerReturnsPage: React.FC = () => {
       // 2. Status Filter
       if (statusFilter === 'PENDING') {
         if (isSalesperson) return false;
-        if (r.returnStatus !== 'Pending Review' && r.returnStatus !== 'Pending') return false;
+        if (r.returnStatus !== 'Pending Review') return false;
       }
       if (statusFilter === 'APPROVED') {
         const isApprovedStatus = r.returnStatus === 'Approved' || r.returnStatus === 'Stock Restocked' || (isSalesperson && r.returnStatus !== 'Rejected');
         if (!isApprovedStatus) return false;
       }
       if (statusFilter === 'REJECTED' && r.returnStatus !== 'Rejected') return false;
-      if (statusFilter === 'COMPLETED' && r.returnStatus !== 'Stock Restocked' && r.returnStatus !== 'Completed') return false;
+      if (statusFilter === 'COMPLETED' && r.returnStatus !== 'Stock Restocked') return false;
       if (statusFilter === 'REFUNDED' && r.refundStatus !== 'Refunded') return false;
 
       // 3. Condition Filter
@@ -804,16 +804,16 @@ export const CustomerReturnsPage: React.FC = () => {
                       <td className="py-3.5 px-3 text-center align-middle">
                         <span
                           className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
-                            ret.returnStatus === 'Approved' || ret.returnStatus === 'Stock Restocked' || ret.returnStatus === 'Completed'
+                            ret.returnStatus === 'Approved' || ret.returnStatus === 'Stock Restocked'
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : ret.returnStatus === 'Rejected'
                               ? 'bg-rose-50 text-rose-700 border border-rose-200'
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}
                         >
-                          {ret.returnStatus === 'Stock Restocked' || ret.returnStatus === 'Completed'
+                          {ret.returnStatus === 'Stock Restocked'
                             ? 'Approved'
-                            : isSalesperson && (ret.returnStatus === 'Pending Review' || ret.returnStatus === 'Pending')
+                            : isSalesperson && ret.returnStatus === 'Pending Review'
                             ? 'Approved'
                             : ret.returnStatus === 'Pending Review'
                             ? 'Pending'
@@ -1449,16 +1449,16 @@ export const CustomerReturnsPage: React.FC = () => {
                 <div className="mt-1">
                   <span
                     className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                      inspectingReturn.returnStatus === 'Approved' || inspectingReturn.returnStatus === 'Stock Restocked' || inspectingReturn.returnStatus === 'Completed'
+                      inspectingReturn.returnStatus === 'Approved' || inspectingReturn.returnStatus === 'Stock Restocked'
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         : inspectingReturn.returnStatus === 'Rejected'
                         ? 'bg-rose-50 text-rose-700 border border-rose-200'
                         : 'bg-amber-50 text-amber-700 border border-amber-200'
                     }`}
                   >
-                    {inspectingReturn.returnStatus === 'Stock Restocked' || inspectingReturn.returnStatus === 'Completed'
+                    {inspectingReturn.returnStatus === 'Stock Restocked'
                       ? 'Approved'
-                      : isSalesperson && (inspectingReturn.returnStatus === 'Pending Review' || inspectingReturn.returnStatus === 'Pending')
+                      : isSalesperson && inspectingReturn.returnStatus === 'Pending Review'
                       ? 'Approved'
                       : inspectingReturn.returnStatus || 'Approved'}
                   </span>

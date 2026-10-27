@@ -48,6 +48,7 @@ import { BatchManagementPage } from './pages/inventory/BatchManagementPage';
 import { SerialNumbersPage } from './pages/inventory/SerialNumbersPage';
 import { StockValuationPage } from './pages/inventory/StockValuationPage';
 import { CustomerReturnsPage } from './pages/inventory/CustomerReturnsPage';
+import { OrderReceivePage } from './pages/inventory/OrderReceivePage';
 
 // Customers & Suppliers
 import { CustomersPage } from './pages/customers/CustomersPage';
@@ -71,6 +72,7 @@ import { TrialBalancePage } from './pages/accounting/TrialBalancePage';
 import { ProfitLossPage } from './pages/accounting/ProfitLossPage';
 import { BalanceSheetPage } from './pages/accounting/BalanceSheetPage';
 import { CashFlowPage } from './pages/accounting/CashFlowPage';
+import { AccountantDashboardPage } from './pages/accounting/AccountantDashboardPage';
 
 // Taxes & Reports
 import { TaxesPage } from './pages/taxes/TaxesPage';
@@ -437,6 +439,18 @@ export function App() {
                 path="inventory/returns"
                 element={<Navigate to="/inventory/purchase-returns" replace />}
               />
+              <Route
+                path="inventory/receive"
+                element={
+                  <ProtectedRoute requiredModule="inventory" requiredAction="create">
+                    <OrderReceivePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="inventory/order-receive"
+                element={<Navigate to="/inventory/receive" replace />}
+              />
 
               {/* Customers & Suppliers */}
               <Route
@@ -515,6 +529,14 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="payments/bills"
+                element={
+                  <ProtectedRoute requiredModule="payments">
+                    <AccountantDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Accounting */}
               <Route
@@ -522,6 +544,22 @@ export function App() {
                 element={
                   <ProtectedRoute requiredModule="accounting">
                     <ChartOfAccountsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="accounting/bills"
+                element={
+                  <ProtectedRoute requiredModule="accounting">
+                    <AccountantDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="accountant/dashboard"
+                element={
+                  <ProtectedRoute requiredModule="accounting">
+                    <AccountantDashboardPage />
                   </ProtectedRoute>
                 }
               />

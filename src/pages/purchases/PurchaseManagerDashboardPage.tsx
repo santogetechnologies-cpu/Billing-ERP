@@ -792,12 +792,12 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         </div>
 
         {/* Right Column: Action Controls Toolbar */}
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap sm:flex-nowrap shrink-0">
           {/* Refresh Button */}
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="p-2 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
+            className="h-9 w-9 flex items-center justify-center rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
             title="Refresh Procurement Metrics"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
@@ -806,10 +806,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           {/* User Profile Menu Button */}
           <button
             onClick={() => setIsProfileModalOpen(true)}
-            className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 transition-all cursor-pointer shadow-2xs shrink-0"
+            className="h-9 flex items-center gap-2 pl-2 pr-3 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 transition-all cursor-pointer shadow-2xs shrink-0"
             title="View Profile"
           >
-            <div className="w-5 h-5 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+            <div className="w-5 h-5 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
               {(profile?.full_name || user?.email || 'P')[0].toUpperCase()}
             </div>
             <span className="text-xs font-semibold text-slate-800 truncate max-w-[120px]">
@@ -827,16 +827,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
               <span>Barcode Override</span>
             </button>
           )}
-
-          {/* Review Requests Button */}
-          <button
-            onClick={() => navigate('/purchases/requests')}
-            className="h-9 px-3.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-            title="Review warehouse purchase requests"
-          >
-            <ClipboardList className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-            <span>Review Requests ({metrics.pendingRequestsCount})</span>
-          </button>
 
           {/* New Purchase Bill Button */}
           <button
@@ -898,7 +888,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           onClick={toggleActiveOrdersPanel}
         />
         <StatCard
-          title="Suppliers"
+          title="Active Suppliers"
           value={formatNumber(metrics.activeSuppliersCount)}
           subtitle="Registered vendor directory"
           icon={Building2}

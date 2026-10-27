@@ -299,12 +299,15 @@ export const notificationService = {
         return true;
       }
 
-      // D. Supplier Updates
+      // D. Supplier Updates & Accountant Correction Requests
       if (
         item.type === 'supplier_update' ||
         item.type === 'supplier' ||
+        item.type === 'bill_correction' ||
+        item.type === 'supplier_bill_correction' ||
         (item.title || '').toLowerCase().includes('supplier') ||
-        (item.message || '').toLowerCase().includes('supplier')
+        (item.message || '').toLowerCase().includes('supplier') ||
+        (item.title || '').toLowerCase().includes('correction')
       ) {
         return true;
       }
@@ -316,6 +319,27 @@ export const notificationService = {
 
       // Deny all other unrelated notifications
       return false;
+    }
+
+    // 2B. ACCOUNTANT ROLE:
+    // Receives supplier bills awaiting review, payment approvals, overdue / due date alerts.
+    // Strictly blocks: stock alerts and customer support.
+    if (role === 'Accountant') {
+      if (isStockAlert(item.type) || isCustomerSupportNotification(item)) {
+        return false;
+      }
+      if (
+        item.type === 'supplier_bill' ||
+        item.type === 'bill_for_review' ||
+        item.type === 'bill_approved' ||
+        item.type === 'bill_due_date' ||
+        item.type === 'bill_overdue' ||
+        item.type === 'payment' ||
+        item.type === 'accounting'
+      ) {
+        return true;
+      }
+      return !item.userId || item.userId === userId;
     }
 
     // 3. Stock alerts (low_stock, limited_stock, out_of_stock, stock_damage):

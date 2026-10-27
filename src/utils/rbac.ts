@@ -299,6 +299,8 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
 
   // Inventory
   '/inventory': { module: 'inventory', action: 'view' },
+  '/inventory/receive': { module: 'inventory', action: 'create' },
+  '/inventory/order-receive': { module: 'inventory', action: 'create' },
   '/inventory/purchase-returns': { module: 'inventory', action: 'view' },
   '/inventory/customer-returns': { module: 'inventory', action: 'view' },
   '/inventory/returns': { module: 'inventory', action: 'view' },
@@ -322,12 +324,15 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
 
   // Payments & Banking
   '/payments': { module: 'payments', action: 'view' },
+  '/payments/bills': { module: 'payments', action: 'view' },
   '/cash-bank': { module: 'payments', action: 'view' },
   '/receivables': { module: 'payments', action: 'view' },
   '/payables': { module: 'payments', action: 'view' },
 
   // Accounting
   '/accounting': { module: 'accounting', action: 'view' },
+  '/accounting/bills': { module: 'accounting', action: 'view' },
+  '/accountant/dashboard': { module: 'dashboard', action: 'view' },
   '/accounting/ledger': { module: 'accounting', action: 'view' },
   '/accounting/trial-balance': { module: 'accounting', action: 'view' },
   '/accounting/profit-loss': { module: 'accounting', action: 'view' },
@@ -511,6 +516,21 @@ export function canAccessRoute(
     );
   }
 
+  // Order Receive section under Inventory:
+  // Authorized strictly for Warehouse Manager, Admin, and Owner
+  if (
+    cleanPath === '/inventory/receive' ||
+    cleanPath.startsWith('/inventory/receive/') ||
+    cleanPath === '/inventory/order-receive' ||
+    cleanPath.startsWith('/inventory/order-receive/')
+  ) {
+    return (
+      normalizedRole === 'Owner' ||
+      normalizedRole === 'Admin' ||
+      normalizedRole === 'Warehouse Manager'
+    );
+  }
+
   // Prevent Purchase Manager from accessing Warehouse Manager's Barcode Management page or purchase barcode routes
   if (normalizedRole === 'Purchase Manager') {
     if (cleanPath === '/barcode' || cleanPath.startsWith('/barcode/') || cleanPath.startsWith('/purchases/barcode')) {
@@ -520,8 +540,13 @@ export function canAccessRoute(
     // Purchase Manager Inventory Access Rules:
     // Authorized: /inventory (Stock Overview), /inventory/total-cost, and /inventory/valuation (Total Product Cost)
     // Hidden & Forbidden: /inventory/alerts, /inventory/reorder, /inventory/purchase-requests, /inventory/transfers,
-    //                     /inventory/adjustments, /inventory/batches, /inventory/serials, /inventory/warehouses
+    //                     /inventory/adjustments, /inventory/batches, /inventory/serials, /inventory/warehouses,
+    //                     /inventory/receive, /inventory/order-receive
     if (
+      cleanPath === '/inventory/receive' ||
+      cleanPath.startsWith('/inventory/receive/') ||
+      cleanPath === '/inventory/order-receive' ||
+      cleanPath.startsWith('/inventory/order-receive/') ||
       cleanPath === '/inventory/alerts' ||
       cleanPath.startsWith('/inventory/alerts/') ||
       cleanPath === '/inventory/reorder' ||
@@ -853,12 +878,16 @@ export function canRoleAccessSubItem(
         subItemPath === '/inventory/alerts' ||
         subItemPath === '/inventory/reorder' ||
         subItemPath === '/inventory/purchase-requests' ||
+        subItemPath === '/inventory/purchase-returns' ||
         subItemPath === '/inventory/customer-returns' ||
         subItemPath === '/inventory/returns' ||
+        subItemPath === '/inventory/receive' ||
+        subItemPath === '/inventory/order-receive' ||
         _subItemName === 'Low Stock & Reorder' ||
         _subItemName === 'Purchase Requests' ||
         _subItemName === 'Customer Returns' ||
-        _subItemName === 'Purchase Returns'
+        _subItemName === 'Purchase Returns' ||
+        _subItemName === 'Order Receive'
       ) {
         return false;
       }
@@ -874,6 +903,10 @@ export function canRoleAccessSubItem(
     // In Products: Warehouse Manager can manage product master and add products
     if (parentName === 'Products') {
       return subItemPath === '/products' || subItemPath === '/products/new';
+    }
+    // In Inventory: Warehouse Manager can access all inventory subitems including Order Receive
+    if (parentName === 'Inventory') {
+      return true;
     }
   }
 

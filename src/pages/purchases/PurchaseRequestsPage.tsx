@@ -25,7 +25,8 @@ import {
   Edit2,
   Trash2,
   X,
-  AlertCircle
+  AlertCircle,
+  FileText
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -311,23 +312,49 @@ export const PurchaseRequestsPage: React.FC = () => {
   };
 
   // Open Approval Modal
+  // Open Approval Modal
   const handleOpenApproveModal = (req: PurchaseRequest) => {
     setActiveRequest(req);
     const initialAdjust: Record<string, { qty: number; reason: string }> = {};
+    const initialRates: Record<string, number> = {};
     req.items.forEach(it => {
+      const prod = products.find(p => p.id === it.productId);
       initialAdjust[it.id] = {
         qty: it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty,
         reason: ''
       };
+      initialRates[it.id] = prod?.purchasePrice || prod?.costPrice || it.estimatedCost || 100;
     });
     setAdjustedQuantities(initialAdjust);
+    setPoItemRates(initialRates);
+    setPoSupplierId(suppliers[0]?.id || '');
+    setPoExpectedDate(req.requestedDeliveryDate || (() => {
+      const d = new Date();
+      d.setDate(d.getDate() + 5);
+      return d.toISOString().split('T')[0];
+    })());
+    setPoNotes(req.reason ? `Replenishment for ${req.warehouseName}: ${req.reason}` : `Generated from PR #${req.requestNumber}`);
     setActionType('APPROVE');
     setFeedbackMsg(null);
   };
 
-  // Submit Approval
+  // Submit Approval & Automatically Create Purchase Order
   const handleSubmitApprove = async () => {
-    if (!activeRequest) return;
+    if (!activeRequest || isSubmitting) return;
+
+    // Idempotency: Prevent duplicate POs if already generated
+    if (activeRequest.purchaseOrderId && activeRequest.purchaseOrderNumber) {
+      alert(`A Purchase Order (#${activeRequest.purchaseOrderNumber}) has already been generated for this request.`);
+      setActionType(null);
+      return;
+    }
+
+    const supplier = suppliers.find(s => s.id === poSupplierId) || suppliers[0];
+    if (!supplier) {
+      alert('Please select a supplier for this Purchase Order.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const adjustedItems = Object.entries(adjustedQuantities).map(([itemId, val]) => ({
@@ -336,11 +363,38 @@ export const PurchaseRequestsPage: React.FC = () => {
         adjustmentReason: val.reason.trim() || undefined
       }));
 
+      // 1. Approve purchase request
       await updatePurchaseRequestStatus({
         requestId: activeRequest.id,
         status: 'Approved',
-        comments: 'Purchase request approved for order creation.',
+        comments: `Purchase request approved by Purchase Manager. Linked PO created with supplier: ${supplier.company || supplier.name}.`,
         adjustedItems
+      });
+
+      // 2. Prepare order line items carrying over approved products, quantities, rates
+      const itemsPayload = activeRequest.items.map(it => {
+        const prod = products.find(p => p.id === it.productId);
+        const qtyVal = adjustedQuantities[it.id]?.qty;
+        const qtyToOrder = qtyVal !== undefined ? qtyVal : (it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty);
+        return {
+          productId: it.productId,
+          productName: it.productName,
+          qty: qtyToOrder,
+          rate: poItemRates[it.id] || prod?.purchasePrice || it.estimatedCost || 100,
+          taxRate: prod?.taxRate || 18,
+          unit: it.unit
+        };
+      });
+
+      // 3. Automatically create linked Purchase Order (transitions request to 'Ordered')
+      const { purchaseOrderNumber } = await createPurchaseOrderFromRequest({
+        requestId: activeRequest.id,
+        supplierId: supplier.id,
+        supplierName: supplier.company || supplier.name,
+        supplierGstin: supplier.gstin,
+        expectedDelivery: poExpectedDate,
+        notes: poNotes,
+        items: itemsPayload
       });
 
       // Refresh data
@@ -350,13 +404,17 @@ export const PurchaseRequestsPage: React.FC = () => {
         if (updated) setDirectFetchedRequest(updated);
       }
 
-      setFeedbackMsg({ type: 'success', text: `Purchase request #${activeRequest.requestNumber} approved successfully.` });
+      setFeedbackMsg({
+        type: 'success',
+        text: `Request #${activeRequest.requestNumber} approved! Purchase Order #${purchaseOrderNumber} created and linked successfully.`
+      });
+
       setTimeout(() => {
         setActionType(null);
         setIsSubmitting(false);
-      }, 1200);
+      }, 1500);
     } catch (err: any) {
-      alert(`Approval error: ${err.message}`);
+      alert(`Approval error: ${err.message || 'Failed to approve request'}`);
       setIsSubmitting(false);
     }
   };
@@ -829,24 +887,13 @@ export const PurchaseRequestsPage: React.FC = () => {
             </div>
 
             {/* Quick Action Matrix for Details Page */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Close Button */}
-              <button
-                type="button"
-                onClick={handleBackToList}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                title="Close details view and return to purchase requests list"
-              >
-                <X className="w-3.5 h-3.5 text-slate-500" />
-                <span>Close</span>
-              </button>
-
-              {/* Edit Request Button if allowed */}
+            <div className="flex items-center gap-2.5 flex-wrap lg:flex-nowrap lg:justify-end shrink-0">
+              {/* 1. Edit Request */}
               {canEditRequest && (
                 <button
                   type="button"
                   onClick={() => handleOpenEditRequestModal(selectedRequest)}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  className="h-9 px-3.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-2xs shrink-0"
                   title="Edit this request"
                 >
                   <Edit2 className="w-3.5 h-3.5 text-slate-500" />
@@ -854,73 +901,69 @@ export const PurchaseRequestsPage: React.FC = () => {
                 </button>
               )}
 
-              {/* Delete Request Button if allowed */}
+              {/* 2. Delete Request */}
               {canDeleteRequest && (
                 <button
                   type="button"
                   onClick={() => setDeleteConfirmRequest(selectedRequest)}
-                  className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  className="h-9 px-3.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-2xs shrink-0"
                   title="Delete this request"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                   <span>Delete</span>
                 </button>
               )}
-              {/* Purchase Manager: Pending Approval Actions */}
+
+              {/* 3. Reject & 4. Approve Request (Purchase Manager) */}
               {isPurchaseManager && (selectedRequest.status === 'Pending Approval' || selectedRequest.status === 'Pending Review' || selectedRequest.status === 'Under Review' || selectedRequest.status === 'Clarification Requested') && (
                 <>
                   <button
-                    onClick={() => {
-                      setActiveRequest(selectedRequest);
-                      setActionType('CLARIFY');
-                      setFeedbackMsg(null);
-                    }}
-                    className="px-3 py-2 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors cursor-pointer"
-                  >
-                    Request Clarification
-                  </button>
-
-                  <button
+                    type="button"
                     onClick={() => {
                       setActiveRequest(selectedRequest);
                       setActionType('REJECT');
                       setFeedbackMsg(null);
                     }}
-                    className="px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"
+                    className="h-9 px-3.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-2xs shrink-0"
+                    title="Reject this request"
                   >
-                    Reject
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Reject</span>
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => handleOpenApproveModal(selectedRequest)}
-                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+                    className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
+                    title="Approve this request"
                   >
-                    Approve Request
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Approve Request</span>
                   </button>
                 </>
               )}
 
-
-
               {/* Warehouse Manager: Reply to clarification */}
               {isWarehouseManager && selectedRequest.status === 'Clarification Requested' && (
                 <button
+                  type="button"
                   onClick={() => {
                     setActiveRequest(selectedRequest);
                     setActionType('RESPOND_CLARIFY');
                     setFeedbackMsg(null);
                   }}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="h-9 px-4 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
                 >
-                  Reply & Clarify Request
+                  <span>Reply & Clarify Request</span>
                 </button>
               )}
 
               {/* Purchase Manager: Create PO from approved */}
               {isPurchaseManager && selectedRequest.status === 'Approved' && !selectedRequest.purchaseOrderId && (
                 <button
+                  type="button"
                   onClick={() => handleOpenCreatePoModal(selectedRequest)}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="h-9 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
                 >
                   <Truck className="w-3.5 h-3.5" />
                   <span>Generate Purchase Order</span>
@@ -930,11 +973,25 @@ export const PurchaseRequestsPage: React.FC = () => {
               {/* Warehouse / Purchase Manager: Receive Goods (GRN) */}
               {(selectedRequest.status === 'Ordered' || selectedRequest.status === 'Partially Received') && (
                 <button
+                  type="button"
                   onClick={() => handleOpenReceiveGoodsModal(selectedRequest)}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="h-9 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
                 >
                   <Package className="w-3.5 h-3.5" />
                   <span>Confirm Inward Goods (GRN)</span>
+                </button>
+              )}
+
+              {/* Purchase Manager: Record Actual Supplier Bill */}
+              {isPurchaseManager && (selectedRequest.status === 'Ordered' || selectedRequest.status === 'Partially Received' || selectedRequest.status === 'Completed' || Boolean(selectedRequest.purchaseOrderId)) && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/purchases/new?poId=${selectedRequest.purchaseOrderId || ''}&requestId=${selectedRequest.id}`)}
+                  className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
+                  title="Record supplier bill and automatically transfer to Accountant"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Record Supplier Bill</span>
                 </button>
               )}
             </div>
@@ -1331,14 +1388,6 @@ export const PurchaseRequestsPage: React.FC = () => {
             <span>Active Orders</span>
           </button>
 
-          <button
-            onClick={() => navigate('/inventory/alerts')}
-            className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200/90 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-          >
-            <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span>Low Stock & Reorder</span>
-          </button>
-
           {canManageBarcodeOverride(profile?.role) && (
             <button
               onClick={() => navigate('/purchases/barcode-management')}
@@ -1574,14 +1623,14 @@ export const PurchaseRequestsPage: React.FC = () => {
     return (
       <>
         {/* ========================================================================= */}
-        {/* 1. APPROVAL MODAL (Optional quantity adjustment)                         */}
+        {/* 1. APPROVAL MODAL (Approve & Automatically Generate Purchase Order)       */}
         {/* ========================================================================= */}
         <Modal
           isOpen={actionType === 'APPROVE'}
           onClose={() => !isSubmitting && setActionType(null)}
-          title="Approve Purchase Request"
-          subtitle={`Authorize replenishment for request #${activeRequest?.requestNumber}`}
-          size="md"
+          title="Approve Request & Generate Purchase Order"
+          subtitle={`Authorize replenishment and automatically create vendor PO for request #${activeRequest?.requestNumber}`}
+          size="lg"
         >
           <div className="space-y-4 text-xs py-1">
             {feedbackMsg && (
@@ -1597,54 +1646,146 @@ export const PurchaseRequestsPage: React.FC = () => {
               </div>
             )}
 
-            <p className="text-slate-600 leading-relaxed">
-              You are approving this purchase request. You can adjust the approved quantity if needed and provide an adjustment reason.
-            </p>
-
-            {activeRequest?.items.map(it => (
-              <div key={it.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <div className="flex items-center justify-between font-bold text-slate-800">
-                  <span>{it.productName}</span>
-                  <span className="text-slate-500 font-normal">
-                    Requested: {it.requestedQty} {it.unit}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Approved Qty</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={adjustedQuantities[it.id]?.qty || it.requestedQty}
-                      onChange={e => {
-                        const val = Math.max(1, Number(e.target.value));
-                        setAdjustedQuantities(prev => ({
-                          ...prev,
-                          [it.id]: { ...prev[it.id], qty: val }
-                        }));
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Adjustment Reason (If changed)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Budget limitation"
-                      value={adjustedQuantities[it.id]?.reason || ''}
-                      onChange={e => {
-                        const text = e.target.value;
-                        setAdjustedQuantities(prev => ({
-                          ...prev,
-                          [it.id]: { ...prev[it.id], reason: text }
-                        }));
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                    />
-                  </div>
-                </div>
+            {/* Warehouse and Order Context */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl">
+              <div>
+                <span className="text-[10px] text-indigo-500 uppercase font-bold block">Destination Warehouse</span>
+                <span className="font-bold text-slate-900 text-xs">{activeRequest?.warehouseName}</span>
               </div>
-            ))}
+              <div>
+                <span className="text-[10px] text-indigo-500 uppercase font-bold block">Requester</span>
+                <span className="font-semibold text-slate-800 text-xs">{activeRequest?.requesterName}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-indigo-500 uppercase font-bold block">Priority</span>
+                <span className="font-bold text-slate-800 text-xs">{activeRequest?.priority}</span>
+              </div>
+            </div>
+
+            {/* Supplier & Delivery Date */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Vendor / Supplier <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={poSupplierId}
+                  onChange={e => setPoSupplierId(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {suppliers.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.company || s.name} ({s.name})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Expected Delivery Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  min="2000-01-01"
+                  max="2099-12-31"
+                  value={poExpectedDate}
+                  onChange={e => {
+                    let val = e.target.value;
+                    if (val) {
+                      const parts = val.split('-');
+                      if (parts[0] && parts[0].length > 4) parts[0] = parts[0].slice(0, 4);
+                      val = parts.join('-');
+                    }
+                    setPoExpectedDate(val);
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* Approved Products & Rates */}
+            <div>
+              <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px] block mb-2">
+                Approved Products, Quantities & Unit Rates
+              </span>
+              <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                {activeRequest?.items.map(it => (
+                  <div key={it.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between font-bold text-slate-800">
+                      <div>
+                        <span>{it.productName}</span>
+                        {it.sku && <span className="text-[10px] text-slate-400 font-mono block">SKU: {it.sku}</span>}
+                      </div>
+                      <span className="text-slate-500 font-normal text-[11px]">
+                        Requested: {it.requestedQty} {it.unit}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Approved Qty</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={adjustedQuantities[it.id]?.qty || it.requestedQty}
+                          onChange={e => {
+                            const val = Math.max(1, Number(e.target.value));
+                            setAdjustedQuantities(prev => ({
+                              ...prev,
+                              [it.id]: { ...prev[it.id], qty: val }
+                            }));
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Rate / Unit (₹)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={poItemRates[it.id] ?? 0}
+                          onChange={e => {
+                            const val = Math.max(0, Number(e.target.value));
+                            setPoItemRates(prev => ({ ...prev, [it.id]: val }));
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Adjustment Reason</label>
+                        <input
+                          type="text"
+                          placeholder="Optional reason"
+                          value={adjustedQuantities[it.id]?.reason || ''}
+                          onChange={e => {
+                            const text = e.target.value;
+                            setAdjustedQuantities(prev => ({
+                              ...prev,
+                              [it.id]: { ...prev[it.id], reason: text }
+                            }));
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Purchase Order Instructions / Notes</label>
+              <textarea
+                rows={2}
+                value={poNotes}
+                onChange={e => setPoNotes(e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800"
+                placeholder="Notes for vendor, delivery instructions..."
+              />
+            </div>
 
             <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
               <button
@@ -1659,8 +1800,8 @@ export const PurchaseRequestsPage: React.FC = () => {
                 onClick={handleSubmitApprove}
                 className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
-                {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                <span>Confirm Approval</span>
+                {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
+                <span>Approve & Generate Purchase Order</span>
               </button>
             </div>
           </div>

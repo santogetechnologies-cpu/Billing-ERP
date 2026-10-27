@@ -537,29 +537,21 @@ export const PurchaseOrdersPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5 flex-shrink-0 self-start sm:self-auto">
           <button
             onClick={handleManualRefresh}
             disabled={isRefreshing}
-            className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            className="h-9 px-3.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-2xs"
             title="Refresh order records"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
             <span>Refresh</span>
           </button>
 
-          <button
-            onClick={() => navigate('/purchases/requests')}
-            className="px-3.5 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-            <span>Pending Requests</span>
-          </button>
-
           {hasPermission(profile?.role, 'purchases', 'create') && (
             <button
               onClick={() => navigate('/purchases/new')}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
               <span>Record Purchase Bill</span>
@@ -617,7 +609,7 @@ export const PurchaseOrdersPage: React.FC = () => {
       </div>
 
       {/* Search & Filters Toolbar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3.5">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
         <div className="flex flex-wrap items-center gap-3">
           {/* Warehouse destination filter */}
           <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shrink-0">
@@ -664,37 +656,6 @@ export const PurchaseOrdersPage: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
             />
           </div>
-        </div>
-
-        {/* Tab Filter Pills */}
-        <div className="flex items-center p-1 bg-slate-100 rounded-xl overflow-x-auto">
-          {[
-            { id: 'Active', label: 'Active Orders', count: stats.activeOrdersCount, color: 'bg-blue-100 text-blue-700' },
-            { id: 'Items to Deliver', label: 'Items to Deliver', count: stats.itemsToDeliver, color: 'bg-indigo-100 text-indigo-700' },
-            { id: 'Overdue', label: 'Overdue Deliveries', count: stats.overdueCount, color: 'bg-rose-100 text-rose-700' },
-            { id: 'All', label: 'All Orders' },
-            { id: 'Ordered', label: 'Ordered' },
-            { id: 'In Transit', label: 'In Transit' },
-            { id: 'Partially Received', label: 'Partially Received' },
-            { id: 'Completed', label: 'Completed', count: stats.completedCount, color: 'bg-emerald-100 text-emerald-700' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => handleCardFilterClick(tab.id)}
-              className={`px-3 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-                tabFilter === tab.id
-                  ? 'bg-white text-blue-600 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label}
-              {tab.count !== undefined && tab.count > 0 && (
-                <span className={`ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${tab.color}`}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -846,6 +807,17 @@ export const PurchaseOrdersPage: React.FC = () => {
                           <Eye className="w-4 h-4" />
                         </button>
 
+                        {hasPermission(profile?.role, 'purchases', 'create') && order.status !== 'Cancelled' && (
+                          <button
+                            onClick={() => navigate(`/purchases/new?poId=${order.id}${order.linkedRequestId ? `&requestId=${order.linkedRequestId}` : ''}`)}
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Record Supplier Invoice against this Purchase Order"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>Bill</span>
+                          </button>
+                        )}
+
                         {order.pendingQty > 0 && order.status !== 'Completed' && order.status !== 'Cancelled' && (
                           <button
                             onClick={() => handleOpenReceiveModal(order)}
@@ -976,7 +948,7 @@ export const PurchaseOrdersPage: React.FC = () => {
                 {hasPermission(profile?.role, 'purchases', 'create') && (
                   <button
                     type="button"
-                    onClick={() => navigate('/purchases/new')}
+                    onClick={() => navigate(`/purchases/new?poId=${selectedOrder.id}${selectedOrder.linkedRequestId ? `&requestId=${selectedOrder.linkedRequestId}` : ''}`)}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />

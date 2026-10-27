@@ -422,3 +422,77 @@ if (typeof window !== 'undefined') {
   (window as any).clearTableSchemaCache = clearTableSchemaCache;
 }
 
+// ---------------------------------------------------------------------------
+// PURCHASES SCHEMA DETECTION & 400 PREVENTION
+// ---------------------------------------------------------------------------
+let cachedPurchaseColumns: Set<string> | null = null;
+let purchaseColumnsPromise: Promise<Set<string>> | null = null;
+
+const BASELINE_PURCHASE_COLUMNS = new Set([
+  'id',
+  'company_id',
+  'invoice_number',
+  'doc_type',
+  'date',
+  'due_date',
+  'supplier_id',
+  'supplier_name',
+  'supplier_gstin',
+  'subtotal',
+  'tax_total',
+  'freight_charges',
+  'other_charges',
+  'grand_total',
+  'paid_amount',
+  'payment_status',
+  'warehouse_id',
+  'notes',
+  'created_at',
+  'updated_at'
+]);
+
+export async function getAvailablePurchaseColumns(): Promise<Set<string>> {
+  if (cachedPurchaseColumns) return cachedPurchaseColumns;
+  if (purchaseColumnsPromise) return purchaseColumnsPromise;
+
+  purchaseColumnsPromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('purchases')
+        .select('*')
+        .limit(1);
+
+      if (!error && data && data.length > 0 && typeof data[0] === 'object') {
+        cachedPurchaseColumns = new Set(Object.keys(data[0]));
+        return cachedPurchaseColumns;
+      }
+    } catch (err) {
+      console.warn('Unable to probe purchases schema, falling back to baseline:', err);
+    }
+    cachedPurchaseColumns = new Set(BASELINE_PURCHASE_COLUMNS);
+    return cachedPurchaseColumns;
+  })();
+
+  try {
+    return await purchaseColumnsPromise;
+  } finally {
+    purchaseColumnsPromise = null;
+  }
+}
+
+export async function filterSupportedPurchasePayload(
+  rawPayload: Record<string, any>
+): Promise<Record<string, any>> {
+  const supportedCols = await getAvailablePurchaseColumns();
+  const safePayload: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(rawPayload)) {
+    if (supportedCols.has(key) && value !== undefined) {
+      safePayload[key] = value;
+    }
+  }
+
+  return safePayload;
+}
+
+

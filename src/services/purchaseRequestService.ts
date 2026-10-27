@@ -2,6 +2,7 @@ import { assertCallerPermission, getActiveUserRole, hasPermission } from '../uti
 import { supabase } from '../lib/supabase';
 import {
   PurchaseRequest,
+  PurchaseRequestItem,
   PurchaseRequestHistory,
   PurchaseRequestStatus,
   PurchaseRequestPriority,
@@ -261,11 +262,149 @@ export const purchaseRequestService = {
   },
 
   /**
-   * Retrieves single purchase request by ID
+  /**
+   * Retrieves single purchase request by ID, PO ID, PO Number, or Request Number,
+   * with fallbacks to local storage cache, public.purchases, and purchase_orders.
    */
   async getPurchaseRequestById(id: string, companyId?: string): Promise<PurchaseRequest | null> {
-    const list = await this.getPurchaseRequests(undefined, companyId);
-    return list.find(r => r.id === id) || null;
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const list = await this.getPurchaseRequests(undefined, finalCompanyId);
+    let match = list.find(r =>
+      r.id === id ||
+      r.purchaseOrderId === id ||
+      r.purchaseOrderNumber === id ||
+      r.requestNumber === id ||
+      (r.requestNumber && id && id.toLowerCase().includes(r.requestNumber.toLowerCase()))
+    );
+    if (match) return match;
+
+    // Check localStorage fallback for purchase_requests
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const parsed: PurchaseRequest[] = JSON.parse(raw);
+          match = parsed.find(r =>
+            r.id === id ||
+            r.purchaseOrderId === id ||
+            r.purchaseOrderNumber === id ||
+            r.requestNumber === id ||
+            (r.requestNumber && id && id.toLowerCase().includes(r.requestNumber.toLowerCase()))
+          );
+          if (match) return match;
+        }
+      } catch {}
+    }
+
+    // Check if ID is a PO in public.purchases table
+    try {
+      const { data: poData } = await supabase
+        .from('purchases')
+        .select('*')
+        .or(`id.eq.${id},invoice_number.eq.${id}`)
+        .maybeSingle();
+
+      if (poData) {
+        // If notes link to a PR, check if that PR exists
+        const prNumberMatch = (poData.notes || '').match(/PR-\d+-\d+/i);
+        if (prNumberMatch) {
+          const matchedByNote = list.find(r => r.requestNumber === prNumberMatch[0]);
+          if (matchedByNote) return matchedByNote;
+        }
+
+        // Construct synthetic PurchaseRequest representing this purchase order
+        const syntheticItems: PurchaseRequestItem[] = [];
+        const rawItems = Array.isArray(poData.items) ? poData.items : [];
+        rawItems.forEach((it: any, idx: number) => {
+          const qty = Number(it.qty || it.quantity || it.ordered_qty || it.requestedQty || 1);
+          syntheticItems.push({
+            id: it.id || `po-item-${idx}`,
+            requestId: poData.id,
+            productId: it.productId || it.product_id || `prod-${idx}`,
+            productName: it.productName || it.product_name || 'Product',
+            sku: it.sku || 'SKU-N/A',
+            currentStock: 0,
+            requestedQty: qty,
+            approvedQty: qty,
+            receivedQty: Number(it.receivedQty || it.received_qty || 0),
+            unit: it.unit || 'Piece',
+            estimatedCost: Number(it.rate || it.cost || 0),
+            createdAt: poData.created_at
+          });
+        });
+
+        return {
+          id: poData.id,
+          companyId: poData.company_id || finalCompanyId,
+          requestNumber: prNumberMatch ? prNumberMatch[0] : (poData.invoice_number || `PO-${poData.id.slice(0, 8)}`),
+          warehouseId: poData.warehouse_id || '00000000-0000-0000-0000-000000000002',
+          warehouseName: 'Main Central Warehouse',
+          requesterId: '00000000-0000-0000-0000-000000000000',
+          requesterName: 'Warehouse Staff',
+          status: 'Ordered',
+          priority: 'Normal',
+          purchaseOrderId: poData.id,
+          purchaseOrderNumber: poData.invoice_number,
+          items: syntheticItems,
+          createdAt: poData.created_at || new Date().toISOString(),
+          updatedAt: poData.updated_at || new Date().toISOString()
+        };
+      }
+    } catch {}
+
+    // Check if ID is in purchase_orders table
+    if (!isTableMarkedMissing('purchase_orders')) {
+      try {
+        const { data: poTableData, error: poErr } = await supabase
+          .from('purchase_orders')
+          .select('*, purchase_order_items(*)')
+          .or(`id.eq.${id},order_number.eq.${id}`)
+          .maybeSingle();
+
+        if (poErr && isTableNotFoundError(poErr)) {
+          markTableMissing('purchase_orders');
+        } else if (poTableData) {
+          const syntheticItems: PurchaseRequestItem[] = (poTableData.purchase_order_items || []).map((it: any, idx: number) => ({
+            id: it.id || `po-item-${idx}`,
+            requestId: poTableData.id,
+            productId: it.product_id,
+            productName: it.product_name || 'Product',
+            sku: it.sku || 'SKU-N/A',
+            currentStock: 0,
+            requestedQty: Number(it.qty || 1),
+            approvedQty: Number(it.qty || 1),
+            receivedQty: Number(it.received_qty || 0),
+            unit: it.unit || 'Piece',
+            estimatedCost: Number(it.rate || 0),
+            createdAt: poTableData.created_at
+          }));
+
+          return {
+            id: poTableData.id,
+            companyId: poTableData.company_id || finalCompanyId,
+            requestNumber: poTableData.order_number || `PO-${poTableData.id.slice(0, 8)}`,
+            warehouseId: poTableData.warehouse_id || '00000000-0000-0000-0000-000000000002',
+            warehouseName: 'Main Central Warehouse',
+            requesterId: '00000000-0000-0000-0000-000000000000',
+            requesterName: 'Warehouse Staff',
+            status: 'Ordered',
+            priority: 'Normal',
+            purchaseOrderId: poTableData.id,
+            purchaseOrderNumber: poTableData.order_number,
+            items: syntheticItems,
+            createdAt: poTableData.created_at || new Date().toISOString(),
+            updatedAt: poTableData.updated_at || new Date().toISOString()
+          };
+        }
+      } catch (err: any) {
+        if (isTableNotFoundError(err)) {
+          markTableMissing('purchase_orders');
+        }
+      }
+    }
+
+    return null;
   },
 
   /**
@@ -765,8 +904,13 @@ export const purchaseRequestService = {
       throw new Error(`Purchase request must be in "Approved" status before creating a Purchase Order (Current: ${existing.status}).`);
     }
 
-    if (existing.purchaseOrderId) {
-      throw new Error(`A Purchase Order (${existing.purchaseOrderNumber}) has already been generated for request #${existing.requestNumber}.`);
+    // Idempotency: Prevent duplicate POs if already generated
+    if (existing.purchaseOrderId && existing.purchaseOrderNumber) {
+      return {
+        purchaseOrderId: existing.purchaseOrderId,
+        purchaseOrderNumber: existing.purchaseOrderNumber,
+        request: existing
+      };
     }
 
     const orderNumber = `PO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -966,9 +1110,12 @@ export const purchaseRequestService = {
         itemId: string;
         productId: string;
         receivedQty: number;
+        damagedQty?: number;
+        acceptedQty?: number;
       }>;
       receivingWarehouseId: string;
       invoiceNumber?: string;
+      notes?: string;
     },
     companyId?: string,
     user?: { id: string; name: string; role?: string }
@@ -981,8 +1128,8 @@ export const purchaseRequestService = {
       throw new Error(`Purchase request #${params.requestId} not found.`);
     }
 
-    if (existing.status !== 'Ordered' && existing.status !== 'Partially Received') {
-      throw new Error(`Goods receipt can only be recorded for requests in "Ordered" or "Partially Received" status (Current: ${existing.status}).`);
+    if (existing.status === 'Rejected' || existing.status === 'Cancelled') {
+      throw new Error(`Goods receipt cannot be recorded for ${existing.status.toLowerCase()} requests.`);
     }
 
     const nowIso = new Date().toISOString();
@@ -991,13 +1138,29 @@ export const purchaseRequestService = {
     let anyReceived = false;
 
     // 1. Calculate updated item received quantities
-    const updatedItems = existing.items.map(it => {
+    let sourceItems = existing.items && existing.items.length > 0 ? [...existing.items] : [];
+    if (sourceItems.length === 0 && params.receivedItems.length > 0) {
+      sourceItems = params.receivedItems.map((r, idx) => ({
+        id: r.itemId || `item-${idx}`,
+        requestId: existing.id,
+        productId: r.productId,
+        productName: 'Product',
+        currentStock: 0,
+        requestedQty: Number(r.receivedQty) || 1,
+        approvedQty: Number(r.receivedQty) || 1,
+        receivedQty: 0,
+        unit: 'Piece',
+        createdAt: nowIso
+      }));
+    }
+
+    const updatedItems = sourceItems.map(it => {
       const match = params.receivedItems.find(r => r.itemId === it.id || r.productId === it.productId);
       const incomingQty = match ? Number(match.receivedQty) : 0;
       if (incomingQty > 0) anyReceived = true;
 
       const newReceivedTotal = Number(it.receivedQty || 0) + incomingQty;
-      const targetQty = it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty;
+      const targetQty = it.approvedQty !== null && it.approvedQty !== undefined && it.approvedQty > 0 ? it.approvedQty : (it.requestedQty || incomingQty);
 
       if (newReceivedTotal < targetQty) {
         allFulfilled = false;
@@ -1009,6 +1172,26 @@ export const purchaseRequestService = {
       };
     });
 
+    // Also include any incoming items that weren't in sourceItems
+    for (const recv of params.receivedItems) {
+      if (!sourceItems.some(it => it.id === recv.itemId || it.productId === recv.productId)) {
+        const incomingQty = Number(recv.receivedQty) || 0;
+        if (incomingQty > 0) anyReceived = true;
+        updatedItems.push({
+          id: recv.itemId || `item-${updatedItems.length}`,
+          requestId: existing.id,
+          productId: recv.productId,
+          productName: 'Product',
+          currentStock: 0,
+          requestedQty: incomingQty,
+          approvedQty: incomingQty,
+          receivedQty: incomingQty,
+          unit: 'Piece',
+          createdAt: nowIso
+        });
+      }
+    }
+
     if (!anyReceived) {
       throw new Error('Please enter at least one positive received quantity to record inward goods.');
     }
@@ -1016,14 +1199,19 @@ export const purchaseRequestService = {
     const nextStatus: PurchaseRequestStatus = allFulfilled ? 'Completed' : 'Partially Received';
 
     // 2. Safely increment stock in products and log stock_transactions (prevents double increments)
+    // ONLY accepted quantity is added to stock; damaged or rejected quantities are excluded from stock
     for (const recv of params.receivedItems) {
-      if (recv.receivedQty > 0) {
+      const arrivedQty = Number(recv.receivedQty) || 0;
+      const damagedQty = Math.max(0, Number(recv.damagedQty) || 0);
+      const acceptedQty = recv.acceptedQty !== undefined ? Number(recv.acceptedQty) : Math.max(0, arrivedQty - damagedQty);
+
+      if (acceptedQty > 0) {
         const item = existing.items.find(i => i.id === recv.itemId || i.productId === recv.productId);
         const prodName = item?.productName || 'Received Product';
         const unit = item?.unit || 'Piece';
 
         try {
-          // Increment stock in public.products
+          // Increment stock in public.products only for accepted quantity
           const { data: prodData } = await supabase
             .from('products')
             .select('current_stock')
@@ -1033,7 +1221,7 @@ export const purchaseRequestService = {
           if (prodData) {
             await supabase
               .from('products')
-              .update({ current_stock: Number(prodData.current_stock || 0) + recv.receivedQty })
+              .update({ current_stock: Number(prodData.current_stock || 0) + acceptedQty })
               .eq('id', recv.productId);
           }
 
@@ -1045,9 +1233,9 @@ export const purchaseRequestService = {
             type: 'Purchase',
             product_id: recv.productId,
             product_name: prodName,
-            qty: recv.receivedQty,
+            qty: acceptedQty,
             unit,
-            reference_type: 'Purchase Request Receipt',
+            reference_type: 'Goods Receipt Note (GRN)',
             reference_id: existing.id,
             reference_number: existing.requestNumber
           });
@@ -1059,10 +1247,16 @@ export const purchaseRequestService = {
 
     // 3. Prepare updated request object
     const receiptSummary = params.receivedItems
-      .filter(r => r.receivedQty > 0)
+      .filter(r => (Number(r.receivedQty) || 0) > 0)
       .map(r => {
         const it = existing.items.find(i => i.id === r.itemId || i.productId === r.productId);
-        return `${it?.productName || 'Product'}: +${r.receivedQty} ${it?.unit || 'Pcs'}`;
+        const arrived = Number(r.receivedQty) || 0;
+        const dmg = Math.max(0, Number(r.damagedQty) || 0);
+        const accepted = r.acceptedQty !== undefined ? Number(r.acceptedQty) : Math.max(0, arrived - dmg);
+        if (dmg > 0) {
+          return `${it?.productName || 'Product'}: +${accepted} accepted (${dmg} damaged/rejected)`;
+        }
+        return `${it?.productName || 'Product'}: +${accepted} ${it?.unit || 'Pcs'}`;
       })
       .join(', ');
 
@@ -1074,7 +1268,9 @@ export const purchaseRequestService = {
       userId: user?.id || '00000000-0000-0000-0000-000000000000',
       userName: user?.name || 'Warehouse Staff',
       role: user?.role || 'Warehouse Manager',
-      comments: `Goods receipt recorded (${receiptSummary}). Status: ${nextStatus}.`,
+      comments: params.notes
+        ? `Goods receipt recorded (${receiptSummary}). Notes: ${params.notes}. Status: ${nextStatus}.`
+        : `Goods receipt recorded (${receiptSummary}). Status: ${nextStatus}.`,
       createdAt: nowIso
     };
 
@@ -1120,12 +1316,42 @@ export const purchaseRequestService = {
               role: user?.role || 'Warehouse Manager',
               comments: newHistoryEntry.comments
             });
+
+          // Sync purchase_orders table status if order exists
+          if (!isTableMarkedMissing('purchase_orders') && (existing.purchaseOrderId || existing.purchaseOrderNumber)) {
+            try {
+              const poStatus = nextStatus === 'Completed' ? 'Received' : 'Partially Received';
+              if (existing.purchaseOrderId) {
+                await supabase.from('purchase_orders').update({ status: poStatus }).eq('id', existing.purchaseOrderId);
+              } else if (existing.purchaseOrderNumber) {
+                await supabase.from('purchase_orders').update({ status: poStatus }).eq('order_number', existing.purchaseOrderNumber);
+              }
+            } catch (poErr) {
+              if (isTableNotFoundError(poErr)) {
+                markTableMissing('purchase_orders');
+              }
+            }
+          }
         }
       } catch (e: any) {
         if (isTableNotFoundError(e)) {
           markTableMissing('purchase_requests');
         }
       }
+    }
+
+    // Also sync status and notes to public.purchases table if a PO ID exists
+    const poId = existing.purchaseOrderId || existing.id;
+    if (poId) {
+      try {
+        await supabase
+          .from('purchases')
+          .update({
+            updated_at: nowIso,
+            notes: existing.notes ? `${existing.notes} | GRN: ${receiptSummary}` : `GRN: ${receiptSummary}`
+          })
+          .eq('id', poId);
+      } catch {}
     }
 
     // 5. Update local storage cache
@@ -1135,9 +1361,15 @@ export const purchaseRequestService = {
         const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
         if (raw) {
           const list: PurchaseRequest[] = JSON.parse(raw);
-          const index = list.findIndex(r => r.id === params.requestId);
-          if (index !== -1) list[index] = updatedRequest;
+          const index = list.findIndex(r => r.id === params.requestId || r.purchaseOrderId === params.requestId || r.id === existing.id);
+          if (index !== -1) {
+            list[index] = updatedRequest;
+          } else {
+            list.unshift(updatedRequest);
+          }
           storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(list));
+        } else {
+          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify([updatedRequest]));
         }
       } catch {}
     }

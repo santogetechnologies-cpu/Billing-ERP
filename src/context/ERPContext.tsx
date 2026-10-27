@@ -259,9 +259,12 @@ export interface ERPContextType {
       itemId: string;
       productId: string;
       receivedQty: number;
+      damagedQty?: number;
+      acceptedQty?: number;
     }>;
     receivingWarehouseId: string;
     invoiceNumber?: string;
+    notes?: string;
   }) => Promise<PurchaseRequest>;
 
   // Customer Returns Workflow
@@ -2048,7 +2051,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       activeCompanyId,
       user ? { id: user.id, name: profile?.full_name || user.email || 'Warehouse Staff', role: profile?.role } : undefined
     );
-    setPurchaseRequests(prev => prev.map(r => r.id === res.id ? res : r));
+    setPurchaseRequests(prev => {
+      const exists = prev.some(r => r.id === res.id || (res.purchaseOrderId && r.purchaseOrderId === res.purchaseOrderId));
+      if (exists) {
+        return prev.map(r => (r.id === res.id || (res.purchaseOrderId && r.purchaseOrderId === res.purchaseOrderId)) ? res : r);
+      }
+      return [res, ...prev];
+    });
     await loadAllData(activeCompanyId);
     return res;
   }, [activeCompanyId, user, profile?.full_name, profile?.role, loadAllData]);
@@ -2092,6 +2101,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     customerReturns,
     refreshCustomerReturns,
     addCustomerReturn,
+    updateCustomerReturn,
     approveCustomerReturn,
     rejectCustomerReturn,
     restockCustomerReturn,

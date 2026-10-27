@@ -45,11 +45,11 @@ async function runTests() {
     );
   }
 
-  // Test 2: Details view contains Edit, Delete, and Close buttons
+  // Test 2: Details view contains Edit, Delete, Reject, and Approve Request (Close and Request Clarification removed)
   {
     assert(
-      pageContent.includes('<span>Close</span>'),
-      'Test 2.1: Close button is rendered in Details view'
+      !pageContent.includes('title="Close details view'),
+      'Test 2.1: Redundant Close button is cleanly removed from Details header'
     );
     assert(
       pageContent.includes('<span>Edit</span>'),
@@ -60,8 +60,12 @@ async function runTests() {
       'Test 2.3: Delete button is placed inside Details view'
     );
     assert(
+      pageContent.includes('<span>Reject</span>') && pageContent.includes('<span>Approve Request</span>'),
+      'Test 2.4: Reject and Approve Request buttons are placed inside Details view'
+    );
+    assert(
       pageContent.includes('canEditRequest') && pageContent.includes('canDeleteRequest'),
-      'Test 2.4: Edit and Delete buttons are guarded by RBAC permissions and status checks'
+      'Test 2.5: Edit and Delete buttons are guarded by RBAC permissions and status checks'
     );
   }
 

@@ -248,6 +248,11 @@ export type PurchaseDocType =
   | 'purchase_receipt'
   | 'purchase_return';
 
+export type BillVerificationStatus =
+  | 'Pending Review'
+  | 'Approved for Payment'
+  | 'Correction Requested';
+
 export interface PurchaseInvoice {
   id: string;
   invoiceNumber: string;
@@ -280,6 +285,20 @@ export interface PurchaseInvoice {
   createdAt: string;
   originalPurchaseId?: string;
   referenceNumber?: string;
+  // Accountant workflow & PR/PO links
+  supplierInvoiceNumber?: string;
+  purchaseOrderId?: string;
+  purchaseOrderNumber?: string;
+  purchaseRequestId?: string;
+  purchaseRequestNumber?: string;
+  verificationStatus?: BillVerificationStatus;
+  verifiedBy?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
+  correctionNotes?: string;
+  correctionRequestedAt?: string;
+  hasDiscrepancy?: boolean;
+  discrepancyNotes?: string;
 }
 
 export type ExpenseCategory =

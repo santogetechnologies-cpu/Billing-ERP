@@ -31,7 +31,8 @@ import {
   ClipboardList,
   Activity,
   Truck,
-  DollarSign
+  DollarSign,
+  PackageCheck
 } from 'lucide-react';
 
 import { useERP } from '../../context/ERPContext';
@@ -157,6 +158,9 @@ export function isNavItemActive(
   // Guarantees Stock Overview (/inventory), Low Stock & Reorder (/inventory/alerts),
   // Purchase Requests, and other exact submenus highlight ONLY on their own route.
   if (item.end) {
+    if (target === '/inventory/receive' || target === '/inventory/order-receive') {
+      return current === '/inventory/receive' || current === '/inventory/order-receive';
+    }
     if (target === '/inventory/alerts') {
       return current === '/inventory/alerts' || current === '/inventory/reorder';
     }
@@ -230,7 +234,9 @@ export function isNavItemActive(
       current.startsWith('/inventory/purchase-requests') ||
       current.startsWith('/inventory/purchase-returns') ||
       current.startsWith('/inventory/customer-returns') ||
-      current.startsWith('/inventory/returns')
+      current.startsWith('/inventory/returns') ||
+      current.startsWith('/inventory/receive') ||
+      current.startsWith('/inventory/order-receive')
     ) {
       return false;
     }
@@ -360,6 +366,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { name: 'Stock Overview', path: '/inventory', end: true },
             { name: 'Total Product Cost', path: '/inventory/total-cost', icon: DollarSign, end: true }
           ]
+        : profile?.role === 'Warehouse Manager'
+        ? [
+            { name: 'Stock Overview', path: '/inventory', end: true },
+            { name: 'Order Receive', path: '/inventory/receive', icon: PackageCheck, end: true },
+            { name: 'Low Stock & Reorder', path: '/inventory/alerts', icon: AlertTriangle, end: true },
+            { name: 'Purchase Requests', path: '/inventory/purchase-requests', icon: ClipboardList, end: true },
+            { name: 'Batch Tracking', path: '/inventory/batches', end: true },
+            { name: 'Stock Valuation', path: '/inventory/valuation', end: true }
+          ]
         : [
             { name: 'Stock Overview', path: '/inventory', end: true },
             { name: 'Low Stock & Reorder', path: '/inventory/alerts', icon: AlertTriangle, end: true },
@@ -382,6 +397,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       path: '/payments',
       icon: CreditCard,
       children: [
+        { name: 'Supplier Bills & Payments', path: '/payments/bills', end: true },
         { name: 'Payment Center', path: '/payments', end: true },
         { name: 'Cash & Bank A/C', path: '/cash-bank', end: true }
       ]
@@ -391,6 +407,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       path: '/accounting',
       icon: BookOpen,
       children: [
+        { name: 'Supplier Bills & Payments', path: '/accounting/bills', end: true },
         { name: 'Chart of Accounts', path: '/accounting', end: true },
         { name: 'General Ledger', path: '/accounting/ledger', end: true },
         { name: 'Trial Balance', path: '/accounting/trial-balance', end: true },

@@ -4,6 +4,7 @@ import {
   CreateCustomerReturnInput,
   UpdateCustomerReturnInput,
   CustomerReturnCondition,
+  CustomerReturnStatus,
   Product
 } from '../types';
 import { getAppStorage } from '../utils/storageUtils';
@@ -177,8 +178,7 @@ export const customerReturnService = {
                 approved_by_name: r.approvedByName
               })
               .eq('id', r.id)
-              .then(() => {})
-              .catch(() => {});
+              .then(() => {}, () => {});
           }
         }
       }
