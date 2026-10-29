@@ -5,7 +5,14 @@ import { ERPProvider } from './context/ERPContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { InactivityWarningModal } from './components/auth/InactivityWarningModal';
-import { canManageBarcodeOverride, canManageCompanySettings, canAccessUserActivity } from './utils/rbac';
+import {
+  canManageBarcodeOverride,
+  canManageCompanySettings,
+  canAccessUserActivity,
+  canManageProducts,
+  canManageInitialStock,
+  canUpdateStock
+} from './utils/rbac';
 
 // Auth Pages
 import { LoginPage } from './pages/auth/LoginPage';
@@ -35,6 +42,8 @@ import { BarcodeOverridePage } from './pages/purchases/BarcodeOverridePage';
 // Products
 import { ProductListPage } from './pages/products/ProductListPage';
 import { NewProductPage } from './pages/products/NewProductPage';
+import { InitialStockPage } from './pages/products/InitialStockPage';
+import { UpdateStockPage } from './pages/products/UpdateStockPage';
 import { UnitsPage } from './pages/products/UnitsPage';
 import { PricingRulesPage } from './pages/products/PricingRulesPage';
 
@@ -284,31 +293,43 @@ export function App() {
               <Route
                 path="products"
                 element={
-                  <ProtectedRoute requiredModule="products">
+                  <ProtectedRoute requiredModule="products" customValidator={canManageProducts}>
                     <ProductListPage />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="products/new"
+                element={<Navigate to="/products/initial-stock" replace />}
+              />
+              <Route
+                path="products/edit/:id"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="create">
+                  <ProtectedRoute requiredModule="products" requiredAction="edit" customValidator={canManageProducts}>
                     <NewProductPage />
                   </ProtectedRoute>
                 }
               />
               <Route
-                path="products/edit/:id"
+                path="products/initial-stock"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="edit">
-                    <NewProductPage />
+                  <ProtectedRoute requiredModule="products" requiredAction="create" customValidator={canManageInitialStock}>
+                    <InitialStockPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="products/update-stock"
+                element={
+                  <ProtectedRoute requiredModule="products" requiredAction="edit" customValidator={canUpdateStock}>
+                    <UpdateStockPage />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="units"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="manage">
+                  <ProtectedRoute requiredModule="products" requiredAction="manage" customValidator={canManageProducts}>
                     <UnitsPage />
                   </ProtectedRoute>
                 }
@@ -316,7 +337,7 @@ export function App() {
               <Route
                 path="pricing"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="manage">
+                  <ProtectedRoute requiredModule="products" requiredAction="manage" customValidator={canManageProducts}>
                     <PricingRulesPage />
                   </ProtectedRoute>
                 }

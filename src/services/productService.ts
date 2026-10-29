@@ -142,6 +142,10 @@ export const productService = {
   },
 
   // Create new product atomically
+  async addProduct(p: Omit<Product, 'id' | 'createdAt'>, companyId?: string): Promise<Product> {
+    return this.createProduct(p, companyId);
+  },
+
   async createProduct(p: Omit<Product, 'id' | 'createdAt'>, companyId?: string): Promise<Product> {
     // 0. Strict RBAC Enforcement: Only authorized roles can create products or allocate stock
     await assertCallerPermission('products', 'create');
@@ -344,13 +348,13 @@ export const productService = {
         });
       }
 
-      // 4. Unit conversion registration
+      // 4. Unit conversion registration (1 Primary Unit = factor × Secondary Unit)
       if (p.secondaryUnit && p.conversionFactor && p.conversionFactor > 0) {
         await productService.createConversion({
-          fromUnit: p.secondaryUnit,
-          toUnit: p.primaryUnit || 'Piece',
+          fromUnit: p.primaryUnit || 'Piece',
+          toUnit: p.secondaryUnit,
           factor: Number(p.conversionFactor),
-          notes: `1 ${p.secondaryUnit} = ${p.conversionFactor} ${p.primaryUnit || 'Piece'}`
+          notes: `1 ${p.primaryUnit || 'Piece'} = ${p.conversionFactor} ${p.secondaryUnit}`
         }, finalCompanyId);
       }
     } catch (secondaryError: any) {
@@ -697,6 +701,36 @@ export const productService = {
 
     if (error) {
       throw new Error(`Database error deleting product: ${error.message}`);
+    }
+  },
+
+  // Transactional rollback helper: safely remove all related records created for a product during an aborted intake
+  async rollbackProductCreation(id: string, companyId?: string): Promise<void> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    try {
+      await supabase.from('stock_transactions').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('stock_balances').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('product_batches').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('product_barcodes').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('products').delete().eq('id', id).eq('company_id', finalCompanyId);
+    } catch (err) {
+      console.warn(`Rollback error for product ${id}:`, err);
     }
   },
 
@@ -1298,8 +1332,8 @@ export const productService = {
         product_name: batch.productName,
         warehouse_id: batch.warehouseId || null,
         batch_number: batch.batchNumber,
-        mfg_date: batch.mfgDate,
-        expiry_date: batch.expiryDate,
+        mfg_date: batch.mfgDate && batch.mfgDate.trim() ? batch.mfgDate : null,
+        expiry_date: batch.expiryDate && batch.expiryDate.trim() ? batch.expiryDate : null,
         purchase_date: batch.purchaseDate,
         cost: batch.cost,
         qty: batch.qty,
@@ -1324,6 +1358,27 @@ export const productService = {
       status: data.status,
       warehouseId: data.warehouse_id || undefined
     };
+  },
+
+  async updateBatch(batchId: string, updates: Partial<Batch>, companyId?: string): Promise<void> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const dbPayload: any = {};
+    if (updates.batchNumber !== undefined) dbPayload.batch_number = updates.batchNumber;
+    if (updates.expiryDate !== undefined) dbPayload.expiry_date = updates.expiryDate;
+    if (updates.mfgDate !== undefined) dbPayload.mfg_date = updates.mfgDate;
+    if (updates.qty !== undefined) dbPayload.qty = updates.qty;
+    if (updates.status !== undefined) dbPayload.status = updates.status;
+    if (updates.warehouseId !== undefined) dbPayload.warehouse_id = updates.warehouseId;
+
+    const { error } = await supabase
+      .from('product_batches')
+      .update(dbPayload)
+      .eq('id', batchId)
+      .eq('company_id', finalCompanyId);
+
+    if (error) {
+      console.warn('Error updating batch in Supabase:', error.message);
+    }
   },
 
   // Serials
@@ -1388,5 +1443,25 @@ export const productService = {
       warrantyMonths: data.warranty_months,
       warrantyStatus: data.warranty_status
     };
+  },
+
+  async updateSerialNumber(serialId: string, updates: Partial<SerialNumber>, companyId?: string): Promise<void> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const dbPayload: any = {};
+    if (updates.serialNumber !== undefined) dbPayload.serial_number = updates.serialNumber;
+    if (updates.warrantyStatus !== undefined) dbPayload.warranty_status = updates.warrantyStatus;
+    if (updates.customerId !== undefined) dbPayload.customer_id = updates.customerId;
+    if (updates.customerName !== undefined) dbPayload.customer_name = updates.customerName;
+    if (updates.invoiceNumber !== undefined) dbPayload.invoice_number = updates.invoiceNumber;
+
+    const { error } = await supabase
+      .from('product_serial_numbers')
+      .update(dbPayload)
+      .eq('id', serialId)
+      .eq('company_id', finalCompanyId);
+
+    if (error) {
+      console.warn('Error updating serial number in Supabase:', error.message);
+    }
   }
 };

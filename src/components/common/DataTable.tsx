@@ -25,6 +25,10 @@ export interface Column<T> {
   headerClassName?: string;
 }
 
+export interface DataTableRef {
+  exportCSV: () => void;
+}
+
 interface DataTableProps<T> {
   columns: Column<T>[];
   data: T[];
@@ -53,6 +57,8 @@ interface DataTableProps<T> {
   infiniteScroll?: boolean;
   batchSize?: number;
   initialSearchTerm?: string;
+  tableRef?: React.MutableRefObject<DataTableRef | null | undefined>;
+  hideExport?: boolean;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -78,7 +84,9 @@ export function DataTable<T extends Record<string, any>>({
   enablePagination = true,
   infiniteScroll = false,
   batchSize = 50,
-  initialSearchTerm = ''
+  initialSearchTerm = '',
+  tableRef,
+  hideExport = false
 }: DataTableProps<T>) {
   const effectiveActionsWidth = actionsWidth || '116px';
   const effectiveDefaultCol = defaultSortKey || columns.find(c => c.key === 'name' || c.key === 'productName')?.key || columns[0]?.key;
@@ -228,6 +236,12 @@ export function DataTable<T extends Record<string, any>>({
     setShowExportMenu(false);
   };
 
+  useEffect(() => {
+    if (tableRef) {
+      tableRef.current = { exportCSV };
+    }
+  });
+
   return (
     <div className="glass-panel overflow-hidden hover:border-slate-300/80">
       {/* Table Header & Controls Bar */}
@@ -326,45 +340,47 @@ export function DataTable<T extends Record<string, any>>({
             </div>
 
             {/* Export Menu */}
-            <div className="relative">
-              <button
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-500" />
-                <span>Export</span>
-                <ChevronDown className="w-3 h-3 text-slate-400" />
-              </button>
+            {!hideExport && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Export</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
 
-              {showExportMenu && (
-                <div className="absolute right-0 mt-1 w-40 glass-dropdown rounded-lg py-1 text-xs z-30">
-                  <button
-                    onClick={exportCSV}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                    <span>Export CSV</span>
-                  </button>
-                  <button
-                    onClick={exportCSV}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    <FileText className="w-4 h-4 text-blue-600" />
-                    <span>Export Excel</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      window.print();
-                      setShowExportMenu(false);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
-                  >
-                    <Printer className="w-4 h-4 text-slate-600" />
-                    <span>Print Table</span>
-                  </button>
-                </div>
-              )}
-            </div>
+                {showExportMenu && (
+                  <div className="absolute right-0 mt-1 w-40 glass-dropdown rounded-lg py-1 text-xs z-30">
+                    <button
+                      onClick={exportCSV}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                      <span>Export CSV</span>
+                    </button>
+                    <button
+                      onClick={exportCSV}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      <span>Export Excel</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        window.print();
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
+                    >
+                      <Printer className="w-4 h-4 text-slate-600" />
+                      <span>Print Table</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

@@ -122,9 +122,11 @@ async function runTestSuite() {
     const pageContent = fs.readFileSync(pagePath, 'utf8');
 
     const expectedTableColumns = [
-      'Purchase Order / Bill #',
-      'Supplier Name',
-      'Supplier Contact',
+      'Supplier',
+      'Warehouse',
+      'Purchase Orders',
+      'Products Pending',
+      'Outstanding Quantity',
       'Expected Delivery',
       'Delivery Status',
       'Actions'
@@ -137,13 +139,13 @@ async function runTestSuite() {
       );
     });
 
-    // Verification that Supplier Invoice and ordered products breakdown are present in the Eye Details Modal
+    // Verification of Supplier Delivery Details and Inward Products Breakdown
     assert(
-      pageContent.includes('Supplier Invoice:') &&
-      pageContent.includes('Ordered Products Breakdown') &&
-      pageContent.includes('Pending Qty') &&
-      pageContent.includes('Previously Received'),
-      'Eye Details Modal displays comprehensive breakdown: Supplier Invoice, Ordered Products, Ordered Qty, Previously Received, and Pending Qty'
+      pageContent.includes('Supplier Delivery Overview') &&
+      pageContent.includes('All Products in Delivery') &&
+      pageContent.includes('Previously Received') &&
+      pageContent.includes('Receive Delivery'),
+      'Eye Details Modal & Receive Form display comprehensive supplier delivery breakdown and actions'
     );
 
     // Check for KPI stats & status tabs
@@ -157,7 +159,7 @@ async function runTestSuite() {
 
     // Check for Search & Warehouse filter
     assert(
-      pageContent.includes('Search by PO#, supplier, invoice#, or product...'),
+      pageContent.includes('Search by supplier, PO#, GSTIN, or product...'),
       'Search input is present for instant filtering'
     );
     assert(
@@ -502,6 +504,694 @@ async function runTestSuite() {
       );
     }
     assert(damagedError, 'Prevented invalid damaged > arrived quantity');
+  }
+
+  // ---------------------------------------------------------------------------
+  // SECTION 6: Cement Bags Example & Default vs Edited Quantity Verification
+  // ---------------------------------------------------------------------------
+  console.log('\n👉 SECTION 6: Cement Bags Example & Default vs Edited Quantity Verification');
+  {
+    // Test Case A: Default Quantity Unchanged (All 20 bags arrive)
+    const cementPrA = await purchaseRequestService.createPurchaseRequest({
+      warehouseId: '00000000-0000-0000-0000-000000000002',
+      warehouseName: 'Main Central Warehouse',
+      priority: 'Normal',
+      reason: '20 Bags of Cement Test A (Default Unchanged)',
+      items: [
+        {
+          productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616',
+          productName: 'Cement 50kg Bag',
+          requestedQty: 20,
+          currentStock: 0,
+          unit: 'Bag',
+          estimatedCost: 350
+        }
+      ]
+    });
+
+    await purchaseRequestService.updateRequestStatus({
+      requestId: cementPrA.id,
+      status: 'Approved',
+      adjustedItems: [{ itemId: cementPrA.items[0].id, approvedQty: 20 }]
+    });
+
+    await purchaseRequestService.createPurchaseOrderFromRequest({
+      requestId: cementPrA.id,
+      supplierId: '381f01b1-73fd-4b72-82a7-51ec57e33dac',
+      supplierName: 'UltraTech Cement Supplier',
+      items: [
+        {
+          productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616',
+          productName: 'Cement 50kg Bag',
+          qty: 20,
+          unit: 'Bag',
+          rate: 350,
+          taxRate: 18
+        }
+      ]
+    });
+
+    // Fetch order in Order Receive list:
+    const orderListA = orderReceiveService.getOrderReceiveList({
+      purchaseRequests: [await purchaseRequestService.getPurchaseRequestById(cementPrA.id)!],
+      todayStr: '2026-10-27'
+    });
+    const orderA = orderListA.find(o => o.id === cementPrA.id)!;
+    assert(orderA.items[0].orderedQty === 20, 'Case A: Ordered quantity displays 20 (from Purchase Manager)');
+    assert(orderA.items[0].pendingQty === 20, 'Case A: Pending quantity displays 20');
+
+    // Form defaults to pending quantity (20):
+    const defaultQtyA = orderA.items[0].pendingQty;
+    assert(defaultQtyA === 20, 'Case A: Receive form defaults quantity to 20 bags');
+
+    // Warehouse Manager leaves default unchanged and confirms:
+    const receiptA = await purchaseRequestService.recordGoodsReceipt({
+      requestId: cementPrA.id,
+      receivingWarehouseId: '00000000-0000-0000-0000-000000000002',
+      receivedItems: [
+        {
+          itemId: orderA.items[0].id,
+          productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616',
+          receivedQty: defaultQtyA,
+          damagedQty: 0,
+          acceptedQty: defaultQtyA
+        }
+      ]
+    });
+
+    assert(receiptA.status === 'Completed', 'Case A: Order status moves to "Completed"');
+    assert(receiptA.items[0].receivedQty === 20, 'Case A: Saved 20 as received');
+
+    // Verify duplicate receipt is blocked for Completed order:
+    let duplicateBlocked = false;
+    try {
+      await purchaseRequestService.recordGoodsReceipt({
+        requestId: cementPrA.id,
+        receivingWarehouseId: '00000000-0000-0000-0000-000000000002',
+        receivedItems: [{ itemId: orderA.items[0].id, productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616', receivedQty: 1 }]
+      });
+    } catch (e: any) {
+      duplicateBlocked = true;
+      assert(e.message.includes('already been fully received'), 'Case A: Duplicate receipt on completed order is blocked');
+    }
+    assert(duplicateBlocked, 'Case A: Prevented duplicate receipt');
+
+    // Test Case B: Quantity Manually Reduced (18 bags arrive out of 20)
+    const cementPrB = await purchaseRequestService.createPurchaseRequest({
+      warehouseId: '00000000-0000-0000-0000-000000000002',
+      warehouseName: 'Main Central Warehouse',
+      priority: 'Normal',
+      reason: '20 Bags of Cement Test B (Edited to 18)',
+      items: [
+        {
+          productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616',
+          productName: 'Cement 50kg Bag',
+          requestedQty: 20,
+          currentStock: 0,
+          unit: 'Bag',
+          estimatedCost: 350
+        }
+      ]
+    });
+
+    await purchaseRequestService.updateRequestStatus({
+      requestId: cementPrB.id,
+      status: 'Approved',
+      adjustedItems: [{ itemId: cementPrB.items[0].id, approvedQty: 20 }]
+    });
+
+    await purchaseRequestService.createPurchaseOrderFromRequest({
+      requestId: cementPrB.id,
+      supplierId: '381f01b1-73fd-4b72-82a7-51ec57e33dac',
+      supplierName: 'UltraTech Cement Supplier',
+      items: [
+        {
+          productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616',
+          productName: 'Cement 50kg Bag',
+          qty: 20,
+          unit: 'Bag',
+          rate: 350,
+          taxRate: 18
+        }
+      ]
+    });
+
+    // Fetch order in Order Receive list:
+    const orderListB = orderReceiveService.getOrderReceiveList({
+      purchaseRequests: [await purchaseRequestService.getPurchaseRequestById(cementPrB.id)!],
+      todayStr: '2026-10-27'
+    });
+    const orderB = orderListB.find(o => o.id === cementPrB.id)!;
+    assert(orderB.items[0].orderedQty === 20, 'Case B: Original ordered quantity is 20 in PO (Preserved)');
+    assert(orderB.items[0].pendingQty === 20, 'Case B: Initial pending quantity is 20');
+
+    // Only 18 arrive: Warehouse Manager changes quantity from 20 to 18:
+    const editedQty = 18;
+    const receiptB1 = await purchaseRequestService.recordGoodsReceipt({
+      requestId: cementPrB.id,
+      receivingWarehouseId: '00000000-0000-0000-0000-000000000002',
+      receivedItems: [
+        {
+          itemId: orderB.items[0].id,
+          productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616',
+          receivedQty: editedQty,
+          damagedQty: 0,
+          acceptedQty: editedQty
+        }
+      ]
+    });
+
+    assert(receiptB1.status === 'Partially Received', 'Case B: Order status is "Partially Received" after receiving 18');
+    assert(receiptB1.items[0].receivedQty === 18, 'Case B: Saved exactly 18 as received (never added 20 + 18)');
+
+    // Check Order Receive page again:
+    const orderListB_after1 = orderReceiveService.getOrderReceiveList({
+      purchaseRequests: [receiptB1],
+      todayStr: '2026-10-27'
+    });
+    const orderB_after1 = orderListB_after1.find(o => o.id === cementPrB.id)!;
+    assert(orderB_after1.items[0].orderedQty === 20, 'Case B: Original ordered quantity remains 20 in PO');
+    assert(orderB_after1.items[0].previouslyReceivedQty === 18, 'Case B: Previously received shows 18');
+    assert(orderB_after1.items[0].pendingQty === 2, 'Case B: Exactly 2 bags remain pending for later delivery');
+
+    // Form must default to current outstanding quantity (2), not the original order quantity (20):
+    const defaultQtyB2 = orderB_after1.items[0].pendingQty;
+    assert(defaultQtyB2 === 2, 'Case B: Receive form now defaults to 2 bags (current outstanding), not 20');
+
+    // Over-receipt attempt: Warehouse Manager tries to enter 5 when only 2 pending:
+    let overDeliveryBlocked = false;
+    try {
+      await purchaseRequestService.recordGoodsReceipt({
+        requestId: cementPrB.id,
+        receivingWarehouseId: '00000000-0000-0000-0000-000000000002',
+        receivedItems: [{ itemId: orderB.items[0].id, productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616', receivedQty: 5 }]
+      });
+    } catch (e: any) {
+      overDeliveryBlocked = true;
+      assert(e.message.includes('exceeds outstanding pending quantity'), 'Case B: Receiving more than outstanding quantity (5 > 2) is blocked');
+    }
+    assert(overDeliveryBlocked, 'Case B: Prevented over-receipt exceeding pending quantity');
+
+    // Later delivery: Remaining 2 bags arrive:
+    const receiptB2 = await purchaseRequestService.recordGoodsReceipt({
+      requestId: cementPrB.id,
+      receivingWarehouseId: '00000000-0000-0000-0000-000000000002',
+      receivedItems: [
+        {
+          itemId: orderB.items[0].id,
+          productId: '80bcca26-4bb0-4a4c-aa64-5562177fe616',
+          receivedQty: 2,
+          damagedQty: 0,
+          acceptedQty: 2
+        }
+      ]
+    });
+
+    assert(receiptB2.status === 'Completed', 'Case B: Order status is now "Completed" after receiving remaining 2 bags');
+    assert(receiptB2.items[0].receivedQty === 20, 'Case B: Total received is exactly 20 bags (18 + 2)');
+
+    const orderListB_final = orderReceiveService.getOrderReceiveList({
+      purchaseRequests: [receiptB2],
+      todayStr: '2026-10-27'
+    });
+    const orderB_final = orderListB_final.find(o => o.id === cementPrB.id)!;
+    assert(orderB_final.deliveryStatus === 'Received / Completed', 'Case B: Delivery status is "Received / Completed"');
+    assert(orderB_final.pendingQuantity === 0, 'Case B: Outstanding pending quantity is 0');
+  }
+
+  // ---------------------------------------------------------------------------
+  // SECTION 7: Multi-PO Supplier-Wise Complete Product Receiving Workflow
+  // ---------------------------------------------------------------------------
+  console.log('\n👉 SECTION 7: Multi-PO Supplier-Wise Complete Product Receiving Workflow');
+  {
+    // Setup Mock Entities:
+    // Supplier A has 2 Purchase Orders (PO-001 & PO-002)
+    // Supplier B has 1 Purchase Order (PO-003)
+    const supplierA: Supplier = {
+      id: 'sup-a-uuid-1111',
+      name: 'Ultratech Cement Supplies',
+      company: 'Ultratech Ltd',
+      phone: '+91 98765 44444',
+      email: 'orders@ultratech.com',
+      address: 'Industrial Zone 1, Mumbai',
+      gstin: '27AAAAU1234F1Z1',
+      pan: 'AAAAU1234F',
+      creditDays: 30,
+      openingBalance: 0,
+      currentOutstanding: 0,
+      totalPurchases: 0,
+      totalPaid: 0,
+      status: 'Active',
+      createdAt: '2026-01-01T00:00:00Z'
+    };
+
+    const supplierB: Supplier = {
+      id: 'sup-b-uuid-2222',
+      name: 'Tata Steel Tubes',
+      company: 'Tata Steel',
+      phone: '+91 98765 55555',
+      email: 'orders@tatasteel.com',
+      address: 'Steel Yard, Jamshedpur',
+      gstin: '20AAACT5678F1Z2',
+      pan: 'AAACT5678F',
+      creditDays: 30,
+      openingBalance: 0,
+      currentOutstanding: 0,
+      totalPurchases: 0,
+      totalPaid: 0,
+      status: 'Active',
+      createdAt: '2026-01-01T00:00:00Z'
+    };
+
+    const whId = '00000000-0000-0000-0000-000000000002';
+    const testWarehouses: Warehouse[] = [
+      {
+        id: whId,
+        companyId: '00000000-0000-0000-0000-000000000001',
+        name: 'Main Central Depot',
+        code: 'DEPOT-1',
+        address: 'Warehouse Hub',
+        isDefault: true,
+        createdAt: '2026-01-01T00:00:00Z'
+      }
+    ];
+
+    // Create 3 products for Supplier A and 1 product for Supplier B
+    // Product X (OPC Cement 50kg)
+    const prodX: Product = {
+      id: '00000000-0000-0000-0000-000000000111',
+      name: 'OPC 53 Grade Cement',
+      sku: 'CEM-OPC-53',
+      primaryUnit: 'Bag',
+      currentStock: 100,
+      costPrice: 350,
+      purchasePrice: 350,
+      sellingPrice: 420,
+      taxRate: 18,
+      batchTracking: false,
+      createdAt: '2026-01-01T00:00:00Z'
+    } as any;
+
+    // Product Y (PPC Cement 50kg)
+    const prodY: Product = {
+      id: '00000000-0000-0000-0000-000000000222',
+      name: 'PPC Portland Cement',
+      sku: 'CEM-PPC-50',
+      primaryUnit: 'Bag',
+      currentStock: 50,
+      costPrice: 320,
+      purchasePrice: 320,
+      sellingPrice: 380,
+      taxRate: 18,
+      batchTracking: false,
+      createdAt: '2026-01-01T00:00:00Z'
+    } as any;
+
+    // Product Z (White Cement 25kg - batch tracked)
+    const prodZ: Product = {
+      id: '00000000-0000-0000-0000-000000000333',
+      name: 'JK White Cement 25kg',
+      sku: 'CEM-WHT-25',
+      primaryUnit: 'Bag',
+      currentStock: 25,
+      costPrice: 450,
+      purchasePrice: 450,
+      sellingPrice: 550,
+      taxRate: 18,
+      batchTracking: true,
+      expiryTracking: true,
+      createdAt: '2026-01-01T00:00:00Z'
+    } as any;
+
+    // Product W (Steel Rebar - Supplier B)
+    const prodW: Product = {
+      id: '00000000-0000-0000-0000-000000000444',
+      name: 'TMT 12mm Rebar',
+      sku: 'STL-TMT-12',
+      primaryUnit: 'Ton',
+      currentStock: 10,
+      costPrice: 55000,
+      purchasePrice: 55000,
+      sellingPrice: 62000,
+      taxRate: 18,
+      batchTracking: false,
+      createdAt: '2026-01-01T00:00:00Z'
+    } as any;
+
+    // 7.1 Setup Purchase Requests / Approved POs:
+    // PO-001 (Supplier A): Product X: 10 units, Product Y: 5 units
+    const pr1 = await purchaseRequestService.createPurchaseRequest({
+      warehouseId: whId,
+      warehouseName: 'Main Central Depot',
+      priority: 'High',
+      reason: 'Urgent order for Supplier A',
+      requestedDeliveryDate: '2026-11-01',
+      items: [
+        {
+          productId: prodX.id,
+          productName: prodX.name,
+          requestedQty: 10,
+          currentStock: 100,
+          unit: 'Bag',
+          estimatedCost: 350
+        },
+        {
+          productId: prodY.id,
+          productName: prodY.name,
+          requestedQty: 5,
+          currentStock: 50,
+          unit: 'Bag',
+          estimatedCost: 320
+        }
+      ]
+    });
+
+    await purchaseRequestService.updateRequestStatus({
+      requestId: pr1.id,
+      status: 'Approved',
+      adjustedItems: [
+        { itemId: pr1.items[0].id, approvedQty: 10 },
+        { itemId: pr1.items[1].id, approvedQty: 5 }
+      ]
+    });
+
+    const po1Res = await purchaseRequestService.createPurchaseOrderFromRequest({
+      requestId: pr1.id,
+      supplierId: supplierA.id,
+      supplierName: supplierA.name,
+      supplierGstin: supplierA.gstin,
+      items: [
+        {
+          productId: prodX.id,
+          productName: prodX.name,
+          qty: 10,
+          unit: 'Bag',
+          rate: 350,
+          taxRate: 18
+        },
+        {
+          productId: prodY.id,
+          productName: prodY.name,
+          qty: 5,
+          unit: 'Bag',
+          rate: 320,
+          taxRate: 18
+        }
+      ]
+    });
+    const po1 = po1Res.request;
+
+    // PO-002 (Supplier A): Product Z: 8 units
+    const pr2 = await purchaseRequestService.createPurchaseRequest({
+      warehouseId: whId,
+      warehouseName: 'Main Central Depot',
+      priority: 'Normal',
+      reason: 'Second order for Supplier A',
+      requestedDeliveryDate: '2026-11-02',
+      items: [
+        {
+          productId: prodZ.id,
+          productName: prodZ.name,
+          requestedQty: 8,
+          currentStock: 25,
+          unit: 'Bag',
+          estimatedCost: 450
+        }
+      ]
+    });
+
+    await purchaseRequestService.updateRequestStatus({
+      requestId: pr2.id,
+      status: 'Approved',
+      adjustedItems: [
+        { itemId: pr2.items[0].id, approvedQty: 8 }
+      ]
+    });
+
+    const po2Res = await purchaseRequestService.createPurchaseOrderFromRequest({
+      requestId: pr2.id,
+      supplierId: supplierA.id,
+      supplierName: supplierA.name,
+      supplierGstin: supplierA.gstin,
+      items: [
+        {
+          productId: prodZ.id,
+          productName: prodZ.name,
+          qty: 8,
+          unit: 'Bag',
+          rate: 450,
+          taxRate: 18
+        }
+      ]
+    });
+    const po2 = po2Res.request;
+
+    // PO-003 (Supplier B): Product W: 4 units
+    const pr3 = await purchaseRequestService.createPurchaseRequest({
+      warehouseId: whId,
+      warehouseName: 'Main Central Depot',
+      priority: 'Normal',
+      reason: 'Order for Supplier B',
+      requestedDeliveryDate: '2026-11-03',
+      items: [
+        {
+          productId: prodW.id,
+          productName: prodW.name,
+          requestedQty: 4,
+          currentStock: 10,
+          unit: 'Ton',
+          estimatedCost: 55000
+        }
+      ]
+    });
+
+    await purchaseRequestService.updateRequestStatus({
+      requestId: pr3.id,
+      status: 'Approved',
+      adjustedItems: [
+        { itemId: pr3.items[0].id, approvedQty: 4 }
+      ]
+    });
+
+    const po3Res = await purchaseRequestService.createPurchaseOrderFromRequest({
+      requestId: pr3.id,
+      supplierId: supplierB.id,
+      supplierName: supplierB.name,
+      supplierGstin: supplierB.gstin,
+      items: [
+        {
+          productId: prodW.id,
+          productName: prodW.name,
+          qty: 4,
+          unit: 'Ton',
+          rate: 55000,
+          taxRate: 18
+        }
+      ]
+    });
+    const po3 = po3Res.request;
+
+    // 7.2 Verify Supplier-Wise Delivery Grouping:
+    const groups = orderReceiveService.getSupplierDeliveryGroups({
+      purchaseRequests: [po1, po2, po3],
+      suppliers: [supplierA, supplierB],
+      warehouses: testWarehouses,
+      todayStr: '2026-10-27'
+    });
+
+    assert(groups.length === 2, 'Exactly 2 distinct supplier delivery groups created (1 for Supplier A, 1 for Supplier B)');
+
+    const groupA = groups.find(g => g.supplierId === supplierA.id);
+    const groupB = groups.find(g => g.supplierId === supplierB.id);
+
+    assert(!!groupA, 'Supplier A delivery group exists with actual supplier ID');
+    assert(!!groupB, 'Supplier B delivery group exists with actual supplier ID');
+    assert(groupA?.supplierName === 'Ultratech Cement Supplies', 'Supplier A name is preserved correctly');
+    assert(groupA?.supplierGstin === '27AAAAU1234F1Z1', 'Supplier A GSTIN is preserved correctly');
+
+    // Supplier A should have 2 POs and 3 products
+    assert(groupA?.purchaseOrdersCount === 2, `Supplier A delivery group combines both approved POs (${po1Res.purchaseOrderNumber} and ${po2Res.purchaseOrderNumber})`);
+    assert(groupA?.purchaseOrderNumbers.includes(po1Res.purchaseOrderNumber) && groupA?.purchaseOrderNumbers.includes(po2Res.purchaseOrderNumber), 'Both PO numbers are present in Supplier A delivery group');
+    assert(groupA?.items.length === 3, 'Supplier A delivery group displays all 3 products together (X: 10, Y: 5, Z: 8)');
+    assert(groupA?.totalOrderedQuantity === 23, 'Supplier A total ordered quantity is 23 (10 + 5 + 8)');
+    assert(groupA?.totalOutstandingQuantity === 23, 'Supplier A initial total outstanding quantity is 23');
+    assert(groupA?.totalPreviouslyReceivedQuantity === 0, 'Supplier A initial received quantity is 0');
+    assert(groupA?.deliveryStatus === 'Pending', 'Supplier A initial delivery status is "Pending"');
+
+    // Supplier B should NOT be merged
+    assert(groupB?.purchaseOrdersCount === 1, `Supplier B has only its own PO (${po3Res.purchaseOrderNumber}) and is NOT merged with Supplier A`);
+    assert(groupB?.items.length === 1, 'Supplier B has only Product W');
+    assert(groupB?.totalOrderedQuantity === 4, 'Supplier B total ordered quantity is 4');
+
+    // Verify PO reference is preserved for each product in Supplier A:
+    const itemX = groupA!.items.find(i => i.productId === prodX.id)!;
+    const itemY = groupA!.items.find(i => i.productId === prodY.id)!;
+    const itemZ = groupA!.items.find(i => i.productId === prodZ.id)!;
+
+    assert(itemX.orderNumber === po1Res.purchaseOrderNumber, `Product X correctly references ${po1Res.purchaseOrderNumber}`);
+    assert(itemY.orderNumber === po1Res.purchaseOrderNumber, `Product Y correctly references ${po1Res.purchaseOrderNumber}`);
+    assert(itemZ.orderNumber === po2Res.purchaseOrderNumber, `Product Z correctly references ${po2Res.purchaseOrderNumber}`);
+
+    // 7.3 Execute First Delivery:
+    // Arrived:
+    // - Product X: 9 arrived, 1 damaged -> 8 accepted
+    // - Product Y: 5 arrived, 0 damaged -> 5 accepted
+    // - Product Z: 6 arrived, 0 damaged -> 6 accepted (with batch & expiry)
+    console.log('  Executing first supplier delivery receiving action...');
+    const deliveryResult1 = await orderReceiveService.confirmSupplierDelivery({
+      supplierId: supplierA.id,
+      receivingWarehouseId: whId,
+      receivedItems: [
+        {
+          orderId: itemX.orderId,
+          itemId: itemX.itemId,
+          productId: itemX.productId,
+          arrivedQty: 8,
+          damagedQty: 0,
+          acceptedQty: 8
+        },
+        {
+          orderId: itemY.orderId,
+          itemId: itemY.itemId,
+          productId: itemY.productId,
+          arrivedQty: 5,
+          damagedQty: 0,
+          acceptedQty: 5
+        },
+        {
+          orderId: itemZ.orderId,
+          itemId: itemZ.itemId,
+          productId: itemZ.productId,
+          arrivedQty: 6,
+          damagedQty: 0,
+          acceptedQty: 6,
+          batchNumber: 'BATCH-WHT-2026',
+          expiryDate: '2027-10-27',
+          mfgDate: '2026-10-01'
+        }
+      ]
+    });
+
+    assert(deliveryResult1.totalAcceptedQty === 19, 'Supplier delivery confirmed successfully in one atomic action (19 units accepted)');
+    assert(deliveryResult1.updatedOrders.length === 2, 'Both underlying POs were updated independently');
+
+    // Fetch updated POs from service
+    const updatedPo1_stage1 = (await purchaseRequestService.getPurchaseRequestById(po1.id))!;
+    const updatedPo2_stage1 = (await purchaseRequestService.getPurchaseRequestById(po2.id))!;
+
+    // PO1 checks: X: 8 received (2 pending), Y: 5 received (0 pending)
+    assert(updatedPo1_stage1.status === 'Partially Received', 'PO-SUP-A-001 transitioned to "Partially Received"');
+    const po1_itemX = updatedPo1_stage1.items.find(i => i.productId === prodX.id)!;
+    const po1_itemY = updatedPo1_stage1.items.find(i => i.productId === prodY.id)!;
+    assert(po1_itemX.receivedQty === 8, 'Product X has exactly 8 received in PO-SUP-A-001');
+    assert(po1_itemY.receivedQty === 5, 'Product Y has exactly 5 received in PO-SUP-A-001');
+
+    // PO2 checks: Z: 6 received (2 pending)
+    assert(updatedPo2_stage1.status === 'Partially Received', 'PO-SUP-A-002 transitioned to "Partially Received"');
+    const po2_itemZ = updatedPo2_stage1.items.find(i => i.productId === prodZ.id)!;
+    assert(po2_itemZ.receivedQty === 6, 'Product Z has exactly 6 received in PO-SUP-A-002');
+
+    // Re-evaluate delivery groups:
+    const groupsAfterStage1 = orderReceiveService.getSupplierDeliveryGroups({
+      purchaseRequests: [updatedPo1_stage1, updatedPo2_stage1, po3],
+      suppliers: [supplierA, supplierB],
+      warehouses: testWarehouses,
+      todayStr: '2026-10-27'
+    });
+
+    const groupA_stage1 = groupsAfterStage1.find(g => g.supplierId === supplierA.id)!;
+    assert(groupA_stage1.deliveryStatus === 'Partially Received', 'Supplier A group status is "Partially Received"');
+    assert(groupA_stage1.totalPreviouslyReceivedQuantity === 19, 'Supplier A total received quantity recorded as 19 (8 + 5 + 6)');
+    assert(groupA_stage1.totalOutstandingQuantity === 4, 'Supplier A outstanding quantity is exactly 4 (2 of X + 2 of Z)');
+    assert(groupA_stage1.productsPendingCount === 2, 'Supplier A has 2 products with pending balance (Product X and Product Z)');
+
+    // Verify default quantities for subsequent delivery:
+    const itemX_stage1 = groupA_stage1.items.find(i => i.productId === prodX.id)!;
+    const itemY_stage1 = groupA_stage1.items.find(i => i.productId === prodY.id)!;
+    const itemZ_stage1 = groupA_stage1.items.find(i => i.productId === prodZ.id)!;
+
+    assert(itemX_stage1.pendingQty === 2, 'Product X default receive quantity is now 2 (outstanding balance)');
+    assert(itemY_stage1.pendingQty === 0, 'Product Y outstanding balance is 0 (fully received)');
+    assert(itemZ_stage1.pendingQty === 2, 'Product Z default receive quantity is now 2 (outstanding balance)');
+
+    // 7.4 Over-receiving Guard:
+    let overReceivingBlocked = false;
+    try {
+      await orderReceiveService.confirmSupplierDelivery({
+        supplierId: supplierA.id,
+        receivingWarehouseId: whId,
+        receivedItems: [
+          {
+            orderId: itemX_stage1.orderId,
+            itemId: itemX_stage1.itemId,
+            productId: itemX_stage1.productId,
+            arrivedQty: 10, // Only 2 pending
+            damagedQty: 0,
+            acceptedQty: 10
+          }
+        ]
+      });
+    } catch (e: any) {
+      overReceivingBlocked = true;
+      assert(e.message.includes('exceeds outstanding pending quantity'), 'Over-receiving check prevents receiving more than outstanding quantity');
+    }
+    assert(overReceivingBlocked, 'Prevented accidental over-receiving across supplier delivery');
+
+    // 7.5 Second Delivery to Complete Supplier Delivery:
+    // Remaining 2 of X and 2 of Z arrive
+    console.log('  Executing second supplier delivery to complete order...');
+    const deliveryResult2 = await orderReceiveService.confirmSupplierDelivery({
+      supplierId: supplierA.id,
+      receivingWarehouseId: whId,
+      supplierInvoiceNumber: 'INV-ULT-002',
+      deliveryRemarks: 'Final remaining balance delivery',
+      receivedItems: [
+        {
+          orderId: itemX_stage1.orderId,
+          itemId: itemX_stage1.itemId,
+          productId: itemX_stage1.productId,
+          arrivedQty: 2,
+          damagedQty: 0,
+          acceptedQty: 2
+        },
+        {
+          orderId: itemZ_stage1.orderId,
+          itemId: itemZ_stage1.itemId,
+          productId: itemZ_stage1.productId,
+          arrivedQty: 2,
+          damagedQty: 0,
+          acceptedQty: 2,
+          batchNumber: 'BATCH-WHT-2026',
+          expiryDate: '2027-10-27'
+        }
+      ]
+    });
+
+    assert(deliveryResult2.totalAcceptedQty === 4, 'Second supplier delivery confirmed successfully (4 remaining units accepted)');
+
+    const updatedPo1_final = (await purchaseRequestService.getPurchaseRequestById(po1.id))!;
+    const updatedPo2_final = (await purchaseRequestService.getPurchaseRequestById(po2.id))!;
+
+    assert(updatedPo1_final.status === 'Completed', 'PO-SUP-A-001 status is now "Completed"');
+    assert(updatedPo2_final.status === 'Completed', 'PO-SUP-A-002 status is now "Completed"');
+
+    const groupsFinal = orderReceiveService.getSupplierDeliveryGroups({
+      purchaseRequests: [updatedPo1_final, updatedPo2_final, po3],
+      suppliers: [supplierA, supplierB],
+      warehouses: testWarehouses,
+      todayStr: '2026-10-28'
+    });
+
+    const groupA_final = groupsFinal.find(g => g.supplierId === supplierA.id)!;
+    assert(groupA_final.deliveryStatus === 'Received / Completed', 'Supplier A delivery group status is now "Received / Completed"');
+    assert(groupA_final.totalOutstandingQuantity === 0, 'Supplier A total outstanding quantity is 0');
+    assert(groupA_final.productsPendingCount === 0, 'Supplier A pending products count is 0');
+    assert(groupA_final.totalPreviouslyReceivedQuantity === 23, 'Supplier A total received quantity equals total ordered quantity (23)');
+
+    // Supplier B group remains completely untouched and pending:
+    const groupB_final = groupsFinal.find(g => g.supplierId === supplierB.id)!;
+    assert(groupB_final.deliveryStatus === 'Pending', 'Supplier B delivery group remains untouched and "Pending"');
+    assert(groupB_final.totalOutstandingQuantity === 4, 'Supplier B total outstanding quantity remains 4');
   }
 
   console.log('\n===============================================================');

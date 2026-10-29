@@ -30,6 +30,7 @@ import { InventoryTransaction } from '../../types';
 import { Modal } from '../../components/common/Modal';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
 import { compareProductsAZ } from '../../utils/sortUtils';
+import { canPerformManualStockAdjustment } from '../../utils/rbac';
 import { sortNotifications } from '../../services/notificationService';
 import { SalespersonInventoryPage } from './SalespersonInventoryPage';
 
@@ -37,6 +38,7 @@ const InventoryDashboardInner: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
+  const canAdjust = canPerformManualStockAdjustment(profile?.role);
 
   const {
     products,
@@ -1170,15 +1172,17 @@ const InventoryDashboardInner: React.FC = () => {
                           {/* Actions */}
                           <td className="py-3 px-4 text-right align-middle whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => openAdjustForProduct(item.product.id)}
-                                className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs shrink-0"
-                                title="Adjust Stock"
-                                aria-label="Adjust Stock"
-                              >
-                                <Plus className="w-4 h-4" />
-                              </button>
+                              {canAdjust && (
+                                <button
+                                  type="button"
+                                  onClick={() => openAdjustForProduct(item.product.id)}
+                                  className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs shrink-0"
+                                  title="Adjust Stock"
+                                  aria-label="Adjust Stock"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1651,12 +1655,14 @@ const InventoryDashboardInner: React.FC = () => {
                           />
                         </td>
                         <td className="py-2 px-3 text-right font-sans overflow-hidden align-middle">
-                          <button
-                            onClick={() => openAdjustForProduct(p.id)}
-                            className="px-2.5 py-1 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
-                          >
-                            Adjust
-                          </button>
+                          {canAdjust && (
+                            <button
+                              onClick={() => openAdjustForProduct(p.id)}
+                              className="px-2.5 py-1 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
+                            >
+                              Adjust
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -2250,12 +2256,14 @@ const InventoryDashboardInner: React.FC = () => {
                       <td className="py-2 px-3 text-right text-slate-600 overflow-hidden truncate">{formatCurrency(p.costPrice)}</td>
                       <td className="py-2 px-3 text-right text-slate-500 overflow-hidden truncate">{p.reorderLevel} {p.primaryUnit}</td>
                       <td className="py-2 px-3 text-right font-sans overflow-hidden">
-                        <button
-                          onClick={() => openAdjustForProduct(p.id)}
-                          className="px-2 py-0.5 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-colors mr-1.5"
-                        >
-                          Adjust
-                        </button>
+                        {canAdjust && (
+                          <button
+                            onClick={() => openAdjustForProduct(p.id)}
+                            className="px-2 py-0.5 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-colors mr-1.5"
+                          >
+                            Adjust
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setStockModal(null);

@@ -768,8 +768,10 @@ export type PurchaseRequestStatus =
   | 'Approved'
   | 'Rejected'
   | 'Ordered'
+  | 'Active'
   | 'Partially Received'
   | 'Completed'
+  | 'Delivered'
   | 'Cancelled';
 
 export type PurchaseRequestPriority = 'Normal' | 'High' | 'Urgent';
@@ -790,6 +792,7 @@ export interface PurchaseRequestItem {
   unit: string;
   estimatedCost?: number;
   adjustmentReason?: string;
+  isCustom?: boolean;
   createdAt?: string;
 }
 
@@ -825,10 +828,124 @@ export interface PurchaseRequest {
   clarificationNotes?: string;
   purchaseOrderId?: string;
   purchaseOrderNumber?: string;
+  supplierId?: string;
+  supplierName?: string;
+  supplierGstin?: string;
   items: PurchaseRequestItem[];
   history?: PurchaseRequestHistory[];
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Supplier-Wise Delivery & Goods Receiving Types
+// ---------------------------------------------------------------------------
+export type SupplierDeliveryStatus = 'Pending' | 'Partially Received' | 'Received / Completed';
+
+export interface SupplierDeliveryPurchaseOrderSummary {
+  orderId: string;
+  orderNumber: string;
+  purchaseRequestId?: string;
+  purchaseOrderId?: string;
+  docType?: string;
+  orderDate?: string;
+  expectedDeliveryDate?: string;
+  deliveryStatus: SupplierDeliveryStatus;
+  orderedQty: number;
+  previouslyReceivedQty: number;
+  pendingQty: number;
+  productsCount: number;
+  totalValue: number;
+  hasSupplierBill: boolean;
+  supplierInvoiceNumber?: string;
+}
+
+export interface SupplierDeliveryProductItem {
+  id: string; // unique row id (e.g. `${orderId}_${itemId}`)
+  orderId: string; // PO ID or PR ID
+  orderNumber: string; // PO Number (e.g. PO-2026-4816)
+  purchaseOrderId?: string;
+  purchaseRequestId?: string;
+  itemId: string; // raw line item id
+  productId: string;
+  productName: string;
+  sku: string;
+  unit: string;
+  orderedQty: number;
+  previouslyReceivedQty: number;
+  pendingQty: number;
+  currentStock: number;
+  rate: number;
+  totalValue: number;
+  requiresBatch: boolean;
+  requiresExpiry: boolean;
+  batchNumber?: string;
+  expiryDate?: string;
+  mfgDate?: string;
+  expectedDeliveryDate?: string;
+  receivingStatus: SupplierDeliveryStatus;
+}
+
+export interface SupplierDeliveryGroup {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  supplierCompany?: string;
+  supplierContact: string;
+  supplierPhone?: string;
+  supplierEmail?: string;
+  supplierGstin?: string;
+  supplierAddress?: string;
+  warehouseId: string;
+  warehouseName: string;
+  purchaseOrders: SupplierDeliveryPurchaseOrderSummary[];
+  purchaseOrderNumbers: string[];
+  purchaseOrderIds: string[];
+  items: SupplierDeliveryProductItem[];
+  purchaseOrdersCount: number;
+  productsPendingCount: number;
+  totalOrderedQuantity: number;
+  totalPreviouslyReceivedQuantity: number;
+  totalOutstandingQuantity: number;
+  totalDeliveryValue: number;
+  expectedDeliveryDate: string;
+  isOverdue: boolean;
+  deliveryStatus: SupplierDeliveryStatus;
+  hasSupplierBill: boolean;
+  supplierInvoiceNumber?: string;
+}
+
+export interface RecordSupplierDeliveryInput {
+  supplierId: string;
+  receivingWarehouseId: string;
+  supplierInvoiceNumber?: string;
+  deliveryRemarks?: string;
+  receivedItems: Array<{
+    itemId: string;
+    orderId: string;
+    purchaseOrderId?: string;
+    purchaseRequestId?: string;
+    productId: string;
+    arrivedQty: number;
+    damagedQty?: number;
+    acceptedQty?: number;
+    batchNumber?: string;
+    expiryDate?: string;
+    mfgDate?: string;
+  }>;
+}
+
+export interface SupplierDeliveryReceiptResult {
+  supplierId: string;
+  updatedOrders: Array<{
+    orderId: string;
+    orderNumber: string;
+    status: string;
+    receivedQty: number;
+    acceptedQty: number;
+  }>;
+  totalAcceptedQty: number;
+  totalDamagedQty: number;
 }
 
 export interface CreatePurchaseRequestInput {

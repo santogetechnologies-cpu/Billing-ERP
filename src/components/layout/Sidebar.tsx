@@ -183,13 +183,31 @@ export function isNavItemActive(
     if (target === '/purchases') {
       return current === '/purchases' || current === '/purchases/invoices';
     }
+    if (target === '/products') {
+      if (current === '/products/initial-stock' || current.startsWith('/products/initial-stock/')) return false;
+      if (current === '/products/update-stock' || current.startsWith('/products/update-stock/')) return false;
+      return current === '/products' || current === '/products/new' || current.startsWith('/products/edit/');
+    }
+    if (target === '/products/initial-stock') {
+      return current === '/products/initial-stock' || current.startsWith('/products/initial-stock/');
+    }
+    if (target === '/products/update-stock') {
+      return current === '/products/update-stock' || current.startsWith('/products/update-stock/');
+    }
     return current === target;
   }
 
   // 9. Products (/products)
-  // Single-level sidebar item active on Product Master (/products), Add Product (/products/new), and edit (/products/edit/*)
   if (target === '/products') {
-    return current === '/products' || current.startsWith('/products/');
+    if (current === '/products/initial-stock' || current.startsWith('/products/initial-stock/')) return false;
+    if (current === '/products/update-stock' || current.startsWith('/products/update-stock/')) return false;
+    return current === '/products' || current === '/products/new' || current.startsWith('/products/edit/');
+  }
+  if (target === '/products/initial-stock') {
+    return current === '/products/initial-stock' || current.startsWith('/products/initial-stock/');
+  }
+  if (target === '/products/update-stock') {
+    return current === '/products/update-stock' || current.startsWith('/products/update-stock/');
   }
 
   // 10. Customers (/customers): active on /customers and nested profile /customers/:id
@@ -294,6 +312,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (location.pathname.startsWith('/inventory')) {
       setExpandedMenus(prev => (prev.Inventory ? prev : { ...prev, Inventory: true }));
     }
+    if (location.pathname.startsWith('/products')) {
+      setExpandedMenus(prev => (prev.Product ? prev : { ...prev, Product: true }));
+    }
   }, [location.pathname, location.search]);
 
   const handleLogout = async () => {
@@ -302,6 +323,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     Sales: true,
+    Product: true,
     Inventory: true,
     Accounting: false
   });
@@ -344,18 +366,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
       name: 'Purchases',
       path: '/purchases',
       icon: ShoppingBag,
-      children: [
-        { name: 'Purchase Invoices', path: '/purchases', end: true },
-        { name: 'Purchase Requests', path: '/purchases/requests', icon: ClipboardList, end: true },
-        { name: 'Purchase Orders', path: '/purchases/orders', icon: Truck, end: true },
-        { name: 'New Purchase Bill', path: '/purchases/new', end: true },
-        { name: 'Purchase Returns', path: '/purchases/returns', end: true }
-      ]
+      children: profile?.role === 'Purchase Manager'
+        ? [
+            { name: 'Purchase Invoices', path: '/purchases', end: true },
+            { name: 'Purchase Orders', path: '/purchases/orders', icon: Truck, end: true },
+            { name: 'New Purchase Bill', path: '/purchases/new', end: true },
+            { name: 'Purchase Returns', path: '/purchases/returns', end: true }
+          ]
+        : [
+            { name: 'Purchase Invoices', path: '/purchases', end: true },
+            { name: 'Purchase Requests', path: '/purchases/requests', icon: ClipboardList, end: true },
+            { name: 'Purchase Orders', path: '/purchases/orders', icon: Truck, end: true },
+            { name: 'New Purchase Bill', path: '/purchases/new', end: true },
+            { name: 'Purchase Returns', path: '/purchases/returns', end: true }
+          ]
     },
     {
-      name: 'Products',
+      name: 'Product',
       path: '/products',
-      icon: Package
+      icon: Package,
+      children: [
+        { name: 'Product Master', path: '/products', end: true },
+        { name: 'Add Stock', path: '/products/initial-stock', end: true },
+        { name: 'Update Stock', path: '/products/update-stock', end: true }
+      ]
     },
     {
       name: 'Inventory',

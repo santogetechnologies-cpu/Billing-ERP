@@ -1435,9 +1435,9 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => navigate('/products?search=' + encodeURIComponent(p.sku || p.name))}
+                            onClick={() => navigate('/inventory?search=' + encodeURIComponent(p.sku || p.name))}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                            title="View product in catalog"
+                            title="View stock in inventory"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>

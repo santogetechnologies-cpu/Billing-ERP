@@ -33,6 +33,7 @@ import { useAuth } from '../../context/AuthContext';
 import { canManageBarcodeOverride, hasPermission } from '../../utils/rbac';
 import { Modal } from '../../components/common/Modal';
 import { StatusBadge } from '../../components/common/StatusBadge';
+import { ApprovePurchaseRequestModal } from '../../components/purchases/ApprovePurchaseRequestModal';
 import { formatNumber, formatDate } from '../../utils/formatters';
 import { purchaseRequestService } from '../../services/purchaseRequestService';
 import { sortProductsAZ } from '../../utils/sortUtils';
@@ -45,7 +46,7 @@ const STATUS_TABS = [
   'All',
   'Pending Review',
   'Approved',
-  'Ordered',
+  'Active',
   'Completed',
   'Rejected'
 ] as const;
@@ -216,8 +217,8 @@ export const PurchaseRequestsPage: React.FC = () => {
           ) {
             return false;
           }
-        } else if (statusFilter === 'Ordered') {
-          if (req.status !== 'Ordered' && req.status !== 'Partially Received') {
+        } else if (statusFilter === 'Active' || statusFilter === 'Ordered') {
+          if (req.status !== 'Active' && req.status !== 'Ordered' && req.status !== 'Partially Received') {
             return false;
           }
         } else if (req.status !== statusFilter) {
@@ -662,18 +663,7 @@ export const PurchaseRequestsPage: React.FC = () => {
     setNewReqReason('Critical inventory replenishment: Items are out of stock');
     isNewReqReasonEditedRef.current = false;
     setNewReqReasonError(null);
-    const firstProd = products[0];
-    if (firstProd) {
-      setNewReqItems([
-        {
-          productId: firstProd.id,
-          requestedQty: firstProd.reorderLevel ? Math.max(1, firstProd.reorderLevel * 2) : 10,
-          estimatedCost: firstProd.purchasePrice || 0
-        }
-      ]);
-    } else {
-      setNewReqItems([]);
-    }
+    setNewReqItems([]); // Start with clean empty item list; user explicitly adds items
     setActionType('NEW_REQUEST');
     setFeedbackMsg(null);
   };
@@ -971,7 +961,7 @@ export const PurchaseRequestsPage: React.FC = () => {
               )}
 
               {/* Warehouse / Purchase Manager: Receive Goods (GRN) */}
-              {(selectedRequest.status === 'Ordered' || selectedRequest.status === 'Partially Received') && (
+              {(selectedRequest.status === 'Ordered' || selectedRequest.status === 'Active' || selectedRequest.status === 'Partially Received') && (
                 <button
                   type="button"
                   onClick={() => handleOpenReceiveGoodsModal(selectedRequest)}
@@ -983,7 +973,7 @@ export const PurchaseRequestsPage: React.FC = () => {
               )}
 
               {/* Purchase Manager: Record Actual Supplier Bill */}
-              {isPurchaseManager && (selectedRequest.status === 'Ordered' || selectedRequest.status === 'Partially Received' || selectedRequest.status === 'Completed' || Boolean(selectedRequest.purchaseOrderId)) && (
+              {isPurchaseManager && (selectedRequest.status === 'Ordered' || selectedRequest.status === 'Active' || selectedRequest.status === 'Partially Received' || selectedRequest.status === 'Completed' || selectedRequest.status === 'Delivered' || Boolean(selectedRequest.purchaseOrderId)) && (
                 <button
                   type="button"
                   onClick={() => navigate(`/purchases/new?poId=${selectedRequest.purchaseOrderId || ''}&requestId=${selectedRequest.id}`)}
@@ -1625,187 +1615,25 @@ export const PurchaseRequestsPage: React.FC = () => {
         {/* ========================================================================= */}
         {/* 1. APPROVAL MODAL (Approve & Automatically Generate Purchase Order)       */}
         {/* ========================================================================= */}
-        <Modal
-          isOpen={actionType === 'APPROVE'}
-          onClose={() => !isSubmitting && setActionType(null)}
-          title="Approve Request & Generate Purchase Order"
-          subtitle={`Authorize replenishment and automatically create vendor PO for request #${activeRequest?.requestNumber}`}
-          size="lg"
-        >
-          <div className="space-y-4 text-xs py-1">
-            {feedbackMsg && (
-              <div
-                className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
-                  feedbackMsg.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{feedbackMsg.text}</span>
-              </div>
-            )}
-
-            {/* Warehouse and Order Context */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl">
-              <div>
-                <span className="text-[10px] text-indigo-500 uppercase font-bold block">Destination Warehouse</span>
-                <span className="font-bold text-slate-900 text-xs">{activeRequest?.warehouseName}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-indigo-500 uppercase font-bold block">Requester</span>
-                <span className="font-semibold text-slate-800 text-xs">{activeRequest?.requesterName}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-indigo-500 uppercase font-bold block">Priority</span>
-                <span className="font-bold text-slate-800 text-xs">{activeRequest?.priority}</span>
-              </div>
-            </div>
-
-            {/* Supplier & Delivery Date */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Vendor / Supplier <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={poSupplierId}
-                  onChange={e => setPoSupplierId(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  {suppliers.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.company || s.name} ({s.name})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Expected Delivery Date <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  min="2000-01-01"
-                  max="2099-12-31"
-                  value={poExpectedDate}
-                  onChange={e => {
-                    let val = e.target.value;
-                    if (val) {
-                      const parts = val.split('-');
-                      if (parts[0] && parts[0].length > 4) parts[0] = parts[0].slice(0, 4);
-                      val = parts.join('-');
-                    }
-                    setPoExpectedDate(val);
-                  }}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
-            {/* Approved Products & Rates */}
-            <div>
-              <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px] block mb-2">
-                Approved Products, Quantities & Unit Rates
-              </span>
-              <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
-                {activeRequest?.items.map(it => (
-                  <div key={it.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between font-bold text-slate-800">
-                      <div>
-                        <span>{it.productName}</span>
-                        {it.sku && <span className="text-[10px] text-slate-400 font-mono block">SKU: {it.sku}</span>}
-                      </div>
-                      <span className="text-slate-500 font-normal text-[11px]">
-                        Requested: {it.requestedQty} {it.unit}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div>
-                        <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Approved Qty</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={adjustedQuantities[it.id]?.qty || it.requestedQty}
-                          onChange={e => {
-                            const val = Math.max(1, Number(e.target.value));
-                            setAdjustedQuantities(prev => ({
-                              ...prev,
-                              [it.id]: { ...prev[it.id], qty: val }
-                            }));
-                          }}
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Rate / Unit (₹)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={poItemRates[it.id] ?? 0}
-                          onChange={e => {
-                            const val = Math.max(0, Number(e.target.value));
-                            setPoItemRates(prev => ({ ...prev, [it.id]: val }));
-                          }}
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Adjustment Reason</label>
-                        <input
-                          type="text"
-                          placeholder="Optional reason"
-                          value={adjustedQuantities[it.id]?.reason || ''}
-                          onChange={e => {
-                            const text = e.target.value;
-                            setAdjustedQuantities(prev => ({
-                              ...prev,
-                              [it.id]: { ...prev[it.id], reason: text }
-                            }));
-                          }}
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Purchase Order Instructions / Notes</label>
-              <textarea
-                rows={2}
-                value={poNotes}
-                onChange={e => setPoNotes(e.target.value)}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800"
-                placeholder="Notes for vendor, delivery instructions..."
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
-              <button
-                disabled={isSubmitting}
-                onClick={() => setActionType(null)}
-                className="px-4 py-2 text-slate-600 bg-slate-100 rounded-xl font-semibold cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={isSubmitting}
-                onClick={handleSubmitApprove}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
-              >
-                {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
-                <span>Approve & Generate Purchase Order</span>
-              </button>
-            </div>
-          </div>
-        </Modal>
+        {activeRequest && actionType === 'APPROVE' && (
+          <ApprovePurchaseRequestModal
+            isOpen={actionType === 'APPROVE'}
+            onClose={() => setActionType(null)}
+            request={activeRequest}
+            onApprovalSuccess={async (updated, poNumber) => {
+              setActionType(null);
+              await refreshPurchaseRequests();
+              if (targetId) {
+                const refreshed = await purchaseRequestService.getPurchaseRequestById(targetId);
+                if (refreshed) setDirectFetchedRequest(refreshed);
+              }
+              setFeedbackMsg({
+                type: 'success',
+                text: `Request #${updated.requestNumber} approved! Purchase Order #${poNumber} created and linked successfully.`
+              });
+            }}
+          />
+        )}
 
         {/* ========================================================================= */}
         {/* 2. REJECTION MODAL (Mandatory reason)                                    */}
@@ -2278,11 +2106,12 @@ export const PurchaseRequestsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    const p = products[0];
-                    if (p) {
+                    const existingIds = new Set(newReqItems.map(it => it.productId));
+                    const nextProd = products.find(p => !existingIds.has(p.id)) || products[0];
+                    if (nextProd) {
                       setNewReqItems(prev => [
                         ...prev,
-                        { productId: p.id, requestedQty: 10, estimatedCost: p.purchasePrice || 0 }
+                        { productId: nextProd.id, requestedQty: 10, estimatedCost: nextProd.purchasePrice || 0 }
                       ]);
                     }
                   }}
@@ -2293,7 +2122,12 @@ export const PurchaseRequestsPage: React.FC = () => {
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-56 overflow-y-auto">
+              {newReqItems.length === 0 ? (
+                <div className="p-4 text-center border-2 border-dashed border-slate-200 rounded-xl text-xs text-slate-500">
+                  No items added yet. Click &quot;Add Item&quot; to choose a product.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-56 overflow-y-auto">
                 {newReqItems.map((item, idx) => (
                   <div key={idx} className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                     <div className="flex-1">
@@ -2360,7 +2194,8 @@ export const PurchaseRequestsPage: React.FC = () => {
                   </div>
                 ))}
               </div>
-            </div>
+            )}
+          </div>
 
             <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
               <button

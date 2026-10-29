@@ -31,6 +31,8 @@ import { StatCard } from '../../components/common/StatCard';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { Modal } from '../../components/common/Modal';
 import { UserProfileModal } from '../../components/auth/UserProfileModal';
+import { ApprovePurchaseRequestModal } from '../../components/purchases/ApprovePurchaseRequestModal';
+import { ActiveOrdersModal } from '../../components/purchases/ActiveOrdersModal';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { canManageBarcodeOverride } from '../../utils/rbac';
 import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../../utils/schemaDetector';
@@ -531,20 +533,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   // State for purchase orders fetched from database
   const [purchaseOrdersData, setPurchaseOrdersData] = useState<any[]>([]);
   const [isPurchaseOrdersLoading, setIsPurchaseOrdersLoading] = useState(false);
-  const [showActiveOrdersPanel, setShowActiveOrdersPanel] = useState(false);
-  const activeOrdersSectionRef = useRef<HTMLDivElement>(null);
-
-  const toggleActiveOrdersPanel = useCallback(() => {
-    setShowActiveOrdersPanel(prev => {
-      const next = !prev;
-      if (next) {
-        setTimeout(() => {
-          activeOrdersSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }, 50);
-      }
-      return next;
-    });
-  }, []);
+  const [isActiveOrdersModalOpen, setIsActiveOrdersModalOpen] = useState(false);
 
   const fetchPurchaseOrders = useCallback(async () => {
     const targetCompId = company?.id || '00000000-0000-0000-0000-000000000001';
@@ -883,9 +872,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           icon={Truck}
           iconBgColor="bg-blue-50"
           iconTextColor="text-blue-600"
-          isSelected={showActiveOrdersPanel}
-          selectedColor="blue"
-          onClick={toggleActiveOrdersPanel}
+          onClick={() => setIsActiveOrdersModalOpen(true)}
         />
         <StatCard
           title="Active Suppliers"
@@ -909,137 +896,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* Inline Active Purchase Orders in Transit Section */}
-      {showActiveOrdersPanel && (
-        <div
-          ref={activeOrdersSectionRef}
-          id="active-orders-panel"
-          className="bg-white rounded-2xl border border-blue-200/90 shadow-sm overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-top-2"
-        >
-          <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-50/60 via-slate-50/30 to-white">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-blue-100 text-blue-700 shrink-0 shadow-2xs">
-                <Truck className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base font-bold text-slate-900">
-                    Active Purchase Orders in Transit
-                  </h2>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200/60">
-                    {activeInTransitOrders.length} {activeInTransitOrders.length === 1 ? 'Order' : 'Orders'}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Currently active procurement orders in transit from suppliers to destination warehouses.
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowActiveOrdersPanel(false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-                title="Hide active orders list"
-              >
-                <X className="w-3.5 h-3.5 text-slate-500" />
-                <span>Close</span>
-              </button>
-            </div>
-          </div>
-
-          {isPurchaseOrdersLoading ? (
-            <div className="p-10 flex flex-col items-center justify-center text-slate-400 gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-              <span className="text-xs font-medium text-slate-600">Loading active in-transit orders...</span>
-            </div>
-          ) : activeInTransitOrders.length === 0 ? (
-            <div className="p-10 text-center bg-slate-50/40">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 text-blue-600 mb-2">
-                <Truck className="w-6 h-6" />
-              </div>
-              <p className="text-sm font-bold text-slate-800">No active orders in transit</p>
-              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                There are currently no purchase orders in transit from suppliers. New active orders will appear here once purchase requests are approved and placed.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4">Purchase Order Number</th>
-                    <th className="py-3 px-4">Order Date</th>
-                    <th className="py-3 px-4">Supplier Name</th>
-                    <th className="py-3 px-4">Destination Warehouse</th>
-                    <th className="py-3 px-4 text-center">Total Items</th>
-                    <th className="py-3 px-4 text-right">Ordered Quantity</th>
-                    <th className="py-3 px-4 text-right">Received Quantity</th>
-                    <th className="py-3 px-4 text-center">Order Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {activeInTransitOrders.map(order => (
-                    <tr key={order.id} className="hover:bg-blue-50/20 transition-colors">
-                      <td className="py-3 px-4">
-                        <span className="font-mono font-bold text-blue-600 block">
-                          {order.orderNumber}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-slate-700 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1.5 font-medium">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{formatDate(order.date)}</span>
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-semibold text-slate-900 block truncate max-w-[220px]">
-                          {order.supplierName}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="inline-flex items-center gap-1.5 text-slate-700 font-medium">
-                          <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{order.warehouseName}</span>
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
-                          <Package className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{order.totalItems} {order.totalItems === 1 ? 'item' : 'items'}</span>
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900">
-                        {formatNumber(order.orderedQty)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-600">
-                        {formatNumber(order.receivedQty)}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                            order.status === 'In Transit'
-                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                              : order.status === 'Partially Received'
-                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                              : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                          }`}
-                        >
-                          {order.status === 'In Transit' && <Truck className="w-3 h-3 shrink-0" />}
-                          {order.status === 'Partially Received' && <Clock className="w-3 h-3 shrink-0" />}
-                          {order.status === 'Ordered' && <ClipboardList className="w-3 h-3 shrink-0" />}
-                          <span>{order.status}</span>
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 3. Action Required: Pending Purchase Requests Section */}
       <div id="pending-requests-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
@@ -1242,7 +1099,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
 
             {recentInvoices.length === 0 ? (
               <div className="py-8 text-center text-slate-400 text-xs">
-                No supplier purchase bills recorded yet. Click "New Purchase Bill" to add one.
+                No supplier purchase bills recorded yet. Click &quot;New Purchase Bill&quot; to add one.
               </div>
             ) : (
               <div className="divide-y divide-slate-100 text-xs">
@@ -1268,7 +1125,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             )}
           </div>
 
-          <div className="pt-3 mt-3 border-t border-slate-100 flex justify-between items-center text-xs">
+          <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex justify-between items-center text-xs">
             <span className="text-slate-500 font-medium truncate">Total Bills: {purchaseInvoices.length}</span>
             <button
               onClick={() => navigate('/purchases/new')}
@@ -1314,81 +1171,88 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                 </button>
               </div>
             ) : (
-              <div className="overflow-x-auto -mx-5 px-5">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/60">
-                      <th className="py-2 px-2.5">Supplier Name</th>
-                      <th className="py-2 px-2">Contact</th>
-                      <th className="py-2 px-2 text-center">Active Orders</th>
-                      <th className="py-2 px-2 text-right">Items to Deliver</th>
-                      <th className="py-2 px-2">Expected Delivery</th>
-                      <th className="py-2 px-2 text-center">Delivery Status</th>
-                      <th className="py-2 px-2.5 text-center">Supplier Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {supplierDeliveries.map((item) => (
-                      <tr key={item.supplierId} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-2 px-2.5 font-semibold text-slate-800 whitespace-nowrap">
-                          {item.supplierName}
-                        </td>
-                        <td className="py-2 px-2 text-slate-600 whitespace-nowrap font-mono text-[11px]">
-                          {item.contact}
-                        </td>
-                        <td className="py-2 px-2 text-center whitespace-nowrap font-mono font-bold text-slate-700">
-                          {item.activeOrders}
-                        </td>
-                        <td className="py-2 px-2 text-right whitespace-nowrap font-mono font-bold text-slate-800">
-                          {item.itemsToDeliver > 0 ? `${formatNumber(item.itemsToDeliver)} Units` : '0'}
-                        </td>
-                        <td className="py-2 px-2 whitespace-nowrap text-slate-600 text-[11px]">
-                          {item.expectedDelivery !== 'Not available' ? formatDate(item.expectedDelivery) : 'Not available'}
-                        </td>
-                        <td className="py-2 px-2 text-center whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            item.deliveryStatus === 'Overdue'
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : item.deliveryStatus === 'Partially Delivered'
-                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                              : item.deliveryStatus === 'In Transit'
-                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                              : item.deliveryStatus === 'Pending'
-                              ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                              : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          }`}>
-                            {item.deliveryStatus === 'Overdue' && <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />}
-                            {item.deliveryStatus === 'In Transit' && <Truck className="w-3 h-3 text-blue-600 shrink-0" />}
-                            {item.deliveryStatus === 'Delivered' && <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />}
-                            <span>{item.deliveryStatus}</span>
-                          </span>
-                        </td>
-                        <td className="py-2 px-2.5 text-center whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            item.supplierStatus === 'Active'
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                              : 'bg-slate-100 text-slate-600 border border-slate-200'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${
-                              item.supplierStatus === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
-                            }`} />
-                            <span>{item.supplierStatus}</span>
-                          </span>
-                        </td>
+              <div className="border border-slate-200/80 rounded-xl overflow-hidden bg-white shadow-2xs">
+                <div className="overflow-x-auto scrollbar-thin">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
+                        <th className="py-2.5 px-3">Supplier Name</th>
+                        <th className="py-2.5 px-2">Contact</th>
+                        <th className="py-2.5 px-1.5 text-center">Active Orders</th>
+                        <th className="py-2.5 px-2 text-right">Items to Deliver</th>
+                        <th className="py-2.5 px-2">Expected Delivery</th>
+                        <th className="py-2.5 px-2 text-center">Delivery Status</th>
+                        <th className="py-2.5 px-2.5 text-center">Supplier Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {supplierDeliveries.slice(0, 5).map((item) => (
+                        <tr key={item.supplierId} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-2.5 px-3 font-semibold text-slate-800">
+                            <span className="block truncate max-w-[110px] xl:max-w-[140px]" title={item.supplierName}>
+                              {item.supplierName}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-600 font-mono text-[11px]">
+                            <span className="block truncate max-w-[85px] xl:max-w-[110px]" title={item.contact}>
+                              {item.contact !== 'Not available' ? item.contact : <span className="text-slate-400 font-sans">Not available</span>}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-1.5 text-center whitespace-nowrap font-mono font-bold text-slate-700">
+                            {item.activeOrders}
+                          </td>
+                          <td className="py-2.5 px-2 text-right whitespace-nowrap font-mono font-bold text-slate-800">
+                            {item.itemsToDeliver > 0 ? `${formatNumber(item.itemsToDeliver)} Units` : '0'}
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap text-slate-600 text-[11px]">
+                            {item.expectedDelivery !== 'Not available' ? formatDate(item.expectedDelivery) : <span className="text-slate-400">Not available</span>}
+                          </td>
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              item.deliveryStatus === 'Delivered' || (item.activeOrders === 0 && item.itemsToDeliver === 0)
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : 'bg-blue-100 text-blue-800 border border-blue-200'
+                            }`}>
+                              {item.deliveryStatus === 'Delivered' || (item.activeOrders === 0 && item.itemsToDeliver === 0) ? (
+                                <>
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span>Delivered</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Truck className="w-3 h-3 text-blue-600 shrink-0" />
+                                  <span>Active</span>
+                                </>
+                              )}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              item.supplierStatus === 'Active'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${
+                                item.supplierStatus === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                              }`} />
+                              <span>{item.supplierStatus}</span>
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
 
-          <div className="pt-3 mt-3 border-t border-slate-100 flex justify-between items-center text-xs">
+          <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex justify-between items-center text-xs">
             <span className="text-slate-500 font-medium">
               Total Active Orders: {totalActiveDeliveries}
             </span>
             <button
-              onClick={() => navigate('/purchases/orders')}
+              onClick={() => setIsActiveOrdersModalOpen(true)}
               className="text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
             >
               <span>Manage Orders</span>
@@ -1400,61 +1264,20 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
 
       {/* Approve Modal */}
       {selectedRequest && isApproveModalOpen && (
-        <Modal
+        <ApprovePurchaseRequestModal
           isOpen={isApproveModalOpen}
-          onClose={() => setIsApproveModalOpen(false)}
-          title={`Approve Purchase Request #${selectedRequest.requestNumber}`}
-        >
-          <div className="space-y-4 text-xs">
-            <p className="text-slate-600">
-              Confirm authorization for <strong className="text-slate-900">{selectedRequest.warehouseName || 'Warehouse'}</strong>.
-              Approving moves this request into the purchase order staging pipeline.
-            </p>
-
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <span className="font-semibold text-slate-700 block mb-1">Requested Items ({selectedRequest.items?.length || 0}):</span>
-              <ul className="list-disc pl-4 space-y-1 text-slate-600">
-                {(selectedRequest.items || []).map((it, idx) => (
-                  <li key={idx}>
-                    {it.productName} — <strong>{it.requestedQty} {it.unit}</strong>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Approval Notes / Supplier Recommendation (Optional)
-              </label>
-              <textarea
-                value={approvalNotes}
-                onChange={e => setApprovalNotes(e.target.value)}
-                placeholder="e.g. Approved. Proceed with Vendor ABC at agreed bulk discount."
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
-                rows={3}
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsApproveModalOpen(false)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isSubmittingAction}
-                onClick={handleApproveConfirm}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-              >
-                {isSubmittingAction ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                <span>Authorize & Approve</span>
-              </button>
-            </div>
-          </div>
-        </Modal>
+          onClose={() => {
+            setIsApproveModalOpen(false);
+            setSelectedRequest(null);
+          }}
+          request={selectedRequest}
+          onApprovalSuccess={async () => {
+            setIsApproveModalOpen(false);
+            setSelectedRequest(null);
+            await refreshPurchaseRequests();
+            await refreshData();
+          }}
+        />
       )}
 
       {/* Reject Modal */}
@@ -1509,6 +1332,18 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       <UserProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
+      />
+
+      {/* Active Orders Popup Modal */}
+      <ActiveOrdersModal
+        isOpen={isActiveOrdersModalOpen}
+        onClose={() => setIsActiveOrdersModalOpen(false)}
+        purchaseOrders={purchaseOrdersData.length > 0 ? purchaseOrdersData : purchaseInvoices.filter(p => p.docType === 'purchase_order')}
+        purchaseRequests={purchaseRequests}
+        suppliers={suppliers}
+        warehouses={warehouses}
+        products={products}
+        initialFilter="Active"
       />
     </div>
   );

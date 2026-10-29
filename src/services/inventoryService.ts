@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { InventoryTransaction, StockTransfer, StockBalance } from '../types';
-import { assertCallerPermission } from '../utils/rbac';
+import { assertCallerPermission, getActiveUserRole } from '../utils/rbac';
 import { notificationService } from './notificationService';
 import { getAppStorage } from '../utils/storageUtils';
 
@@ -579,7 +579,309 @@ export const inventoryService = {
     }
   },
 
-  // Stock Adjustment
+  // Record Opening Stock for a single product
+  async recordOpeningStock(params: {
+    productId: string;
+    warehouseId: string;
+    quantity: number;
+    unit?: string;
+    costPrice?: number;
+    batchNumber?: string;
+    expiryDate?: string;
+    serialNumbers?: string[];
+    date?: string;
+    referenceNumber?: string;
+    notes?: string;
+    companyId?: string;
+    currentUser?: { id: string; name: string; role?: string };
+  }): Promise<InventoryTransaction> {
+    // 0. Strict RBAC Enforcement: Only Owner, Admin, and Purchase Manager can record initial opening stock
+    const callerRole = params.currentUser?.role || (await getActiveUserRole()) || 'Admin';
+    if (
+      callerRole === 'Warehouse Manager' ||
+      (callerRole !== 'Owner' && callerRole !== 'Admin' && callerRole !== 'Purchase Manager')
+    ) {
+      throw new Error(
+        `Unauthorized (403): ${callerRole} is not permitted to record initial opening stock. Only Owner, Admin, and Purchase Manager can perform this action.`
+      );
+    }
+
+    const finalCompanyId = params.companyId || '00000000-0000-0000-0000-000000000001';
+    const qty = Number(params.quantity);
+    if (isNaN(qty) || qty <= 0) {
+      throw new Error('Initial stock quantity must be a positive number greater than zero.');
+    }
+    if (!params.productId) {
+      throw new Error('Product selection is required.');
+    }
+    if (!params.warehouseId) {
+      throw new Error('Destination warehouse is required.');
+    }
+
+    // 1. Fetch product details
+    let prod: any = null;
+    const { data: dbProd } = await supabase
+      .from('products')
+      .select('id, name, sku, current_stock, opening_stock, cost_price, purchase_price, primary_unit, default_warehouse_id')
+      .eq('id', params.productId)
+      .eq('company_id', finalCompanyId)
+      .maybeSingle();
+
+    if (dbProd) {
+      prod = dbProd;
+    } else {
+      const storage = getAppStorage();
+      if (storage) {
+        try {
+          const raw = storage.getItem(`universal_billing_products_${finalCompanyId}`);
+          if (raw) {
+            const list = JSON.parse(raw);
+            const found = list.find((p: any) => p.id === params.productId);
+            if (found) {
+              prod = {
+                id: found.id,
+                name: found.name,
+                sku: found.sku,
+                current_stock: found.currentStock ?? 0,
+                opening_stock: found.openingStock ?? 0,
+                cost_price: found.costPrice ?? 0,
+                purchase_price: found.purchasePrice ?? 0,
+                primary_unit: found.primaryUnit ?? 'Piece'
+              };
+            }
+          }
+        } catch {}
+      }
+    }
+
+    if (!prod) {
+      throw new Error(`Product not found: ${params.productId}`);
+    }
+
+    // 2. Prevent duplicate opening stock entries for the same product and warehouse
+    const { data: existingOpening } = await supabase
+      .from('stock_transactions')
+      .select('id, date, qty, unit, reference_number')
+      .eq('company_id', finalCompanyId)
+      .eq('product_id', params.productId)
+      .eq('warehouse_id', params.warehouseId)
+      .eq('type', 'Opening Stock')
+      .limit(1);
+
+    if (existingOpening && existingOpening.length > 0) {
+      throw new Error(
+        `Opening stock of ${existingOpening[0].qty} ${existingOpening[0].unit} has already been registered for "${prod.name}" in this warehouse on ${existingOpening[0].date}. To modify existing stock, please use Update Stock.`
+      );
+    }
+
+    // 3. Resolve unit and valuation
+    const effectiveUnit = params.unit || prod.primary_unit || 'Piece';
+    const effectiveCost =
+      params.costPrice !== undefined
+        ? Number(params.costPrice)
+        : Number(prod.cost_price) || Number(prod.purchase_price) || 0;
+    const totalValuation = qty * effectiveCost;
+    const dateStr = params.date || new Date().toISOString().split('T')[0];
+    const refDoc =
+      params.referenceNumber?.trim() ||
+      'OP-' + new Date().toISOString().replace(/\D/g, '').slice(2, 12);
+    const creatorName = params.currentUser?.name ? ` by ${params.currentUser.name} (${callerRole})` : '';
+    const fullNotes = params.notes?.trim()
+      ? `${params.notes.trim()} (Recorded${creatorName})`
+      : `Initial opening stock registered${creatorName}`;
+
+    // 4. Update warehouse stock balance exactly once
+    await this.updateStockBalance(params.warehouseId, params.productId, qty, finalCompanyId);
+
+    // 5. Update product aggregate stock & opening stock
+    const currentStock = Number(prod.current_stock || 0);
+    const newStock = currentStock + qty;
+    const newOpeningStock = Number(prod.opening_stock || 0) + qty;
+    try {
+      await supabase
+        .from('products')
+        .update({
+          current_stock: newStock,
+          opening_stock: newOpeningStock,
+          opening_stock_value: newOpeningStock * effectiveCost,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', params.productId)
+        .eq('company_id', finalCompanyId);
+    } catch (prodErr) {
+      console.warn('Note updating product aggregate stock:', prodErr);
+    }
+
+    // 6. Record traceable opening stock transaction
+    let txnId = 'op-' + Date.now();
+    try {
+      const { data: txn } = await supabase
+        .from('stock_transactions')
+        .insert({
+          company_id: finalCompanyId,
+          date: dateStr,
+          type: 'Opening Stock',
+          product_id: params.productId,
+          product_name: prod.name,
+          warehouse_id: params.warehouseId,
+          qty: qty,
+          unit: effectiveUnit,
+          unit_cost: effectiveCost,
+          total_cost: totalValuation,
+          reference_type: 'Opening',
+          reference_number: refDoc,
+          notes: fullNotes
+        })
+        .select()
+        .single();
+
+      if (txn?.id) txnId = txn.id;
+    } catch (txnErr) {
+      console.warn('Note inserting opening stock transaction:', txnErr);
+    }
+
+    // 7. Optional Batch creation if batch tracking provided
+    if (params.batchNumber && params.batchNumber.trim()) {
+      try {
+        await supabase.from('product_batches').insert({
+          company_id: finalCompanyId,
+          product_id: params.productId,
+          warehouse_id: params.warehouseId,
+          batch_number: params.batchNumber.trim(),
+          expiry_date: params.expiryDate || null,
+          cost: effectiveCost,
+          qty: qty,
+          status: 'Active'
+        });
+      } catch (e) {
+        console.warn('Note creating batch for opening stock:', e);
+      }
+    }
+
+    // 8. Optional Serial numbers creation if provided
+    if (params.serialNumbers && Array.isArray(params.serialNumbers) && params.serialNumbers.length > 0) {
+      try {
+        const serialRows = params.serialNumbers
+          .filter(s => s && s.trim())
+          .map(sn => ({
+            company_id: finalCompanyId,
+            product_id: params.productId,
+            serial_number: sn.trim(),
+            warranty_status: 'In Stock'
+          }));
+        if (serialRows.length > 0) {
+          await supabase.from('product_serial_numbers').insert(serialRows);
+        }
+      } catch (e) {
+        console.warn('Note creating serial numbers for opening stock:', e);
+      }
+    }
+
+    return {
+      id: txnId,
+      date: dateStr,
+      type: 'Opening Stock' as any,
+      productId: params.productId,
+      productName: prod.name,
+      qty: qty,
+      unit: effectiveUnit,
+      warehouse: params.warehouseId,
+      referenceDoc: refDoc,
+      notes: fullNotes,
+      createdAt: new Date().toISOString()
+    };
+  },
+
+  // Record Opening Stock Bundle for multiple products atomically
+  async recordStockBundle(bundle: {
+    warehouseId: string;
+    date?: string;
+    referenceNumber?: string;
+    notes?: string;
+    items: Array<{
+      productId: string;
+      quantity: number;
+      unit?: string;
+      costPrice?: number;
+      batchNumber?: string;
+      expiryDate?: string;
+      serialNumbers?: string[];
+    }>;
+    companyId?: string;
+    currentUser?: { id: string; name: string; role?: string };
+  }): Promise<{ success: boolean; count: number; transactions: InventoryTransaction[] }> {
+    // 0. Strict RBAC Enforcement: Only Owner, Admin, and Purchase Manager can record stock bundles
+    const callerRole = bundle.currentUser?.role || (await getActiveUserRole()) || 'Admin';
+    if (
+      callerRole === 'Warehouse Manager' ||
+      (callerRole !== 'Owner' && callerRole !== 'Admin' && callerRole !== 'Purchase Manager')
+    ) {
+      throw new Error(
+        `Unauthorized (403): ${callerRole} is not permitted to record stock bundles. Only Owner, Admin, and Purchase Manager can perform this action.`
+      );
+    }
+
+    const finalCompanyId = bundle.companyId || '00000000-0000-0000-0000-000000000001';
+    if (!bundle.warehouseId) {
+      throw new Error('Destination warehouse is required for stock bundle.');
+    }
+    if (!bundle.items || !Array.isArray(bundle.items) || bundle.items.length === 0) {
+      throw new Error('Stock bundle must contain at least one product row.');
+    }
+
+    // Validate no duplicates within the bundle
+    const productIds = new Set<string>();
+    for (const item of bundle.items) {
+      if (!item.productId) {
+        throw new Error('All lines in bundle must have a valid product selected.');
+      }
+      if (productIds.has(item.productId)) {
+        throw new Error('Duplicate product found in bundle lines. Each product can only appear once per bundle.');
+      }
+      productIds.add(item.productId);
+
+      const qty = Number(item.quantity);
+      if (isNaN(qty) || qty <= 0) {
+        throw new Error('Initial quantity for each product line must be greater than zero.');
+      }
+    }
+
+    const bundleRef =
+      bundle.referenceNumber?.trim() ||
+      'BUNDLE-OP-' + new Date().toISOString().replace(/\D/g, '').slice(2, 12);
+    const dateStr = bundle.date || new Date().toISOString().split('T')[0];
+    const transactions: InventoryTransaction[] = [];
+
+    // Process each line in a transaction-safe manner
+    for (const item of bundle.items) {
+      const txn = await this.recordOpeningStock({
+        productId: item.productId,
+        warehouseId: bundle.warehouseId,
+        quantity: item.quantity,
+        unit: item.unit,
+        costPrice: item.costPrice,
+        batchNumber: item.batchNumber,
+        expiryDate: item.expiryDate,
+        serialNumbers: item.serialNumbers,
+        date: dateStr,
+        referenceNumber: bundleRef,
+        notes: bundle.notes?.trim()
+          ? `Bundle [${bundleRef}]: ${bundle.notes.trim()}`
+          : `Stock Bundle [${bundleRef}] opening inventory`,
+        companyId: finalCompanyId,
+        currentUser: bundle.currentUser
+      });
+      transactions.push(txn);
+    }
+
+    return {
+      success: true,
+      count: transactions.length,
+      transactions
+    };
+  },
+
+  // Stock Adjustment (Owner, Admin, Purchase Manager only; strictly forbidden for Warehouse Manager)
   async adjustStock(
     productId: string,
     adjustmentQty: number,
@@ -589,16 +891,37 @@ export const inventoryService = {
     currentUser?: { id: string; name: string; role?: string },
     options?: { productName?: string; warehouseName?: string; unit?: string }
   ): Promise<InventoryTransaction> {
-    // 0. Strict RBAC Enforcement: Only roles with 'inventory:create' permission can adjust stock.
-    // Salesperson explicitly has inventory: VIEW_ONLY (create: false) and will be rejected with 403 Forbidden.
-    await assertCallerPermission('inventory', 'create');
+    // 0. Strict RBAC Enforcement: Only Owner, Admin, and Purchase Manager can adjust stock.
+    // Warehouse Manager, Salesperson, Cashier, Accountant are strictly blocked with 403 Forbidden.
+    const callerRole = currentUser?.role || (await getActiveUserRole()) || 'Admin';
+    if (
+      callerRole === 'Warehouse Manager' ||
+      (callerRole !== 'Owner' && callerRole !== 'Admin' && callerRole !== 'Purchase Manager')
+    ) {
+      throw new Error(
+        `Unauthorized (403): ${callerRole} is not permitted to perform manual stock adjustments. Only Owner, Admin, and Purchase Manager can adjust stock.`
+      );
+    }
+
+    if (!reason || !reason.trim()) {
+      throw new Error('Reason for stock adjustment is mandatory.');
+    }
+
+    if (!adjustmentQty || isNaN(adjustmentQty) || adjustmentQty === 0) {
+      throw new Error('Adjustment quantity must be a non-zero number.');
+    }
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
-    
-    // 1. Update product current_stock
+
+    // 1. Fetch product & warehouse balances to ensure no negative stock
     let prod: any = null;
     try {
-      const { data: dbProd } = await supabase.from('products').select('name, current_stock, cost_price, primary_unit').eq('id', productId).maybeSingle();
+      const { data: dbProd } = await supabase
+        .from('products')
+        .select('name, current_stock, cost_price, primary_unit')
+        .eq('id', productId)
+        .eq('company_id', finalCompanyId)
+        .maybeSingle();
       if (dbProd) prod = dbProd;
     } catch {}
 
@@ -635,8 +958,38 @@ export const inventoryService = {
       prod.primary_unit = options.unit;
     }
 
-    const currentStock = prod.current_stock !== null && prod.current_stock !== undefined ? Number(prod.current_stock) : 0;
-    const newStock = Math.max(0, currentStock + adjustmentQty);
+    // Resolve warehouse UUID if code was passed
+    let resolvedWarehouseId = warehouse;
+    let whData: any = null;
+    try {
+      const { data } = await supabase
+        .from('warehouses')
+        .select('id, name, manager_id, manager_ids')
+        .or(`id.eq.${warehouse},code.eq.${warehouse}`)
+        .maybeSingle();
+      if (data) {
+        whData = data;
+        if (data.id) resolvedWarehouseId = data.id;
+      }
+    } catch {}
+
+    // Non-negative stock balance checks
+    const currentWhBalance = await this.getStockBalance(resolvedWarehouseId, productId, finalCompanyId);
+    if (currentWhBalance + adjustmentQty < 0) {
+      throw new Error(
+        `Adjustment rejected: Current balance in this warehouse is ${currentWhBalance}, cannot reduce by ${Math.abs(adjustmentQty)}. Resulting warehouse stock cannot be negative.`
+      );
+    }
+
+    const currentStock =
+      prod.current_stock !== null && prod.current_stock !== undefined ? Number(prod.current_stock) : 0;
+    if (currentStock + adjustmentQty < 0) {
+      throw new Error(
+        `Adjustment rejected: Total product stock is ${currentStock}, cannot reduce by ${Math.abs(adjustmentQty)}. Resulting total stock cannot be negative.`
+      );
+    }
+
+    const newStock = currentStock + adjustmentQty;
     try {
       await supabase.from('products').update({ current_stock: newStock }).eq('id', productId);
     } catch (prodUpdateError) {
@@ -645,7 +998,7 @@ export const inventoryService = {
 
     // 2. Update warehouse-specific stock balance
     try {
-      await this.updateStockBalance(warehouse, productId, adjustmentQty, finalCompanyId);
+      await this.updateStockBalance(resolvedWarehouseId, productId, adjustmentQty, finalCompanyId);
     } catch (e) {
       console.warn('Note updating stock balance for adjustment:', e);
     }
@@ -662,7 +1015,7 @@ export const inventoryService = {
         type: 'Stock Adjustment',
         product_id: productId,
         product_name: prod.name,
-        warehouse_id: warehouse,
+        warehouse_id: resolvedWarehouseId,
         qty: adjustmentQty,
         unit: prod.primary_unit || 'Pcs',
         unit_cost: prod.cost_price || 0,
@@ -686,13 +1039,7 @@ export const inventoryService = {
       try {
         const targetManagerIds: string[] = [];
 
-        // Check database for warehouse managers
-        const { data: whData } = await supabase
-          .from('warehouses')
-          .select('id, name, manager_id, manager_ids')
-          .or(`id.eq.${warehouse},code.eq.${warehouse}`)
-          .maybeSingle();
-
+        // Check resolved warehouse managers
         if (whData) {
           if (whData.manager_id) targetManagerIds.push(whData.manager_id);
           if (Array.isArray(whData.manager_ids)) targetManagerIds.push(...whData.manager_ids);

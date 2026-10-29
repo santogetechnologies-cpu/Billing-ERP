@@ -563,13 +563,19 @@ export const notificationService = {
     const storage = getAppStorage();
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
-        if (raw) {
-          const list: NotificationItem[] = JSON.parse(raw);
-          const updated = sortNotifications(
-            list.map(item => (item.id === id ? { ...item, read: true } : item))
-          );
-          storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(updated));
+        const updateList = (k: string) => {
+          const raw = storage.getItem(k);
+          if (raw) {
+            const list: NotificationItem[] = JSON.parse(raw);
+            const updated = sortNotifications(
+              list.map(item => (item.id === id ? { ...item, read: true } : item))
+            );
+            storage.setItem(k, JSON.stringify(updated));
+          }
+        };
+        updateList(STORAGE_KEY(finalCompanyId));
+        if (userId) {
+          updateList(STORAGE_KEY(finalCompanyId, userId));
         }
       } catch {}
     }

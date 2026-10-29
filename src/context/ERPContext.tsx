@@ -32,7 +32,9 @@ import {
   PaymentMethod,
   CustomerReturn,
   CreateCustomerReturnInput,
-  UpdateCustomerReturnInput
+  UpdateCustomerReturnInput,
+  RecordSupplierDeliveryInput,
+  SupplierDeliveryReceiptResult
 } from '../types';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -45,6 +47,7 @@ import { supplierService } from '../services/supplierService';
 import { salesService } from '../services/salesService';
 import { purchaseService } from '../services/purchaseService';
 import { purchaseRequestService } from '../services/purchaseRequestService';
+import { orderReceiveService } from '../services/orderReceiveService';
 import { inventoryService } from '../services/inventoryService';
 import { customerReturnService } from '../services/customerReturnService';
 import { categoryService } from '../services/categoryService';
@@ -184,14 +187,18 @@ export interface ERPContextType {
   createStockTransfer: (transfer: Omit<StockTransfer, 'id' | 'createdAt'>) => Promise<StockTransfer>;
   updateTransferStatus: (id: string, status: StockTransfer['status'], actorName?: string) => Promise<void>;
   adjustStock: (productId: string, adjustmentQty: number, reason: string, warehouse: string) => Promise<void>;
+  recordOpeningStock: (params: Parameters<typeof inventoryService.recordOpeningStock>[0]) => Promise<InventoryTransaction>;
+  recordStockBundle: (bundle: Parameters<typeof inventoryService.recordStockBundle>[0]) => Promise<{ success: boolean; count: number }>;
   getWarehouseStock: (warehouseIdOrCode: string | undefined, productId: string) => number;
   getProductStockByWarehouse: (productId: string) => Record<string, number>;
   validateSaleStock: (warehouseId: string, items: { productId: string; qty: number; unit?: string; productName?: string }[]) => StockValidationResult;
   refreshStockBalances: () => Promise<void>;
   batches: Batch[];
   addBatch: (batch: Omit<Batch, 'id'>) => Promise<Batch>;
+  updateBatch: (batchId: string, updates: Partial<Batch>) => Promise<void>;
   serialNumbers: SerialNumber[];
   addSerialNumber: (serial: Omit<SerialNumber, 'id'>) => Promise<SerialNumber>;
+  updateSerialNumber: (serialId: string, updates: Partial<SerialNumber>) => Promise<void>;
 
   // Units & Conversions
   units: Unit[];
@@ -253,6 +260,27 @@ export interface ERPContextType {
       unit: string;
     }>;
   }) => Promise<{ purchaseOrderId: string; purchaseOrderNumber: string; request: PurchaseRequest }>;
+  approvePurchaseRequestWithOrder: (params: {
+    requestId: string;
+    supplierId: string;
+    supplierName?: string;
+    supplierGstin?: string;
+    notes?: string;
+    expectedDelivery?: string;
+    approvedItems: Array<{
+      id?: string;
+      productId: string;
+      productName: string;
+      sku?: string;
+      unit: string;
+      requestedQty: number;
+      approvedQty: number;
+      rate?: number;
+      taxRate?: number;
+      isCustom?: boolean;
+      adjustmentReason?: string;
+    }>;
+  }) => Promise<{ purchaseOrderId: string; purchaseOrderNumber: string; request: PurchaseRequest }>;
   recordGoodsReceipt: (params: {
     requestId: string;
     receivedItems: Array<{
@@ -266,6 +294,7 @@ export interface ERPContextType {
     invoiceNumber?: string;
     notes?: string;
   }) => Promise<PurchaseRequest>;
+  recordSupplierDelivery: (input: RecordSupplierDeliveryInput) => Promise<SupplierDeliveryReceiptResult>;
 
   // Customer Returns Workflow
   customerReturns: CustomerReturn[];
@@ -1663,6 +1692,48 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addAuditLog('Adjusted Stock', 'Inventory', prod?.name || productId, `Adjust: ${adjustmentQty}`, reason);
   };
 
+  // Record Opening Stock
+  const recordOpeningStock = async (params: Parameters<typeof inventoryService.recordOpeningStock>[0]): Promise<InventoryTransaction> => {
+    const txn = await inventoryService.recordOpeningStock({
+      ...params,
+      companyId: company.id,
+      currentUser: user ? { id: user.id, name: profile?.full_name || user.email || 'User', role: profile?.role } : undefined
+    });
+    setInventoryTransactions(prev => [txn, ...prev.filter(t => t.id !== txn.id)]);
+    const [freshBalances, freshProducts] = await Promise.all([
+      inventoryService.getStockBalances(company.id),
+      productService.getProducts(undefined, company.id)
+    ]);
+    setStockBalances(freshBalances);
+    setProducts(sortProductsAZ(freshProducts));
+    checkStockAlerts(freshProducts);
+
+    addAuditLog('Recorded Opening Stock', 'Product', txn.productName || params.productId, `Initial: ${params.quantity}`, params.notes || 'Opening stock');
+    return txn;
+  };
+
+  // Record Stock Bundle
+  const recordStockBundle = async (bundle: Parameters<typeof inventoryService.recordStockBundle>[0]): Promise<{ success: boolean; count: number }> => {
+    const res = await inventoryService.recordStockBundle({
+      ...bundle,
+      companyId: company.id,
+      currentUser: user ? { id: user.id, name: profile?.full_name || user.email || 'User', role: profile?.role } : undefined
+    });
+    if (res.transactions && res.transactions.length > 0) {
+      setInventoryTransactions(prev => [...res.transactions, ...prev]);
+    }
+    const [freshBalances, freshProducts] = await Promise.all([
+      inventoryService.getStockBalances(company.id),
+      productService.getProducts(undefined, company.id)
+    ]);
+    setStockBalances(freshBalances);
+    setProducts(sortProductsAZ(freshProducts));
+    checkStockAlerts(freshProducts);
+
+    addAuditLog('Recorded Stock Bundle', 'Product', bundle.referenceNumber || 'Bundle', `Items: ${bundle.items.length}`, bundle.notes || 'Multi-product opening stock');
+    return { success: true, count: res.count };
+  };
+
   // Multi-Warehouse Management
   const addWarehouse = async (whData: Omit<Warehouse, 'id'>): Promise<Warehouse> => {
     const newWh = await companyService.createWarehouse(whData, company.id);
@@ -1767,6 +1838,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newSerial = await productService.createSerialNumber(serialData, company.id);
     setSerialNumbers(prev => [newSerial, ...prev.filter(s => s.id !== newSerial.id)]);
     return newSerial;
+  };
+
+  const updateBatch = async (batchId: string, updates: Partial<Batch>): Promise<void> => {
+    await productService.updateBatch(batchId, updates, company.id);
+    setBatches(prev => prev.map(b => (b.id === batchId ? { ...b, ...updates } : b)));
+  };
+
+  const updateSerialNumber = async (serialId: string, updates: Partial<SerialNumber>): Promise<void> => {
+    await productService.updateSerialNumber(serialId, updates, company.id);
+    setSerialNumbers(prev => prev.map(s => (s.id === serialId ? { ...s, ...updates } : s)));
   };
 
   // Units & Conversions
@@ -2045,6 +2126,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   }, [activeCompanyId, user, profile?.full_name, profile?.role, (user as any)?.role]);
 
+  const handleApprovePurchaseRequestWithOrder = useCallback(async (params: any) => {
+    const res = await purchaseRequestService.approvePurchaseRequestWithOrder(
+      params,
+      activeCompanyId,
+      user ? { id: user.id, name: profile?.full_name || user.email || 'Purchase Manager', role: profile?.role } : undefined
+    );
+    setPurchaseRequests(prev => prev.map(r => r.id === res.request.id ? res.request : r));
+    const notifs = await notificationService.getNotifications(activeCompanyId, user?.id, profile?.role || (user as any)?.role);
+    setNotifications(sortNotifications(dedupeById(notifs || [])));
+    return res;
+  }, [activeCompanyId, user, profile?.full_name, profile?.role, (user as any)?.role]);
+
   const handleRecordGoodsReceipt = useCallback(async (params: any): Promise<PurchaseRequest> => {
     const res = await purchaseRequestService.recordGoodsReceipt(
       params,
@@ -2058,6 +2151,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return [res, ...prev];
     });
+    await loadAllData(activeCompanyId);
+    return res;
+  }, [activeCompanyId, user, profile?.full_name, profile?.role, loadAllData]);
+
+  const handleRecordSupplierDelivery = useCallback(async (input: RecordSupplierDeliveryInput): Promise<SupplierDeliveryReceiptResult> => {
+    const res = await orderReceiveService.confirmSupplierDelivery(
+      input,
+      activeCompanyId,
+      user ? { id: user.id, name: profile?.full_name || user.email || 'Warehouse Staff', role: profile?.role } : undefined
+    );
     await loadAllData(activeCompanyId);
     return res;
   }, [activeCompanyId, user, profile?.full_name, profile?.role, loadAllData]);
@@ -2114,7 +2217,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     cancelPurchaseRequest: handleCancelPurchaseRequest,
     deletePurchaseRequest: handleDeletePurchaseRequest,
     createPurchaseOrderFromRequest: handleCreatePurchaseOrderFromRequest,
+    approvePurchaseRequestWithOrder: handleApprovePurchaseRequestWithOrder,
     recordGoodsReceipt: handleRecordGoodsReceipt,
+    recordSupplierDelivery: handleRecordSupplierDelivery,
     expenses,
     addExpense,
     deleteExpense,
@@ -2131,14 +2236,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createStockTransfer,
     updateTransferStatus,
     adjustStock,
+    recordOpeningStock,
+    recordStockBundle,
     getWarehouseStock,
     getProductStockByWarehouse,
     validateSaleStock,
     refreshStockBalances,
     batches,
     addBatch,
+    updateBatch,
     serialNumbers,
     addSerialNumber,
+    updateSerialNumber,
     units,
     addUnit,
     updateUnit,
@@ -2222,6 +2331,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     handleDeletePurchaseRequest,
     handleCreatePurchaseOrderFromRequest,
     handleRecordGoodsReceipt,
+    handleRecordSupplierDelivery,
     expenses,
     addExpense,
     deleteExpense,
@@ -2238,14 +2348,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createStockTransfer,
     updateTransferStatus,
     adjustStock,
+    recordOpeningStock,
+    recordStockBundle,
     getWarehouseStock,
     getProductStockByWarehouse,
     validateSaleStock,
     refreshStockBalances,
     batches,
     addBatch,
+    updateBatch,
     serialNumbers,
     addSerialNumber,
+    updateSerialNumber,
     units,
     addUnit,
     updateUnit,
