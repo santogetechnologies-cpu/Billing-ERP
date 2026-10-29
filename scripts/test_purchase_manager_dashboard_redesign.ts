@@ -63,10 +63,14 @@ async function runTestSuite() {
       'Header includes User Profile button opening UserProfileModal'
     );
     assert(
-      pmDashboardCode.includes('Review Requests') &&
-      pmDashboardCode.includes('navigate(\'/purchases/requests?status=Pending+Review\')') &&
-      pmDashboardCode.includes('{metrics.pendingRequestsCount}'),
-      'Header includes "Review Requests" button with real pending-request count badge'
+      pmDashboardCode.includes('New Purchase Order') &&
+      pmDashboardCode.includes('navigate(\'/purchases/new?docType=purchase_order\')'),
+      'Header includes "New Purchase Order" action button navigating to /purchases/new?docType=purchase_order'
+    );
+    assert(
+      !pmDashboardCode.includes('Review Requests') &&
+      !pmDashboardCode.includes('pendingRequestsCount'),
+      'Header retired "Review Requests" button and pending requests badge'
     );
     assert(
       pmDashboardCode.includes('New Purchase Bill') &&
@@ -89,11 +93,11 @@ async function runTestSuite() {
       'Procurement Reorder Watchlist is completely removed from dashboard'
     );
     assert(
-      pmDashboardCode.includes('title="Pending Requests"') &&
+      pmDashboardCode.includes('title="Total Purchase Orders"') &&
       pmDashboardCode.includes('title="Month Purchases"') &&
       pmDashboardCode.includes('title="Active Orders"') &&
       pmDashboardCode.includes('title="Active Suppliers"'),
-      'Top KPI section includes exactly the 4 required purchasing cards'
+      'Top KPI section includes Total Purchase Orders, Month Purchases, Active Orders, and Active Suppliers'
     );
     assert(
       pmDashboardCode.includes("showLowStockCard ? 'lg:grid-cols-3 xl:grid-cols-5' : 'lg:grid-cols-4'"),
@@ -203,25 +207,32 @@ async function runTestSuite() {
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Pending Purchase Requests Review Section
+  // 5. Recent Purchase Orders Section (Direct Purchasing Workflow)
   // ---------------------------------------------------------------------------
-  console.log('\n--- 5. Pending Purchase Requests Review Section ---');
+  console.log('\n--- 5. Recent Purchase Orders Section ---');
   {
     assert(
-      pmDashboardCode.includes('Pending Purchase Requests Awaiting Your Review'),
-      'Pending Purchase Requests section title is displayed'
+      pmDashboardCode.includes('Recent Purchase Orders'),
+      'Recent Purchase Orders section title is displayed'
     );
     assert(
-      pmDashboardCode.includes('navigate(\'/purchases/requests\')'),
-      '"View All Requests" navigates to /purchases/requests'
+      pmDashboardCode.includes('navigate(\'/purchases/orders\')'),
+      '"View All Orders" navigates to /purchases/orders'
     );
     assert(
-      isAwaitingPurchaseManagerReview('Pending Approval') === true &&
-      isAwaitingPurchaseManagerReview('Pending Review') === true &&
-      isAwaitingPurchaseManagerReview('Under Review') === true &&
-      isAwaitingPurchaseManagerReview('Approved') === false &&
-      isAwaitingPurchaseManagerReview('Rejected') === false,
-      'isAwaitingPurchaseManagerReview filters only actionable statuses'
+      pmDashboardCode.includes('Purchase Order Number') &&
+      pmDashboardCode.includes('Supplier') &&
+      pmDashboardCode.includes('Destination Warehouse') &&
+      pmDashboardCode.includes('Number of Products') &&
+      pmDashboardCode.includes('Ordered Quantity') &&
+      pmDashboardCode.includes('Outstanding Quantity') &&
+      pmDashboardCode.includes('Expected Delivery') &&
+      pmDashboardCode.includes('Delivery Status'),
+      'Recent Purchase Orders table contains all required columns'
+    );
+    assert(
+      !pmDashboardCode.includes('Pending Purchase Requests Awaiting Your Review'),
+      'Obsolete Pending Purchase Requests review section is cleanly removed'
     );
   }
 

@@ -23,7 +23,8 @@ import {
   HelpCircle,
   AlertCircle,
   Loader2,
-  Search
+  Search,
+  FileText
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -32,7 +33,6 @@ import { StatCard } from '../../components/common/StatCard';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { Modal } from '../../components/common/Modal';
 import { UserProfileModal } from '../../components/auth/UserProfileModal';
-import { ApprovePurchaseRequestModal } from '../../components/purchases/ApprovePurchaseRequestModal';
 import { ActiveOrdersModal } from '../../components/purchases/ActiveOrdersModal';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { canManageBarcodeOverride } from '../../utils/rbac';
@@ -56,7 +56,7 @@ export interface SupplierDeliveryItem {
   expectedDelivery: string;
   deliveryStatus: 'Pending' | 'In Transit' | 'Partially Delivered' | 'Overdue' | 'Delivered';
   isOverdue: boolean;
-  supplierStatus: 'Active' | 'Inactive';
+  supplierStatus: 'Active' | 'Delivered' | 'Inactive';
 }
 
 /**
@@ -85,6 +85,7 @@ export function computeSupplierDeliveries(params: {
     hasInTransit: boolean;
     hasPending: boolean;
     hasOverdue: boolean;
+    hasDeliveredOrder: boolean;
   }>();
 
   // Initialize with registered suppliers
@@ -101,7 +102,8 @@ export function computeSupplierDeliveries(params: {
       hasPartiallyDelivered: false,
       hasInTransit: false,
       hasPending: false,
-      hasOverdue: false
+      hasOverdue: false,
+      hasDeliveredOrder: false
     });
   });
 
@@ -128,7 +130,8 @@ export function computeSupplierDeliveries(params: {
       hasPartiallyDelivered: false,
       hasInTransit: false,
       hasPending: false,
-      hasOverdue: false
+      hasOverdue: false,
+      hasDeliveredOrder: false
     };
     supplierMap.set(newId, entry);
     return entry;
@@ -165,7 +168,11 @@ export function computeSupplierDeliveries(params: {
     const isCompleted = statusLower === 'completed' || statusLower === 'delivered' || (orderedQty > 0 && pendingQty === 0);
     const isCancelled = statusLower === 'cancelled' || statusLower === 'rejected';
 
-    if (isCancelled || isCompleted) return;
+    if (isCompleted) {
+      entry.hasDeliveredOrder = true;
+      return;
+    }
+    if (isCancelled) return;
 
     entry.activeOrders += 1;
     entry.itemsToDeliver += pendingQty;
@@ -276,7 +283,14 @@ export function computeSupplierDeliveries(params: {
       deliveryStatus = 'Delivered';
     }
 
-    const supplierStatus: 'Active' | 'Inactive' = (e.activeOrders > 0 || e.itemsToDeliver > 0) ? 'Active' : 'Inactive';
+    let supplierStatus: 'Active' | 'Delivered' | 'Inactive' = 'Inactive';
+    if (e.activeOrders > 0 || e.itemsToDeliver > 0) {
+      supplierStatus = 'Active';
+    } else if (e.hasDeliveredOrder) {
+      supplierStatus = 'Delivered';
+    } else {
+      supplierStatus = 'Inactive';
+    }
 
     return {
       supplierId: e.supplierId,
@@ -1477,71 +1491,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* Approve Modal */}
-      {selectedRequest && isApproveModalOpen && (
-        <ApprovePurchaseRequestModal
-          isOpen={isApproveModalOpen}
-          onClose={() => {
-            setIsApproveModalOpen(false);
-            setSelectedRequest(null);
-          }}
-          request={selectedRequest}
-          onApprovalSuccess={async () => {
-            setIsApproveModalOpen(false);
-            setSelectedRequest(null);
-            await refreshPurchaseRequests();
-            await refreshData();
-          }}
-        />
-      )}
 
-      {/* Reject Modal */}
-      {selectedRequest && isRejectModalOpen && (
-        <Modal
-          isOpen={isRejectModalOpen}
-          onClose={() => setIsRejectModalOpen(false)}
-          title={`Reject Purchase Request #${selectedRequest.requestNumber}`}
-        >
-          <div className="space-y-4 text-xs">
-            <p className="text-slate-600">
-              Please state why this replenishment request is being rejected. The requester will be notified.
-            </p>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Rejection Reason <span className="text-rose-500">*</span>
-              </label>
-              <textarea
-                value={rejectionReason}
-                onChange={e => setRejectionReason(e.target.value)}
-                placeholder="e.g. Stock transfer available from East Godown. Procurement not required."
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 text-xs"
-                rows={3}
-                required
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsRejectModalOpen(false)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isSubmittingAction || !rejectionReason.trim()}
-                onClick={handleRejectConfirm}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-              >
-                {isSubmittingAction ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                <span>Confirm Rejection</span>
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
 
       {/* User Profile Modal */}
       <UserProfileModal
@@ -1680,9 +1630,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           </div>
         </Modal>
       )}
-    </div>
-  );
-};
     </div>
   );
 };
