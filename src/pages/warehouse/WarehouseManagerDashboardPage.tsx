@@ -46,7 +46,6 @@ import {
   CreatePurchaseRequestInput,
   InventoryTransaction
 } from '../../types';
-import { orderReceiveService } from '../../services/orderReceiveService';
 
 interface EnrichedLowStockProduct {
   id: string;
@@ -87,8 +86,6 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
     products,
     inventoryTransactions,
     purchaseRequests,
-    purchaseInvoices,
-    suppliers,
     createPurchaseRequest,
     updatePurchaseRequest,
     refreshData,
@@ -136,9 +133,44 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
   const [sortField, setSortField] = useState<'stock' | 'suggestedQty' | 'name'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // Multi-Selection State for Bulk Product Selection
+  // Multi-Selection State for Bulk Purchase Request
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+
+  // Modal State for Create / Edit Purchase Request Workflow
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+  const [requestItems, setRequestItems] = useState<MultiRequestItem[]>([]);
+  const [requestWarehouseId, setRequestWarehouseId] = useState<string>('');
+  const [priority, setPriority] = useState<PurchaseRequestPriority>('High');
+  const [reason, setReason] = useState<string>('Critical inventory replenishment: Items are out of stock');
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const [deliveryDate, setDeliveryDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 5);
+    return d.toISOString().split('T')[0];
+  });
+  const [notes, setNotes] = useState('');
+  const [additionalProductId, setAdditionalProductId] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitSuccessMsg, setSubmitSuccessMsg] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Replenishment Reason input auto-selection refs & handlers
+  const reasonInputRef = useRef<HTMLInputElement>(null);
+  const isReasonEditedRef = useRef<boolean>(false);
+
+  const handleReasonFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    // Only select on initial focus if text exists and user hasn't edited yet
+    if (!isReasonEditedRef.current && reason) {
+      e.currentTarget.select();
+    }
+  };
+
+  const handleReasonChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    isReasonEditedRef.current = true;
+    setReason(e.target.value);
+    if (reasonError) setReasonError(null);
+  };
 
 
   // Current localized date string
@@ -304,35 +336,28 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
     );
   }, [enrichedCatalog]);
 
-  // Inward deliveries awaiting receipt (filtered to authorized warehouses)
-  const pendingInwardDeliveries = useMemo(() => {
-    const groups = orderReceiveService.getSupplierDeliveryGroups({
-      purchaseRequests: purchaseRequests || [],
-      purchaseInvoices: purchaseInvoices || [],
-      suppliers: suppliers || [],
-      warehouses: warehouses || [],
-      products: products || []
-    });
-
-    return groups.filter(g => {
-      if (g.deliveryStatus === 'Received / Completed' || g.totalOutstandingQuantity <= 0) {
-        return false;
-      }
-      if (selectedWarehouseId === 'ALL') {
-        return authorizedWarehouses.some(w => w.id === g.warehouseId || w.name === g.warehouseName);
-      }
-      return g.warehouseId === selectedWarehouseId;
-    });
-  }, [purchaseRequests, purchaseInvoices, suppliers, warehouses, products, selectedWarehouseId, authorizedWarehouses]);
-
-  // 2. Summary Metrics Calculations
+  // 2. Summary Metrics Calculations (Counts reflect products that still require a new purchase request)
   const metrics = useMemo(() => {
     const totalProducts = enrichedCatalog.length;
     const outOfStockCount = lowStockProducts.filter(p => p.stockStatus === 'Out of Stock').length;
     const lowStockCount = lowStockProducts.filter(p => p.stockStatus === 'Limited Stock').length;
     const coveredCount = coveredLowStockProducts.length;
     const activeHealthyCount = Math.max(0, totalProducts - outOfStockCount - lowStockCount - coveredCount);
-    const pendingInwardDeliveriesCount = pendingInwardDeliveries.length;
+
+    // Pending purchase requests count (filtered to warehouse if not ALL)
+    const pendingPRCount = purchaseRequests.filter(req => {
+      const isPendingStatus =
+        req.status === 'Pending Approval' ||
+        req.status === 'Pending Review' ||
+        req.status === 'Under Review' ||
+        req.status === 'Clarification Requested';
+
+      if (!isPendingStatus) return false;
+      if (selectedWarehouseId === 'ALL') {
+        return authorizedWarehouses.some(w => w.id === req.warehouseId || w.name === req.warehouseName);
+      }
+      return req.warehouseId === selectedWarehouseId;
+    }).length;
 
     return {
       totalProducts,
@@ -340,9 +365,9 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
       lowStockCount,
       coveredCount,
       activeHealthyCount,
-      pendingInwardDeliveriesCount
+      pendingPRCount
     };
-  }, [enrichedCatalog, lowStockProducts, coveredLowStockProducts, pendingInwardDeliveries]);
+  }, [enrichedCatalog, lowStockProducts, coveredLowStockProducts, purchaseRequests, selectedWarehouseId, authorizedWarehouses]);
 
   // 3. Stock Status Donut Chart Percentages
   const chartData = useMemo(() => {
@@ -874,14 +899,14 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
             </span>
           </button>
 
-          {/* Primary Action Button: Receive Inward Goods */}
+          {/* Primary Action Button: Create Purchase Request */}
           <button
-            onClick={() => navigate('/inventory/receive')}
+            onClick={handleOpenBulkRequestModal}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-2xs hover:shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
-            title="Record arrived supplier deliveries and goods receipt"
+            title="Create a new purchase request for inventory replenishment"
           >
-            <Package className="w-3.5 h-3.5" />
-            <span className="whitespace-nowrap">Receive Inward Goods</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span className="whitespace-nowrap">Create Purchase Request</span>
           </button>
         </div>
       </div>
@@ -929,15 +954,15 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
           }}
         />
 
-        {/* Inward Deliveries */}
+        {/* Pending Purchase Requests */}
         <StatCard
-          title="Inward Deliveries"
-          value={`${formatNumber(metrics.pendingInwardDeliveriesCount)} Deliveries`}
-          subtitle="Awaiting goods receipt"
+          title="Pending Purchase Requests"
+          value={`${formatNumber(metrics.pendingPRCount)} Requests`}
+          subtitle="Awaiting purchase manager review"
           icon={ClipboardList}
           iconBgColor="bg-indigo-50"
           iconTextColor="text-indigo-600"
-          onClick={() => navigate('/inventory/receive')}
+          onClick={() => navigate('/inventory/purchase-requests')}
         />
       </div>
 
@@ -1045,80 +1070,117 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Inward Deliveries Awaiting Receipt Card (6 cols) */}
+        {/* Right: Recent Purchase Requests Card (6 cols) */}
         <div className="lg:col-span-6 bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3.5 overflow-hidden flex flex-col justify-between">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-              <h2 className="text-sm font-bold text-slate-900 tracking-tight">Inward Deliveries Awaiting Receipt</h2>
-              <p className="text-xs text-slate-400">Supplier purchase orders awaiting delivery intake</p>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">Pending Purchase Requests</h2>
+              <p className="text-xs text-slate-400">Track replenishment orders sent to purchasing</p>
             </div>
             <button
-              onClick={() => navigate('/inventory/receive')}
+              onClick={() => navigate('/inventory/purchase-requests')}
               className="text-xs font-semibold text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors cursor-pointer px-1 py-1 group"
-              title="Navigate to goods receipt page"
+              title="Navigate to complete purchase requests page"
             >
               <span>View All</span>
               <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
             </button>
           </div>
 
-          {pendingInwardDeliveries.length === 0 ? (
+          {recentPurchaseRequests.length === 0 ? (
             <div className="flex-1 flex items-center justify-center py-8 text-center">
               <p className="text-xs text-slate-400 font-medium">
-                No pending deliveries awaiting receipt.
+                No recent purchase requests found.
               </p>
             </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto max-h-[155px] scrollbar-thin divide-y divide-slate-100 pr-0.5">
-              {pendingInwardDeliveries.map(del => {
-                const poNumber = del.purchaseOrders[0]?.poNumber || 'PO';
+              {recentPurchaseRequests.map(req => {
+                const { productSummary, quantitySummary, fullProductsTooltip } = getRequestSummary(req);
+
                 return (
                   <div
-                    key={del.supplierId + '-' + del.warehouseId}
-                    onClick={() => navigate('/inventory/receive')}
+                    key={req.id}
+                    onClick={() => {
+                      if (hasPermission(profile?.role, 'inventory', 'view')) {
+                        navigate(`/inventory/purchase-requests?id=${req.id}`);
+                      } else {
+                        setSelectedRequestDetails(req);
+                      }
+                    }}
                     className="py-2 px-1.5 first:pt-0.5 last:pb-0.5 flex items-center justify-between gap-3 hover:bg-slate-50/80 rounded-lg transition-colors cursor-pointer group"
-                    title={`Click to record receipt for ${del.supplierName}`}
+                    title={`Click to view details of #${req.requestNumber}`}
                   >
+                    {/* Left Details: Request Number, Badges, Warehouse, Requester, Date, Product Summary, Quantity */}
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono font-bold text-xs text-blue-600 group-hover:text-blue-700">
-                          #{poNumber}
+                          #{req.requestNumber}
                         </span>
+
+                        {req.priority && (
+                          <span className={`px-1.5 py-0.2 rounded text-[10px] border ${getPriorityBadgeClass(req.priority)}`}>
+                            {req.priority}
+                          </span>
+                        )}
+
                         <span className="text-[10px] text-slate-300">•</span>
-                        <span className="text-[11px] text-slate-900 font-semibold truncate max-w-[130px]">
-                          {del.supplierName}
+
+                        <span className="text-[11px] text-slate-600 font-medium truncate max-w-[120px]" title={req.warehouseName}>
+                          {req.warehouseName}
                         </span>
+
                         <span className="text-[10px] text-slate-300">•</span>
-                        <span className="text-[11px] text-slate-600 font-medium truncate max-w-[110px]" title={del.warehouseName}>
-                          {del.warehouseName}
+
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          {formatDate(req.createdAt)}
+                        </span>
+
+                        <span className="text-[10px] text-slate-300">•</span>
+
+                        <span className="text-[10px] text-slate-500 truncate max-w-[110px]" title={req.requesterName || 'Warehouse Manager'}>
+                          {req.requesterName || 'Warehouse Manager'}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 truncate">
-                        {del.items.length} {del.items.length === 1 ? 'item' : 'items'} ·{' '}
-                        <span className="font-semibold text-slate-700 font-mono">
-                          {formatNumber(del.totalOutstandingQuantity)} pending
-                        </span>{' '}
-                        of {formatNumber(del.totalOrderedQuantity)}
-                      </p>
+
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 min-w-0 flex-wrap">
+                        <span
+                          className="font-medium text-slate-800 truncate max-w-[200px] sm:max-w-[260px]"
+                          title={fullProductsTooltip}
+                        >
+                          {productSummary}
+                        </span>
+
+                        {quantitySummary && (
+                          <>
+                            <span className="text-slate-300">•</span>
+                            <span className="text-[11px] text-slate-500 font-mono shrink-0">
+                              Qty: <strong className="font-semibold text-slate-700">{quantitySummary}</strong>
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="shrink-0 flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                        del.deliveryStatus === 'Partially Received'
-                          ? 'bg-amber-50 text-amber-700 border-amber-200'
-                          : 'bg-blue-50 text-blue-700 border-blue-200'
-                      }`}>
-                        {del.deliveryStatus}
+
+                    {/* Right Details: Status Badge & Actions */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${getRequestStatusBadgeClass(req.status)}`}>
+                        {req.status}
                       </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate('/inventory/receive');
-                        }}
-                        className="px-2.5 py-1 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-2xs transition-colors cursor-pointer"
-                      >
-                        Receive
-                      </button>
+                      {['Pending Approval', 'Pending Review', 'Clarification Requested'].includes(req.status) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditRequestModal(req);
+                          }}
+                          className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title="Edit this request"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      )}
+                      <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 transition-all group-hover:translate-x-0.5" />
                     </div>
                   </div>
                 );
@@ -1368,8 +1430,8 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         +{formatNumber(p.suggestedQty)} {p.unit}
                       </td>
 
-                      {/* Actions: View Product & Transfer Stock */}
-                      <td style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-right align-middle">
+                      {/* Actions: View Product & Request */}
+                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right align-middle">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
@@ -1379,15 +1441,30 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => navigate('/inventory/transfers?productId=' + p.product.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-transparent font-semibold text-[11px] transition-all cursor-pointer"
-                            title={`Initiate stock transfer for ${p.name}`}
-                          >
-                            <ArrowUpRight className="w-3 h-3" />
-                            <span>Transfer Stock</span>
-                          </button>
+                          {p.isCovered ? (
+                            <span
+                              onClick={() => {
+                                if (p.activeRequestId) {
+                                  navigate(`/inventory/purchase-requests?id=${p.activeRequestId}`);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] cursor-pointer hover:bg-blue-100 transition-colors"
+                              title={`Covered by active purchase request #${p.activeRequestNumber || ''}. Click to view request.`}
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                              <span>#{p.activeRequestNumber || 'On Request'}</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSingleRequestModal(p.product)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-transparent font-semibold text-[11px] transition-all cursor-pointer"
+                              title={`Create purchase request for ${p.name}`}
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>Request</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                       
@@ -1400,7 +1477,253 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* 6. Modal: Purchase Request Details Viewer */}
+      {/* 6. Modal: Create Multi-Product Purchase Request */}
+      <Modal
+        isOpen={isRequestModalOpen}
+        onClose={() => !isSubmitting && setIsRequestModalOpen(false)}
+        title="Create Purchase Request"
+        subtitle={`Bundle ${requestItems.length} replenishment ${requestItems.length === 1 ? 'item' : 'items'} for Purchase Manager authorization`}
+        size="2xl"
+      >
+        <form onSubmit={handleSubmitPurchaseRequest} className="space-y-4 py-1">
+          {submitSuccessMsg && (
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-800 text-xs font-medium animate-fadeIn">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>{submitSuccessMsg}</span>
+            </div>
+          )}
+
+          {/* Receiving Warehouse, Priority, Date, Reason */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                Receiving Hub <span className="text-rose-500">*</span>
+              </label>
+              <select
+                required
+                value={requestWarehouseId}
+                onChange={e => setRequestWarehouseId(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {authorizedWarehouses.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                Priority Level <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={priority}
+                onChange={e => setPriority(e.target.value as any)}
+                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="Normal">Normal — Routine replenishment</option>
+                <option value="High">High — Threshold approaching</option>
+                <option value="Urgent">Urgent — Out of stock / Critical</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                Required By Date
+              </label>
+              <input
+                type="date"
+                value={deliveryDate}
+                onChange={e => setDeliveryDate(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                Replenishment Reason <span className="text-rose-500">*</span>
+              </label>
+              <input
+                ref={reasonInputRef}
+                type="text"
+                required
+                data-testid="replenishment-reason-input"
+                placeholder="e.g. Critical inventory replenishment: Items are out of stock"
+                value={reason}
+                onChange={handleReasonChange}
+                onFocus={handleReasonFocus}
+                className={`w-full px-2.5 py-1.5 bg-white border ${reasonError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300'} rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500`}
+              />
+              {reasonError && (
+                <p className="text-[11px] text-rose-600 mt-1 font-medium">{reasonError}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Line Items Table */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Requested Products ({requestItems.length})
+              </h3>
+              <span className="text-[11px] text-slate-500">
+                Adjust quantities or remove items before sending
+              </span>
+            </div>
+
+            <div className="border border-slate-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100/80 text-slate-600 font-bold uppercase text-[10px] sticky top-0">
+                  <tr>
+                    <th className="py-2.5 px-3">Product Name</th>
+                    <th className="py-2.5 px-2.5">SKU</th>
+                    <th className="py-2.5 px-3 text-right">Stock On Hand</th>
+                    <th className="py-2.5 px-3 text-right">Suggested Reorder</th>
+                    <th className="py-2.5 px-3 text-right w-36">Requested Qty</th>
+                    <th className="py-2.5 px-2 text-center w-12">Remove</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {requestItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                        No products in this request. Please add products below.
+                      </td>
+                    </tr>
+                  ) : (
+                    requestItems.map(item => {
+                      const safeStock = Math.max(0, item.currentStock);
+                      return (
+                        <tr key={item.product.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-2.5 px-3 font-semibold text-slate-900 max-w-[200px] truncate" title={item.product.name}>
+                            {item.product.name}
+                          </td>
+                          <td className="py-2.5 px-2.5 font-mono text-[11px] text-blue-600 font-semibold">
+                            {item.product.sku || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold">
+                            <span className={safeStock <= 0 ? 'text-rose-600' : 'text-slate-700'}>
+                              {formatNumber(safeStock)} {item.unit}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-indigo-600 font-bold">
+                            +{formatNumber(item.suggestedQty)} {item.unit}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                required
+                                value={item.requestedQty}
+                                onChange={e => handleUpdateItemQty(item.product.id, Number(e.target.value))}
+                                className="w-20 px-2 py-1 bg-white border border-blue-300 rounded-lg text-right font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                              />
+                              <span className="text-[11px] text-slate-500 font-medium">{item.unit}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveItem(item.product.id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="Remove this item"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Add Additional Product Dropdown */}
+          <div className="flex flex-col sm:flex-row items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+            <span className="font-semibold text-slate-700 shrink-0">Add Another Product:</span>
+            <select
+              value={additionalProductId}
+              onChange={e => setAdditionalProductId(e.target.value)}
+              className="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="">Select a product to add...</option>
+              {products
+                .filter(p => !requestItems.some(i => i.product.id === p.id))
+                .map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.sku || 'No SKU'}) — Available: {p.currentStock} {p.primaryUnit || 'Pcs'}
+                  </option>
+                ))}
+            </select>
+            <button
+              type="button"
+              disabled={!additionalProductId}
+              onClick={handleAddAdditionalProduct}
+              className="px-3 py-1.5 bg-slate-800 text-white rounded-lg font-semibold hover:bg-slate-900 disabled:opacity-40 transition-colors shrink-0 cursor-pointer"
+            >
+              Add Item
+            </button>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+              Instructions & Notes for Purchase Manager
+            </label>
+            <textarea
+              rows={2}
+              placeholder="e.g. Please expedite shipment due to high customer backlog..."
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Footer with Submit Button */}
+          <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+            <div className="text-xs text-slate-500">
+              Total Units:{' '}
+              <strong className="text-slate-900 font-bold font-mono">
+                {formatNumber(requestItems.reduce((acc, i) => acc + Number(i.requestedQty || 0), 0))}
+              </strong>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => setIsRequestModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || requestItems.length === 0}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{editingRequestId ? 'Saving Changes...' : 'Submitting Request...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{editingRequestId ? 'Save Changes' : 'Send Purchase Request'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 7. Modal: Purchase Request Details Viewer */}
       {selectedRequestDetails && (
         <Modal
           isOpen={!!selectedRequestDetails}

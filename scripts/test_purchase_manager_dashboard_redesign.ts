@@ -93,15 +93,15 @@ async function runTestSuite() {
       'Procurement Reorder Watchlist is completely removed from dashboard'
     );
     assert(
-      pmDashboardCode.includes('title="Total Purchase Orders"') &&
       pmDashboardCode.includes('title="Month Purchases"') &&
       pmDashboardCode.includes('title="Active Orders"') &&
-      pmDashboardCode.includes('title="Active Suppliers"'),
-      'Top KPI section includes Total Purchase Orders, Month Purchases, Active Orders, and Active Suppliers'
+      pmDashboardCode.includes('title="Active Suppliers"') &&
+      pmDashboardCode.includes('title="Products in Inventory"'),
+      'Top KPI section includes Month Purchases, Active Orders, Active Suppliers, and Products in Inventory'
     );
     assert(
-      pmDashboardCode.includes("showLowStockCard ? 'lg:grid-cols-3 xl:grid-cols-5' : 'lg:grid-cols-4'"),
-      'Grid layout adapts to "lg:grid-cols-4" without gaps when Low Stock card is hidden'
+      pmDashboardCode.includes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'),
+      'Grid layout renders 4 equal cards on desktop (grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4)'
     );
   }
 
@@ -111,8 +111,8 @@ async function runTestSuite() {
   console.log('\n--- 3. Supplier Delivery Overview Logic & Columns ---');
   {
     assert(
-      pmDashboardCode.includes('lg:col-span-8') && pmDashboardCode.includes('lg:col-span-4'),
-      'Lower grid allocates generous width to Supplier Delivery Overview (8 of 12 cols) vs Recent Bills (4 cols)'
+      pmDashboardCode.includes('grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch'),
+      'Middle & lower grids use balanced 2-column layout (grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch)'
     );
     assert(
       pmDashboardCode.includes('Supplier Name') &&

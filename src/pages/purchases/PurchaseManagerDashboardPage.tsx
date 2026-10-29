@@ -572,18 +572,22 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   const getWarehouseStats = useCallback((whId: string) => {
     let skuCount = 0;
     let totalUnits = 0;
+    let valuation = 0;
     (products || []).forEach(p => {
       const stock = getWarehouseStock ? getWarehouseStock(whId, p.id) : Number(p.currentStock || 0);
       if (stock > 0) {
         skuCount++;
         totalUnits += stock;
+        const unitCost = Number(p.costPrice || p.purchasePrice || 0);
+        valuation += stock * unitCost;
       }
     });
     if (skuCount === 0 && totalUnits === 0 && (products || []).length > 0) {
       skuCount = products.length;
       totalUnits = products.reduce((sum, p) => sum + (p.currentStock || 0), 0);
+      valuation = products.reduce((sum, p) => sum + ((p.currentStock || 0) * Number(p.costPrice || p.purchasePrice || 0)), 0);
     }
-    return { skuCount, totalUnits };
+    return { skuCount, totalUnits, valuation };
   }, [products, getWarehouseStock]);
 
   const filteredDashboardWarehouses = useMemo(() => {
@@ -832,6 +836,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       return limit !== null && limit !== undefined && p.currentStock <= limit;
     });
 
+    // Total Products & Total Stock
+    const totalProductsCount = (products || []).length;
+    const totalInventoryUnits = (products || []).reduce((sum, p) => sum + Number(p.currentStock || 0), 0);
+
     // Active suppliers count: vendors with pending delivery obligations
     const activeSuppliersCount = supplierDeliveries.filter(s => s.supplierStatus === 'Active').length;
 
@@ -842,7 +850,9 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       activeOrdersCount: activeInTransitOrders.length,
       lowStockCount: lowStockItems.length,
       lowStockList: lowStockItems.slice(0, 5),
-      activeSuppliersCount
+      activeSuppliersCount,
+      totalProductsCount,
+      totalInventoryUnits
     };
   }, [purchaseInvoices, products, supplierDeliveries, activeInTransitOrders, allPurchaseOrders]);
 
@@ -948,17 +958,8 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Procurement Summary KPI Cards */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${showLowStockCard ? 'lg:grid-cols-3 xl:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
-        <StatCard
-          title="Total Purchase Orders"
-          value={formatNumber(metrics.totalOrdersCount)}
-          subtitle={`${metrics.activeOrdersCount} in progress`}
-          icon={Truck}
-          iconBgColor="bg-blue-50"
-          iconTextColor="text-blue-600"
-          onClick={() => navigate('/purchases/orders')}
-        />
+      {/* 2. Procurement Summary KPI Cards (4 equal cards on desktop) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Month Purchases"
           value={formatCurrency(metrics.monthSpend)}
@@ -986,48 +987,148 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           iconTextColor="text-emerald-600"
           onClick={() => navigate('/suppliers')}
         />
-        {showLowStockCard && (
-          <StatCard
-            title="Low Stock Items"
-            value={formatNumber(metrics.lowStockCount)}
-            subtitle="Catalog items below warning limits"
-            icon={AlertTriangle}
-            iconBgColor="bg-rose-50"
-            iconTextColor="text-rose-600"
-            onClick={() => navigate('/inventory/alerts')}
-          />
-        )}
+        <StatCard
+          title="Products in Inventory"
+          value={`${formatNumber(metrics.totalProductsCount)} Products`}
+          subtitle={`${formatNumber(metrics.totalInventoryUnits)} units in stock`}
+          icon={Package}
+          iconBgColor="bg-blue-50"
+          iconTextColor="text-blue-600"
+          onClick={() => navigate('/products')}
+        />
       </div>
 
-      {/* 3. Direct Procurement: Recent Purchase Orders Section */}
-      <div id="recent-orders-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* 3. Middle Section: Side-by-Side Balanced Layout (Recent Orders & Supplier Delivery) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        {/* Left Column: Recent Purchase Orders */}
+        <div id="recent-orders-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Truck className="w-4 h-4 text-blue-600" />
-              <span>Recent Purchase Orders</span>
-              {allPurchaseOrders.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-                  {allPurchaseOrders.length} {allPurchaseOrders.length === 1 ? 'Order' : 'Orders'}
-                </span>
-              )}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Direct supplier purchase orders, fulfillment progress, and destination warehouse delivery tracking.
-            </p>
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Recent Purchase Orders</h3>
+                  {allPurchaseOrders.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200/60">
+                      {allPurchaseOrders.length} {allPurchaseOrders.length === 1 ? 'Order' : 'Orders'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Direct supplier purchase orders and destination warehouse delivery tracking.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => navigate('/purchases/orders')}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>View All Orders</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
+            {isPurchaseOrdersLoading || isRefreshing ? (
+              <div className="p-8 flex flex-col items-center justify-center text-slate-400 gap-2">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                <span className="text-xs">Loading purchase orders...</span>
+              </div>
+            ) : recentPurchaseOrders.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                No purchase orders created yet. Click &quot;New Purchase Order&quot; to begin.
+              </div>
+            ) : (
+              <div className="border border-slate-200/80 rounded-xl overflow-hidden bg-white shadow-2xs">
+                <div className="overflow-x-auto scrollbar-thin">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
+                        <th className="py-2.5 px-3">Purchase Order Number</th>
+                        <th className="py-2.5 px-2.5">Supplier</th>
+                        <th className="py-2.5 px-2.5">Destination Warehouse</th>
+                        <th className="py-2.5 px-2 text-center">Number of Products</th>
+                        <th className="py-2.5 px-2.5 text-right">Ordered Quantity</th>
+                        <th className="py-2.5 px-2.5 text-right">Outstanding Quantity</th>
+                        <th className="py-2.5 px-2.5">Expected Delivery</th>
+                        <th className="py-2.5 px-2 text-center">Delivery Status</th>
+                        <th className="py-2.5 px-2.5 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {recentPurchaseOrders.slice(0, 5).map(order => (
+                        <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className="font-mono font-bold text-blue-600 block">
+                              #{order.orderNumber}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {order.date ? formatDate(order.date) : '—'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2.5 font-semibold text-slate-800">
+                            <span className="block truncate max-w-[110px] xl:max-w-[130px]" title={order.supplierName}>
+                              {order.supplierName}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2.5">
+                            <span className="text-slate-700 flex items-center gap-1">
+                              <WarehouseIcon className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span className="truncate max-w-[100px] xl:max-w-[120px]" title={order.destinationWarehouse}>
+                                {order.destinationWarehouse}
+                              </span>
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap font-mono text-slate-700">
+                            {order.numProducts}
+                          </td>
+                          <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono font-bold text-slate-800">
+                            {formatNumber(order.orderedQty)} Units
+                          </td>
+                          <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono font-bold text-amber-700">
+                            {order.outstandingQty > 0 ? `${formatNumber(order.outstandingQty)} Units` : '0 Units'}
+                          </td>
+                          <td className="py-2.5 px-2.5 whitespace-nowrap text-slate-600 text-[11px]">
+                            {order.expectedDelivery !== 'Not available' ? formatDate(order.expectedDelivery) : <span className="text-slate-400">Not available</span>}
+                          </td>
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              order.deliveryStatus === 'Delivered'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : order.deliveryStatus === 'Overdue'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : order.deliveryStatus === 'Partially Delivered'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-blue-100 text-blue-800 border border-blue-200'
+                            }`}>
+                              <span>{order.deliveryStatus}</span>
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => navigate('/purchases/orders')}
+                              className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                              title="View Purchase Order Details"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-500" />
+                              <span>View</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
-            <button
-              onClick={() => navigate('/purchases/orders')}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer mr-2"
-            >
-              <span>View All Orders</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex justify-between items-center text-xs">
+            <span className="text-slate-500 font-medium">Total Orders: {allPurchaseOrders.length}</span>
             <button
               onClick={() => navigate('/purchases/new?docType=purchase_order')}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Purchase Order</span>
@@ -1035,205 +1136,39 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {isPurchaseOrdersLoading || isRefreshing ? (
-          <div className="p-8 flex flex-col items-center justify-center text-slate-400 gap-2">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-            <span className="text-xs">Loading purchase orders...</span>
-          </div>
-        ) : recentPurchaseOrders.length === 0 ? (
-          <div className="p-8 text-center bg-slate-50/50">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 text-blue-600 mb-2">
-              <Truck className="w-6 h-6" />
-            </div>
-            <p className="text-sm font-bold text-slate-800">No Purchase Orders Created Yet</p>
-            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              Start purchasing directly by creating your first purchase order for supplier delivery.
-            </p>
-            <button
-              onClick={() => navigate('/purchases/new?docType=purchase_order')}
-              className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Create Purchase Order</span>
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-4">Purchase Order Number</th>
-                  <th className="py-3 px-4">Supplier</th>
-                  <th className="py-3 px-4">Destination Warehouse</th>
-                  <th className="py-3 px-4 text-center">Number of Products</th>
-                  <th className="py-3 px-4 text-right">Ordered Quantity</th>
-                  <th className="py-3 px-4 text-right">Outstanding Quantity</th>
-                  <th className="py-3 px-4">Expected Delivery</th>
-                  <th className="py-3 px-4 text-center">Delivery Status</th>
-                  <th className="py-3 px-4 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {recentPurchaseOrders.map(order => (
-                  <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <span className="font-mono font-bold text-blue-600 block">
-                        #{order.orderNumber}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-mono">
-                        {order.date ? formatDate(order.date) : '—'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      <span className="block truncate max-w-[160px]" title={order.supplierName}>
-                        {order.supplierName}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-slate-800 font-medium flex items-center gap-1.5">
-                        <WarehouseIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        <span className="truncate max-w-[140px]">{order.destinationWarehouse}</span>
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center whitespace-nowrap font-mono font-semibold text-slate-700">
-                      {order.numProducts} {order.numProducts === 1 ? 'Product' : 'Products'}
-                    </td>
-                    <td className="py-3 px-4 text-right whitespace-nowrap font-mono font-bold text-slate-900">
-                      {formatNumber(order.orderedQty)} Units
-                    </td>
-                    <td className="py-3 px-4 text-right whitespace-nowrap font-mono font-bold text-amber-700">
-                      {order.outstandingQty > 0 ? `${formatNumber(order.outstandingQty)} Units` : '0 Units'}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-slate-600 text-[11px]">
-                      {order.expectedDelivery !== 'Not available' ? formatDate(order.expectedDelivery) : <span className="text-slate-400">Not available</span>}
-                    </td>
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                        order.deliveryStatus === 'Delivered'
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : order.deliveryStatus === 'Overdue'
-                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                          : order.deliveryStatus === 'Partially Delivered'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-blue-100 text-blue-800 border border-blue-200'
-                      }`}>
-                        {order.deliveryStatus === 'Delivered' ? (
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                        ) : (
-                          <Truck className="w-3 h-3 shrink-0" />
-                        )}
-                        <span>{order.deliveryStatus}</span>
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <button
-                        onClick={() => navigate('/purchases/orders')}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
-                        title="View Purchase Order Details"
-                      >
-                        <Eye className="w-3.5 h-3.5 text-slate-500" />
-                        <span>View</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* 4. Lower Grid: Recent Invoices (~35%) & Supplier Delivery Overview (~65%) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        {/* Left Column: Recent Vendor Purchase Invoices (4 of 12 columns = ~33.3% width) */}
-        <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
+        {/* Right Column: Supplier Delivery Overview */}
+        <div id="supplier-delivery-overview-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <ShoppingBag className="w-4 h-4 text-indigo-600" />
-                <h3 className="text-sm font-bold text-slate-900">Recent Purchase Bills</h3>
+              <div>
+                <div className="flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Supplier Delivery Overview</h3>
+                  {supplierDeliveries.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
+                      {supplierDeliveries.length} {supplierDeliveries.length === 1 ? 'Supplier' : 'Suppliers'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Track vendor delivery status, active shipments, and fulfillment obligations.
+                </p>
               </div>
-              <button
-                onClick={() => navigate('/purchases')}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-              >
-                <span>View All</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            </div>
 
-            {recentInvoices.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-xs">
-                No supplier purchase bills recorded yet. Click &quot;New Purchase Bill&quot; to add one.
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => navigate('/suppliers')}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>View All Suppliers</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
               </div>
-            ) : (
-              <div className="divide-y divide-slate-100 text-xs">
-                {recentInvoices.map(inv => (
-                  <div key={inv.id} className="py-2.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="font-mono font-bold text-blue-600 block truncate">
-                        {inv.invoiceNumber}
-                      </span>
-                      <span className="text-[11px] text-slate-600 truncate block">
-                        {inv.supplierName}
-                      </span>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="font-mono font-bold text-slate-900 block">
-                        {formatCurrency(inv.grandTotal)}
-                      </span>
-                      <StatusBadge status={inv.paymentStatus} size="sm" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex justify-between items-center text-xs">
-            <span className="text-slate-500 font-medium truncate">Total Bills: {purchaseInvoices.length}</span>
-            <button
-              onClick={() => navigate('/purchases/new')}
-              className="text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer shrink-0 ml-2"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Record Bill</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Right Column: Supplier Delivery Overview (8 of 12 columns = ~66.7% width) */}
-        <div id="supplier-delivery-overview-section" className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
-          <div>
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">Supplier Delivery Overview</h3>
-              </div>
-              <button
-                onClick={() => navigate('/suppliers')}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-              >
-                <span>View All Suppliers</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
             </div>
 
             {supplierDeliveries.length === 0 ? (
-              <div className="py-10 flex flex-col items-center justify-center text-center px-4">
-                <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
-                  <Truck className="w-5 h-5" />
-                </div>
-                <h4 className="text-xs font-bold text-slate-800">No Suppliers Registered</h4>
-                <p className="text-[11px] text-slate-500 mt-1 max-w-xs">
-                  Active vendor purchase orders and delivery tracking will appear here once suppliers and orders are recorded.
-                </p>
-                <button
-                  onClick={() => navigate('/suppliers')}
-                  className="mt-3 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-                >
-                  Manage Supplier Directory
-                </button>
+              <div className="py-8 text-center text-slate-400 text-xs">
+                No registered suppliers found. Click &quot;Manage Supplier Directory&quot; to add vendors.
               </div>
             ) : (
               <div className="border border-slate-200/80 rounded-xl overflow-hidden bg-white shadow-2xs">
@@ -1246,20 +1181,21 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                         <th className="py-2.5 px-2 text-center">Active Orders</th>
                         <th className="py-2.5 px-2.5 text-right">Items to Deliver</th>
                         <th className="py-2.5 px-2.5">Expected Delivery</th>
-                        <th className="py-2.5 px-2.5 text-center">Delivery Status</th>
-                        <th className="py-2.5 px-3 text-center">Supplier Status</th>
+                        <th className="py-2.5 px-2 text-center">Delivery Status</th>
+                        <th className="py-2.5 px-2 text-center">Supplier Status</th>
+                        <th className="py-2.5 px-2.5 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {supplierDeliveries.slice(0, 5).map((item) => (
                         <tr key={item.supplierId} className="hover:bg-slate-50/70 transition-colors">
                           <td className="py-2.5 px-3 font-semibold text-slate-800">
-                            <span className="block truncate max-w-[140px] xl:max-w-[180px]" title={item.supplierName}>
+                            <span className="block truncate max-w-[120px] xl:max-w-[140px]" title={item.supplierName}>
                               {item.supplierName}
                             </span>
                             {item.destinationWarehouse && item.destinationWarehouse !== 'Not available' && (
                               <span
-                                className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5 truncate max-w-[140px]"
+                                className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5 truncate max-w-[120px]"
                                 title={`Destination Warehouse: ${item.destinationWarehouse}`}
                               >
                                 <WarehouseIcon className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
@@ -1268,7 +1204,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                             )}
                           </td>
                           <td className="py-2.5 px-2.5 text-slate-600 font-mono text-[11px]">
-                            <span className="block truncate max-w-[110px] xl:max-w-[140px]" title={item.contact}>
+                            <span className="block truncate max-w-[100px] xl:max-w-[120px]" title={item.contact}>
                               {item.contact !== 'Not available' ? item.contact : <span className="text-slate-400 font-sans">Not available</span>}
                             </span>
                           </td>
@@ -1281,9 +1217,9 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                           <td className="py-2.5 px-2.5 whitespace-nowrap text-slate-600 text-[11px]">
                             {item.expectedDelivery !== 'Not available' ? formatDate(item.expectedDelivery) : <span className="text-slate-400">Not available</span>}
                           </td>
-                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              item.deliveryStatus === 'Delivered' || (item.activeOrders === 0 && item.itemsToDeliver === 0)
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              item.deliveryStatus === 'Delivered'
                                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                 : item.deliveryStatus === 'Overdue'
                                 ? 'bg-rose-100 text-rose-800 border border-rose-200'
@@ -1293,25 +1229,32 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                                 ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                                 : 'bg-blue-100 text-blue-800 border border-blue-200'
                             }`}>
-                              {item.deliveryStatus === 'Delivered' || (item.activeOrders === 0 && item.itemsToDeliver === 0) ? (
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                              ) : (
-                                <Truck className="w-3 h-3 shrink-0" />
-                              )}
                               <span>{item.deliveryStatus}</span>
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               item.supplierStatus === 'Active'
                                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : item.supplierStatus === 'Delivered'
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
                                 : 'bg-slate-100 text-slate-600 border border-slate-200'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${
-                                item.supplierStatus === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                                item.supplierStatus === 'Active' ? 'bg-emerald-500 animate-pulse' : item.supplierStatus === 'Delivered' ? 'bg-blue-500' : 'bg-slate-400'
                               }`} />
                               <span>{item.supplierStatus}</span>
                             </span>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => setIsActiveOrdersModalOpen(true)}
+                              className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                              title="View Supplier Delivery Details"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-500" />
+                              <span>View</span>
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -1323,9 +1266,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           </div>
 
           <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex justify-between items-center text-xs">
-            <span className="text-slate-500 font-medium">
-              Total Active Orders: {totalActiveDeliveries}
-            </span>
+            <span className="text-slate-500 font-medium">Total Active Deliveries: {totalActiveDeliveries}</span>
             <button
               onClick={() => setIsActiveOrdersModalOpen(true)}
               className="text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
@@ -1337,158 +1278,265 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. Warehouse Details & Stock Availability Section */}
-      <div id="warehouse-details-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        {/* Section Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3.5">
+      {/* 4. Lower Section: Side-by-Side Balanced Layout (Recent Purchase Bills & Warehouse Overview) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        {/* Left Column: Recent Purchase Bills */}
+        <div id="recent-bills-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
-            <div className="flex items-center gap-2">
-              <WarehouseIcon className="w-4 h-4 text-indigo-600" />
-              <h2 className="text-base font-bold text-slate-900">
-                Warehouse Details & Stock Availability
-              </h2>
-              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
-                {warehouses.length} {warehouses.length === 1 ? 'Location' : 'Locations'}
-              </span>
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Recent Purchase Bills</h3>
+                  {purchaseInvoices.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
+                      {purchaseInvoices.length} {purchaseInvoices.length === 1 ? 'Bill' : 'Bills'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Vendor bills, invoices recorded, and payment status tracking.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => navigate('/purchases')}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>View All</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Review existing warehouses, destination facilities, and real-time product quantities stored across hubs.
-            </p>
+
+            {recentInvoices.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                No supplier purchase bills recorded yet. Click &quot;Record Bill&quot; to add one.
+              </div>
+            ) : (
+              <div className="border border-slate-200/80 rounded-xl overflow-hidden bg-white shadow-2xs">
+                <div className="overflow-x-auto scrollbar-thin">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
+                        <th className="py-2.5 px-3">Bill Reference</th>
+                        <th className="py-2.5 px-2.5">Date</th>
+                        <th className="py-2.5 px-2.5">Supplier</th>
+                        <th className="py-2.5 px-2.5 text-right">Bill Amount</th>
+                        <th className="py-2.5 px-2 text-center">Payment Status</th>
+                        <th className="py-2.5 px-2.5 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {recentInvoices.map(inv => (
+                        <tr key={inv.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-2.5 px-3 font-mono font-bold text-blue-600 whitespace-nowrap">
+                            {inv.invoiceNumber}
+                          </td>
+                          <td className="py-2.5 px-2.5 text-slate-500 text-[11px] whitespace-nowrap">
+                            {inv.date ? formatDate(inv.date) : '—'}
+                          </td>
+                          <td className="py-2.5 px-2.5 font-semibold text-slate-800">
+                            <span className="block truncate max-w-[120px] xl:max-w-[140px]" title={inv.supplierName}>
+                              {inv.supplierName}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                            {formatCurrency(inv.grandTotal)}
+                          </td>
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <StatusBadge status={inv.paymentStatus} size="sm" />
+                          </td>
+                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => navigate('/purchases')}
+                              className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                              title="View Purchase Bill"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-500" />
+                              <span>View</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
-            {/* Search Input */}
-            <div className="relative min-w-[180px] sm:min-w-[220px]">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search warehouse..."
-                value={warehouseSearchTerm}
-                onChange={e => setWarehouseSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-
-            {/* Status Filter */}
-            <select
-              value={warehouseStatusFilter}
-              onChange={e => setWarehouseStatusFilter(e.target.value as any)}
-              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 cursor-pointer focus:outline-hidden"
-            >
-              <option value="All">All Status</option>
-              <option value="Active">Active Only</option>
-              <option value="Inactive">Inactive Only</option>
-            </select>
-
-            {/* View Full Directory Link */}
+          <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex justify-between items-center text-xs">
+            <span className="text-slate-500 font-medium">Total Bills: {purchaseInvoices.length}</span>
             <button
-              onClick={() => navigate('/inventory/warehouses')}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer shrink-0 ml-1"
+              onClick={() => navigate('/purchases/new')}
+              className="text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
             >
-              <span>Full Directory</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5" />
+              <span>Record Bill</span>
             </button>
           </div>
         </div>
 
-        {/* Warehouses Table */}
-        {filteredDashboardWarehouses.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-xs">
-            No warehouses matching your filter.
-          </div>
-        ) : (
-          <div className="overflow-x-auto scrollbar-thin">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
-                  <th className="py-3 px-4">Warehouse</th>
-                  <th className="py-3 px-3">Location / Address</th>
-                  <th className="py-3 px-3">Contact Person & Phone</th>
-                  <th className="py-3 px-3 text-center">Total Products</th>
-                  <th className="py-3 px-3 text-right">Available Stock</th>
-                  <th className="py-3 px-3 text-center">Warehouse Status</th>
-                  <th className="py-3 px-4 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredDashboardWarehouses.map(wh => {
-                  const isActive = wh.isActive ?? true;
-                  const stats = getWarehouseStats(wh.id);
-                  const contactPerson = wh.contactPerson || wh.managerName || 'Not available';
-                  const phone = wh.phone || 'Not available';
-                  const address = wh.address || 'Not available';
+        {/* Right Column: Warehouse Overview / Details & Stock Availability */}
+        <div id="warehouse-details-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
+          <div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-3 border-b border-slate-100 gap-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <WarehouseIcon className="w-4 h-4 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Warehouse Details & Stock Availability</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
+                    {warehouses.length} {warehouses.length === 1 ? 'Location' : 'Locations'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Stored inventories, stock valuation, and hub fulfillment readiness.
+                </p>
+              </div>
 
-                  return (
-                    <tr key={wh.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/60">
-                            {wh.code}
-                          </span>
-                          <div>
-                            <span className="font-bold text-slate-900 block truncate max-w-[160px]" title={wh.name}>
-                              {wh.name}
-                            </span>
-                            {wh.isDefault && (
-                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 inline-block mt-0.5">
-                                Primary Hub
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => navigate('/inventory/warehouses')}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Full Directory</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter toolbar inside the card */}
+            <div className="flex items-center gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search warehouse..."
+                  value={warehouseSearchTerm}
+                  onChange={e => setWarehouseSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <select
+                value={warehouseStatusFilter}
+                onChange={e => setWarehouseStatusFilter(e.target.value as any)}
+                className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer focus:outline-hidden"
+              >
+                <option value="All">All Status</option>
+                <option value="Active">Active Only</option>
+                <option value="Inactive">Inactive Only</option>
+              </select>
+            </div>
+
+            {filteredDashboardWarehouses.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                No warehouses matching your filter.
+              </div>
+            ) : (
+              <div className="border border-slate-200/80 rounded-xl overflow-hidden bg-white shadow-2xs">
+                <div className="overflow-x-auto scrollbar-thin">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
+                        <th className="py-2.5 px-3">Warehouse</th>
+                        <th className="py-2.5 px-2">Code</th>
+                        <th className="py-2.5 px-2.5">Location</th>
+                        <th className="py-2.5 px-2.5">Contact</th>
+                        <th className="py-2.5 px-2 text-center">Total Products</th>
+                        <th className="py-2.5 px-2.5 text-right">Available Stock</th>
+                        <th className="py-2.5 px-2.5 text-right">Stock Valuation</th>
+                        <th className="py-2.5 px-2 text-center">Status</th>
+                        <th className="py-2.5 px-2.5 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredDashboardWarehouses.slice(0, 5).map(wh => {
+                        const isActive = wh.isActive ?? true;
+                        const stats = getWarehouseStats(wh.id);
+                        const contactPerson = wh.contactPerson || wh.managerName || 'Not available';
+                        const address = wh.address || 'Not available';
+
+                        return (
+                          <tr key={wh.id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-2.5 px-3 font-semibold text-slate-800">
+                              <span className="block truncate max-w-[120px] xl:max-w-[140px]" title={wh.name}>
+                                {wh.name}
                               </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-slate-600 text-[11px]">
-                        <span className="block truncate max-w-[160px] xl:max-w-[200px]" title={address}>
-                          {address !== 'Not available' ? address : <span className="text-slate-400 font-sans">Not available</span>}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-slate-700">
-                        <span className="font-medium block truncate max-w-[140px]" title={contactPerson}>
-                          {contactPerson !== 'Not available' ? contactPerson : <span className="text-slate-400 font-sans">Not available</span>}
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-mono block">
-                          {phone !== 'Not available' ? phone : <span className="text-slate-400 font-sans">Not available</span>}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-center whitespace-nowrap font-mono font-bold text-slate-700">
-                        {stats.skuCount} {stats.skuCount === 1 ? 'SKU' : 'SKUs'}
-                      </td>
-                      <td className="py-3 px-3 text-right whitespace-nowrap font-mono font-bold text-slate-900">
-                        {formatNumber(stats.totalUnits)} Units
-                      </td>
-                      <td className="py-3 px-3 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          isActive
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-600 border border-slate-200'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
-                          }`} />
-                          <span>{isActive ? 'Active' : 'Inactive'}</span>
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => {
-                            setSelectedWarehouseForModal(wh);
-                            setWarehouseModalSearchTerm('');
-                            setIsWarehouseModalOpen(true);
-                          }}
-                          className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 hover:border-indigo-300 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer mx-auto"
-                          title="View Products & Stock Details"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>View Stock</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                              {wh.isDefault && (
+                                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 inline-block mt-0.5">
+                                  Primary Hub
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2 font-mono text-[10px] font-bold text-indigo-700 whitespace-nowrap">
+                              {wh.code}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-slate-600 text-[11px]">
+                              <span className="block truncate max-w-[100px] xl:max-w-[130px]" title={address}>
+                                {address !== 'Not available' ? address : <span className="text-slate-400 font-sans">Not available</span>}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-slate-700">
+                              <span className="font-medium block truncate max-w-[90px] xl:max-w-[110px]" title={contactPerson}>
+                                {contactPerson !== 'Not available' ? contactPerson : <span className="text-slate-400 font-sans">Not available</span>}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2 text-center whitespace-nowrap font-mono text-slate-700">
+                              {stats.skuCount} SKUs
+                            </td>
+                            <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono font-bold text-slate-900">
+                              {formatNumber(stats.totalUnits)}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono font-bold text-emerald-700">
+                              {formatCurrency(stats.valuation)}
+                            </td>
+                            <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                isActive
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                                <span>{isActive ? 'Active' : 'Inactive'}</span>
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                              <button
+                                onClick={() => {
+                                  setSelectedWarehouseForModal(wh);
+                                  setWarehouseModalSearchTerm('');
+                                  setIsWarehouseModalOpen(true);
+                                }}
+                                className="px-2 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 hover:border-indigo-300 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                title="View Products & Stock Details"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>View Stock</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+
+          <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex justify-between items-center text-xs">
+            <span className="text-slate-500 font-medium">Registered Hubs: {warehouses.length}</span>
+            <button
+              onClick={() => navigate('/inventory/warehouses')}
+              className="text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
+            >
+              <span>Manage Warehouses</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
 
 
