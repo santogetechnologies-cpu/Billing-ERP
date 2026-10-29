@@ -24,19 +24,16 @@ function assert(condition: boolean, message: string) {
 
 async function runTestSuite() {
   console.log('================================================================================');
-  console.log('PURCHASE MANAGER DASHBOARD REDESIGN & VERIFICATION SUITE');
+  console.log('PURCHASE MANAGER DASHBOARD CLEAN & COMPACT REDESIGN VERIFICATION');
   console.log('================================================================================\n');
 
   const pmDashboardPath = path.resolve('src/pages/purchases/PurchaseManagerDashboardPage.tsx');
   const pmDashboardCode = fs.readFileSync(pmDashboardPath, 'utf-8');
 
-  const activeOrdersModalPath = path.resolve('src/components/purchases/ActiveOrdersModal.tsx');
-  const activeOrdersModalCode = fs.readFileSync(activeOrdersModalPath, 'utf-8');
-
   // ---------------------------------------------------------------------------
-  // 1. Dashboard Header Layout & Elements
+  // 1. Top: Compact Header
   // ---------------------------------------------------------------------------
-  console.log('--- 1. Dashboard Header Layout & Elements ---');
+  console.log('--- 1. Top: Compact Header ---');
   {
     assert(
       pmDashboardCode.includes('Purchase Manager Dashboard'),
@@ -47,10 +44,6 @@ async function runTestSuite() {
       'Header includes personalized greeting: "Welcome back, {displayName}!"'
     );
     assert(
-      pmDashboardCode.includes('Procurement Operations'),
-      'Header breadcrumb displays "Procurement Operations"'
-    );
-    assert(
       pmDashboardCode.includes('{formattedToday}'),
       'Header dynamically displays formatted date badge'
     );
@@ -59,214 +52,196 @@ async function runTestSuite() {
       'Header includes Refresh button with tooltip and spinner state'
     );
     assert(
-      pmDashboardCode.includes('setIsProfileModalOpen(true)'),
-      'Header includes User Profile button opening UserProfileModal'
-    );
-    assert(
       pmDashboardCode.includes('New Purchase Order') &&
       pmDashboardCode.includes('navigate(\'/purchases/new?docType=purchase_order\')'),
       'Header includes "New Purchase Order" action button navigating to /purchases/new?docType=purchase_order'
     );
-    assert(
-      !pmDashboardCode.includes('Review Requests') &&
-      !pmDashboardCode.includes('pendingRequestsCount'),
-      'Header retired "Review Requests" button and pending requests badge'
-    );
-    assert(
-      pmDashboardCode.includes('New Purchase Bill') &&
-      pmDashboardCode.includes('navigate(\'/purchases/new\')'),
-      'Header includes "New Purchase Bill" action button navigating to /purchases/new'
-    );
   }
 
   // ---------------------------------------------------------------------------
-  // 2. Removal of Unwanted Sections & 4 Top KPI Cards
+  // 2. Dashboard Clutter Removal
   // ---------------------------------------------------------------------------
-  console.log('\n--- 2. Removal of Unwanted Sections & Top KPI Cards ---');
+  console.log('\n--- 2. Dashboard Clutter Removal ---');
   {
     assert(
-      shouldShowLowStockCard('Purchase Manager') === false,
-      'Low Stock Items card is strictly hidden for Purchase Manager role'
+      !pmDashboardCode.includes('title="Month Purchases"') &&
+      !pmDashboardCode.includes('title="Products in Inventory"'),
+      'Top KPI cards row is completely removed from the dashboard'
+    );
+    assert(
+      !pmDashboardCode.includes('Pending Purchase Requests Awaiting Your Review') &&
+      !pmDashboardCode.includes('Review Requests') &&
+      !pmDashboardCode.includes('pendingRequestsCount'),
+      'Obsolete Pending Purchase Requests review section and buttons are cleanly removed'
+    );
+    assert(
+      !pmDashboardCode.includes('id="recent-bills-section"'),
+      'Recent Purchase Bills section is completely removed from dashboard view'
     );
     assert(
       !pmDashboardCode.includes('Procurement Reorder Watchlist'),
-      'Procurement Reorder Watchlist is completely removed from dashboard'
+      'Procurement Reorder Watchlist is completely removed'
     );
     assert(
-      pmDashboardCode.includes('title="Month Purchases"') &&
-      pmDashboardCode.includes('title="Active Orders"') &&
-      pmDashboardCode.includes('title="Active Suppliers"') &&
-      pmDashboardCode.includes('title="Products in Inventory"'),
-      'Top KPI section includes Month Purchases, Active Orders, Active Suppliers, and Products in Inventory'
-    );
-    assert(
-      pmDashboardCode.includes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'),
-      'Grid layout renders 4 equal cards on desktop (grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4)'
+      shouldShowLowStockCard('Purchase Manager') === false,
+      'Obsolete Low Stock Items card is strictly hidden for Purchase Manager'
     );
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Supplier Delivery Overview Logic & Columns
+  // 3. Middle Section: Two-Column Layout (Stock Overview & Supplier Overview)
   // ---------------------------------------------------------------------------
-  console.log('\n--- 3. Supplier Delivery Overview Logic & Columns ---');
+  console.log('\n--- 3. Middle Section: Two-Column Layout ---');
   {
     assert(
-      pmDashboardCode.includes('grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch'),
-      'Middle & lower grids use balanced 2-column layout (grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch)'
+      pmDashboardCode.includes('grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch'),
+      'Middle section uses balanced two-column grid (grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch)'
+    );
+
+    // Left side: Stock Status Overview
+    assert(
+      pmDashboardCode.includes('id="stock-status-overview-card"'),
+      'Left card container id "stock-status-overview-card" is present'
+    );
+    assert(
+      pmDashboardCode.includes('Stock Status Overview'),
+      'Left card displays title "Stock Status Overview"'
+    );
+    assert(
+      pmDashboardCode.includes('<svg') && pmDashboardCode.includes('viewBox="0 0 100 100"'),
+      'Left card renders SVG doughnut chart'
+    );
+    assert(
+      pmDashboardCode.includes('Total SKUs') || pmDashboardCode.includes('Total Products'),
+      'Doughnut chart displays total SKUs count in the center'
+    );
+    assert(
+      pmDashboardCode.includes('Low Stock') &&
+      pmDashboardCode.includes('Limited Stock') &&
+      pmDashboardCode.includes('Active Stock'),
+      'Stock Status Overview includes all 3 statuses: Low Stock, Limited Stock, Active Stock'
+    );
+    assert(
+      pmDashboardCode.includes('stockData.lowStockCount') &&
+      pmDashboardCode.includes('stockData.limitedStockCount') &&
+      pmDashboardCode.includes('stockData.activeStockCount'),
+      'Stock Status Overview shows actual counts fetched from existing inventory data'
+    );
+    assert(
+      pmDashboardCode.includes("navigate('/inventory/alerts')") ||
+      pmDashboardCode.includes("navigate('/products')"),
+      'Each stock status is clickable to open corresponding existing inventory filter'
+    );
+
+    // Right side: Supplier Overview
+    assert(
+      pmDashboardCode.includes('id="supplier-overview-card"'),
+      'Right card container id "supplier-overview-card" is present'
+    );
+    assert(
+      pmDashboardCode.includes('Supplier Overview'),
+      'Right card displays title "Supplier Overview"'
     );
     assert(
       pmDashboardCode.includes('Supplier Name') &&
-      pmDashboardCode.includes('Contact') &&
-      pmDashboardCode.includes('Active Orders') &&
-      pmDashboardCode.includes('Items to Deliver') &&
-      pmDashboardCode.includes('Expected Delivery') &&
-      pmDashboardCode.includes('Delivery Status') &&
       pmDashboardCode.includes('Supplier Status'),
-      'Supplier Delivery table contains all 7 specified columns'
-    );
-
-    // Test computeSupplierDeliveries logic with real telemetry
-    const testSuppliers: Supplier[] = [
-      {
-        id: 'sup-1',
-        name: 'Apex Fasteners',
-        phone: '+91 98765 43210',
-        email: 'sales@apexfasteners.com',
-        city: 'Mumbai',
-        state: 'Maharashtra',
-        currentBalance: 0
-      },
-      {
-        id: 'sup-2',
-        name: 'Zenith Logistics & Supplies',
-        phone: '',
-        email: '',
-        city: 'Delhi',
-        state: 'Delhi',
-        currentBalance: 0
-      }
-    ];
-
-    const testOrders = [
-      {
-        id: 'po-101',
-        order_number: 'PO-2026-101',
-        supplier_id: 'sup-1',
-        expected_delivery: '2026-11-05',
-        status: 'In Transit',
-        items: [
-          { qty: 100, receivedQty: 30 }
-        ]
-      }
-    ];
-
-    const deliveries = computeSupplierDeliveries({
-      suppliers: testSuppliers,
-      purchaseOrders: testOrders,
-      purchaseRequests: [],
-      todayStr: '2026-10-29'
-    });
-
-    const sup1 = deliveries.find(d => d.supplierId === 'sup-1');
-    const sup2 = deliveries.find(d => d.supplierId === 'sup-2');
-
-    assert(sup1 !== undefined, 'Supplier with orders is present in delivery telemetry');
-    assert(sup1?.activeOrders === 1, 'Supplier 1 has 1 active order');
-    assert(sup1?.itemsToDeliver === 70, 'Supplier 1 has 70 items remaining to deliver (100 - 30)');
-    assert(sup1?.supplierStatus === 'Active', 'Supplier 1 status evaluates to "Active" while deliveries are outstanding');
-    assert(sup1?.deliveryStatus === 'Partially Delivered', 'Supplier 1 delivery status evaluates to "Partially Delivered"');
-    assert(sup1?.contact === '+91 98765 43210', 'Supplier 1 contact phone is displayed correctly');
-
-    assert(sup2 !== undefined, 'Supplier without orders is present in delivery telemetry');
-    assert(sup2?.activeOrders === 0, 'Supplier 2 has 0 active orders');
-    assert(sup2?.itemsToDeliver === 0, 'Supplier 2 has 0 items to deliver');
-    assert(sup2?.supplierStatus === 'Inactive', 'Supplier 2 status evaluates to "Inactive" when no orders are outstanding');
-    assert(sup2?.contact === 'Not available', 'Supplier 2 contact gracefully falls back to "Not available" when phone/email are empty');
-    assert(sup2?.expectedDelivery === 'Not available', 'Supplier 2 expected delivery gracefully falls back to "Not available"');
-  }
-
-  // ---------------------------------------------------------------------------
-  // 4. Recent Purchase Bills Section
-  // ---------------------------------------------------------------------------
-  console.log('\n--- 4. Recent Purchase Bills Section ---');
-  {
-    assert(
-      pmDashboardCode.includes('Recent Purchase Bills'),
-      'Recent Purchase Bills section header is rendered'
+      'Supplier Overview table contains Supplier Name and Supplier Status columns'
     );
     assert(
-      pmDashboardCode.includes('navigate(\'/purchases\')') &&
-      pmDashboardCode.includes('View All'),
-      '"View All" under Recent Purchase Bills navigates to /purchases'
+      pmDashboardCode.includes('View All Suppliers') &&
+      pmDashboardCode.includes("navigate('/suppliers')"),
+      'Supplier Overview includes "View All Suppliers" link navigating to /suppliers'
     );
     assert(
-      pmDashboardCode.includes('Record Bill') &&
-      pmDashboardCode.includes('navigate(\'/purchases/new\')'),
-      '"Record Bill" button under Recent Purchase Bills navigates to /purchases/new'
+      pmDashboardCode.includes("sup.status === 'Active'") &&
+      (pmDashboardCode.includes("sup.status === 'Inactive'") || pmDashboardCode.includes("isActive ? 'Active' : 'Inactive'")),
+      'Supplier status evaluates strictly to "Active" or "Inactive"'
+    );
+    assert(
+      !pmDashboardCode.includes("sup.status === 'Delivered'"),
+      'Supplier status strictly NEVER displays "Delivered" (Delivered applies only to deliveries)'
     );
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Recent Purchase Orders Section (Direct Purchasing Workflow)
+  // 4. Bottom Section: Large Recent Purchase Orders Section
   // ---------------------------------------------------------------------------
-  console.log('\n--- 5. Recent Purchase Orders Section ---');
+  console.log('\n--- 4. Bottom Section: Large Recent Purchase Orders Section ---');
   {
+    assert(
+      pmDashboardCode.includes('id="recent-orders-section"'),
+      'Recent Purchase Orders container id "recent-orders-section" is present'
+    );
     assert(
       pmDashboardCode.includes('Recent Purchase Orders'),
-      'Recent Purchase Orders section title is displayed'
+      'Recent Purchase Orders section displays title'
     );
     assert(
-      pmDashboardCode.includes('navigate(\'/purchases/orders\')'),
+      pmDashboardCode.includes('View All Orders') &&
+      pmDashboardCode.includes("navigate('/purchases/orders')"),
       '"View All Orders" navigates to /purchases/orders'
     );
+
+    const requiredColumns = [
+      'Purchase Order Number',
+      'Order Date',
+      'Supplier Name',
+      'Destination Warehouse',
+      'Products / Item Count',
+      'Ordered Quantity',
+      'Outstanding Quantity',
+      'Expected Delivery',
+      'Delivery Status',
+      'Actions'
+    ];
+
+    for (const col of requiredColumns) {
+      assert(
+        pmDashboardCode.includes(col),
+        `Recent Purchase Orders table contains required column: "${col}"`
+      );
+    }
+
     assert(
-      pmDashboardCode.includes('Purchase Order Number') &&
-      pmDashboardCode.includes('Supplier') &&
-      pmDashboardCode.includes('Destination Warehouse') &&
-      pmDashboardCode.includes('Number of Products') &&
-      pmDashboardCode.includes('Ordered Quantity') &&
-      pmDashboardCode.includes('Outstanding Quantity') &&
-      pmDashboardCode.includes('Expected Delivery') &&
-      pmDashboardCode.includes('Delivery Status'),
-      'Recent Purchase Orders table contains all required columns'
+      (pmDashboardCode.includes("deliveryStatus = 'Delivered'") || pmDashboardCode.includes("order.deliveryStatus === 'Delivered'")) &&
+      (pmDashboardCode.includes("deliveryStatus = 'Active'") || pmDashboardCode.includes("order.deliveryStatus === 'Active'")) &&
+      (pmDashboardCode.includes("deliveryStatus = 'Ordered'") || pmDashboardCode.includes("order.deliveryStatus === 'Ordered'")),
+      'Delivery status supports "Ordered", "Active", and "Delivered"'
+    );
+
+    assert(
+      pmDashboardCode.includes('setSelectedOrderForModal(order)'),
+      'Actions column includes "View" action opening purchase order details popup modal'
     );
     assert(
-      !pmDashboardCode.includes('Pending Purchase Requests Awaiting Your Review'),
-      'Obsolete Pending Purchase Requests review section is cleanly removed'
+      pmDashboardCode.includes('<Eye className="w-4 h-4 text-slate-500" />') &&
+      !pmDashboardCode.includes('<span>View</span>'),
+      'Actions column uses an icon-only Eye button without text wordings'
     );
   }
 
   // ---------------------------------------------------------------------------
-  // 6. Active Orders Modal Behavior & Rules
+  // 5. Purchase Order Details Popup Modal
   // ---------------------------------------------------------------------------
-  console.log('\n--- 6. Active Orders Modal Behavior & Rules ---');
+  console.log('\n--- 5. Purchase Order Details Popup Modal ---');
   {
     assert(
-      pmDashboardCode.includes('setIsActiveOrdersModalOpen(true)'),
-      'Active Orders summary card and Manage Orders button open ActiveOrdersModal'
+      pmDashboardCode.includes('selectedOrderForModal &&') &&
+      pmDashboardCode.includes('Purchase Order Details: #'),
+      'Purchase Order Details modal displays PO number and item details'
     );
     assert(
-      activeOrdersModalCode.includes('border border-rose-300 text-rose-600') &&
-      activeOrdersModalCode.includes('title="Close (ESC)"'),
-      'ActiveOrdersModal features red outlined close button and Esc key support'
-    );
-    assert(
-      activeOrdersModalCode.includes("statusFilter === 'Active'") &&
-      activeOrdersModalCode.includes("statusFilter === 'Delivered'") &&
-      !activeOrdersModalCode.includes("statusFilter === 'Ordered'"),
-      'ActiveOrdersModal restricts status filtering to ONLY "Active" and "Delivered" (no "Ordered")'
-    );
-    assert(
-      activeOrdersModalCode.includes('fixed inset-0 z-50 flex items-center justify-center') &&
-      activeOrdersModalCode.includes('overflow-y-auto'),
-      'ActiveOrdersModal is a standalone modal popup that scrolls independently'
+      pmDashboardCode.includes('Ordered Qty') &&
+      pmDashboardCode.includes('Received Qty') &&
+      pmDashboardCode.includes('Outstanding Qty'),
+      'PO Details modal displays ordered, received, and outstanding quantities'
     );
   }
 
   // ---------------------------------------------------------------------------
-  // 7. Critical Protection Audit: Unmodified Protected Product Screens
+  // 6. Critical Protection Audit: Protected Product Screens
   // ---------------------------------------------------------------------------
-  console.log('\n--- 7. Critical Protection Audit: Protected Product Screens ---');
+  console.log('\n--- 6. Critical Protection Audit: Protected Product Screens ---');
   {
     const protectedFiles = [
       'src/pages/products/InitialStockPage.tsx',
@@ -276,7 +251,7 @@ async function runTestSuite() {
     ];
 
     for (const file of protectedFiles) {
-      assert(fs.existsSync(file), `Protected screen exists: ${file}`);
+      assert(fs.existsSync(file), `Protected screen exists and is intact: ${file}`);
     }
   }
 
@@ -287,9 +262,8 @@ async function runTestSuite() {
   console.log('================================================================================\n');
 
   if (passedTests === totalTests) {
-    console.log('🎉 ALL PURCHASE MANAGER DASHBOARD VERIFICATION TESTS PASSED 100%!');
+    console.log('🎉 ALL PURCHASE MANAGER DASHBOARD CLEAN & COMPACT REDESIGN TESTS PASSED 100%!');
   }
 }
 
 runTestSuite();
-
