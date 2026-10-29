@@ -285,8 +285,8 @@ export const notificationService = {
         return true;
       }
 
-      // C. Purchase Requests & Purchase Orders
-      if (item.type === 'purchase_request' || item.type === 'purchase_order') {
+      // C. Purchase Orders (Retired pending Purchase Request notifications for Purchase Manager)
+      if (item.type === 'purchase_order') {
         const titleLower = (item.title || '').toLowerCase();
         const messageLower = (item.message || '').toLowerCase();
 
@@ -297,6 +297,9 @@ export const notificationService = {
         }
 
         return true;
+      }
+      if (item.type === 'purchase_request') {
+        return false;
       }
 
       // D. Supplier Updates & Accountant Correction Requests

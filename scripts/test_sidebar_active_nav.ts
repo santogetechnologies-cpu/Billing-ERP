@@ -357,7 +357,7 @@ function runTests() {
   assert(canAccessRoute('Salesperson', '/inventory/warehouses') === false, 'Salesperson CANNOT access /inventory/warehouses');
   assert(canAccessRoute('Cashier', '/inventory/warehouses') === false, 'Cashier CANNOT access /inventory/warehouses');
   assert(canAccessRoute('Accountant', '/inventory/warehouses') === false, 'Accountant CANNOT access /inventory/warehouses');
-  assert(canAccessRoute('Purchase Manager', '/inventory/warehouses') === false, 'Purchase Manager CANNOT access /inventory/warehouses');
+  assert(canAccessRoute('Purchase Manager', '/inventory/warehouses') === true, 'Purchase Manager CAN access /inventory/warehouses (Warehouse Details)');
 
   // =========================================================================
   // 9. Warehouse Manager Profile Placement (Removed from Header, Added to Sidebar below Settings)

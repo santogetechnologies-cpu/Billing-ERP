@@ -266,6 +266,7 @@ export interface ERPContextType {
     supplierId: string;
     supplierName?: string;
     supplierGstin?: string;
+    destinationWarehouseId?: string;
     notes?: string;
     expectedDelivery?: string;
     approvedItems: Array<{

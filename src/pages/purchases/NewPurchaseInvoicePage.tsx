@@ -26,6 +26,8 @@ export const NewPurchaseInvoicePage: React.FC = () => {
 
   const targetPoId = searchParams.get('poId');
   const targetRequestId = searchParams.get('requestId');
+  const queryDocType = searchParams.get('docType');
+  const initialDocType: PurchaseDocType = queryDocType === 'purchase_order' ? 'purchase_order' : 'purchase_invoice';
 
   const [availableOrders, setAvailableOrders] = useState<any[]>([]);
   const [selectedPoId, setSelectedPoId] = useState<string>(targetPoId || '');
@@ -45,8 +47,28 @@ export const NewPurchaseInvoicePage: React.FC = () => {
     return `PUR-2026-${maxSeq + 1}`;
   }, [purchaseInvoices]);
 
-  const [docType, setDocType] = useState<PurchaseDocType>('purchase_invoice');
-  const [invoiceNumber, setInvoiceNumber] = useState(nextPurchaseNumber);
+  const nextPoNumber = useMemo(() => {
+    let maxSeq = 1000;
+    purchaseInvoices.forEach(p => {
+      const match = (p.invoiceNumber || '').match(/PO-.*?(\d+)$/);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeq) maxSeq = num;
+      }
+    });
+    return `PO-2026-${maxSeq + 1}`;
+  }, [purchaseInvoices]);
+
+  const [docType, setDocType] = useState<PurchaseDocType>(initialDocType);
+  const [invoiceNumber, setInvoiceNumber] = useState(() => initialDocType === 'purchase_order' ? nextPoNumber : nextPurchaseNumber);
+
+  useEffect(() => {
+    if (docType === 'purchase_order') {
+      setInvoiceNumber(prev => (prev.startsWith('PUR-') || !prev ? nextPoNumber : prev));
+    } else {
+      setInvoiceNumber(prev => (prev.startsWith('PO-') || !prev ? nextPurchaseNumber : prev));
+    }
+  }, [docType, nextPoNumber, nextPurchaseNumber]);
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState(() => {
@@ -373,9 +395,13 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         discrepancyNotes: hasDiscrepancy ? discrepancyNotes : undefined
       });
 
-      navigate('/purchases');
+      if (docType === 'purchase_order') {
+        navigate('/purchases/orders');
+      } else {
+        navigate('/purchases');
+      }
     } catch (err: any) {
-      alert(`Error saving purchase bill: ${err?.message || 'Failed to save bill'}`);
+      alert(`Error saving purchase document: ${err?.message || 'Failed to save document'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -388,17 +414,19 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate('/purchases')}
+            onClick={() => navigate(docType === 'purchase_order' ? '/purchases/orders' : '/purchases')}
             className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Create Supplier Purchase Bill
+              {docType === 'purchase_order' ? 'Create Direct Purchase Order' : 'Create Supplier Purchase Bill'}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Record actual supplier invoice against approved purchase orders and automatically transfer to Accountant for payment review.
+              {docType === 'purchase_order'
+                ? 'Create a direct purchase order for supplier delivery tracking and destination warehouse receipt.'
+                : 'Record actual supplier invoice against purchase orders and automatically transfer to Accountant for payment review.'}
             </p>
           </div>
         </div>
@@ -406,7 +434,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => navigate('/purchases')}
+            onClick={() => navigate(docType === 'purchase_order' ? '/purchases/orders' : '/purchases')}
             className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
             Cancel
@@ -424,7 +452,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
             ) : (
               <>
                 <Save className="w-3.5 h-3.5" />
-                <span>Save & Transfer to Accountant</span>
+                <span>{docType === 'purchase_order' ? 'Save Purchase Order' : 'Save & Transfer to Accountant'}</span>
               </>
             )}
           </button>
@@ -561,7 +589,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Receiving Warehouse</label>
+            <label className="block font-medium text-slate-700 mb-1">{docType === 'purchase_order' ? 'Destination Warehouse' : 'Receiving Warehouse'}</label>
             <select
               value={warehouse}
               onChange={e => setWarehouse(e.target.value)}

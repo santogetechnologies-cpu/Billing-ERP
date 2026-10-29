@@ -891,6 +891,7 @@ export const purchaseRequestService = {
       supplierId: string;
       supplierName?: string;
       supplierGstin?: string;
+      destinationWarehouseId?: string;
       notes?: string;
       expectedDelivery?: string;
       approvedItems: Array<{
@@ -1068,7 +1069,7 @@ export const purchaseRequestService = {
         doc_type: 'purchase_order',
         date: today,
         due_date: params.expectedDelivery || today,
-        warehouse_id: existing.warehouseId,
+        warehouse_id: params.destinationWarehouseId || existing.warehouseId,
         supplier_id: params.supplierId,
         supplier_name: supplierName,
         supplier_gstin: supplierGstin || null,

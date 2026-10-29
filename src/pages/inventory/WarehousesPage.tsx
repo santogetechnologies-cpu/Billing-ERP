@@ -25,6 +25,7 @@ import {
   Package
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
+import { useAuth } from '../../context/AuthContext';
 import { Warehouse, WarehouseType } from '../../types';
 import { Modal } from '../../components/common/Modal';
 import { formatCurrency } from '../../utils/formatters';
@@ -41,6 +42,8 @@ const LOCATION_TYPES: WarehouseType[] = [
 
 export const WarehousesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
+  const canManageWarehouse = profile?.role === 'Owner' || profile?.role === 'Admin' || profile?.role === 'Warehouse Manager';
   const {
     warehouses,
     stockBalances,
@@ -369,13 +372,15 @@ export const WarehousesPage: React.FC = () => {
             <RefreshCw className="w-4 h-4" />
           </button>
 
-          <button
-            onClick={handleOpenCreateModal}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Warehouse</span>
-          </button>
+          {canManageWarehouse && (
+            <button
+              onClick={handleOpenCreateModal}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Warehouse</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -505,13 +510,15 @@ export const WarehousesPage: React.FC = () => {
               ? 'No warehouse locations match your current search and filter criteria.'
               : 'Add your primary warehouse, storage godowns, and branch stores to maintain segregated stock.'}
           </p>
-          <button
-            onClick={handleOpenCreateModal}
-            className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add First Warehouse</span>
-          </button>
+          {canManageWarehouse && (
+            <button
+              onClick={handleOpenCreateModal}
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add First Warehouse</span>
+            </button>
+          )}
         </div>
       ) : viewMode === 'cards' ? (
         /* Card Layout */
@@ -545,25 +552,45 @@ export const WarehousesPage: React.FC = () => {
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleToggleStatus(wh)}
-                      title={isActive ? 'Click to deactivate' : 'Click to activate'}
-                      className={`px-2 py-0.5 text-[11px] font-semibold rounded-full border transition-colors flex items-center gap-1 ${
-                        isActive
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                          : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                      }`}
-                    >
-                      {isActive ? (
-                        <>
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Active
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="w-3 h-3 text-rose-600" /> Inactive
-                        </>
-                      )}
-                    </button>
+                    {canManageWarehouse ? (
+                      <button
+                        onClick={() => handleToggleStatus(wh)}
+                        title={isActive ? 'Click to deactivate' : 'Click to activate'}
+                        className={`px-2 py-0.5 text-[11px] font-semibold rounded-full border transition-colors flex items-center gap-1 cursor-pointer ${
+                          isActive
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                        }`}
+                      >
+                        {isActive ? (
+                          <>
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Active
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3 h-3 text-rose-600" /> Inactive
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <span
+                        className={`px-2 py-0.5 text-[11px] font-semibold rounded-full border flex items-center gap-1 ${
+                          isActive
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}
+                      >
+                        {isActive ? (
+                          <>
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Active
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3 h-3 text-rose-600" /> Inactive
+                          </>
+                        )}
+                      </span>
+                    )}
                   </div>
 
                   {/* Warehouse Title & Address */}
@@ -618,27 +645,31 @@ export const WarehousesPage: React.FC = () => {
                 <div className="p-3 bg-slate-50/60 border-t border-slate-100 rounded-b-2xl flex items-center justify-between gap-2">
                   <button
                     onClick={() => handleOpenStockModal(wh)}
-                    className="flex-1 py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+                    className="flex-1 py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
                   >
                     <Eye className="w-3.5 h-3.5 text-blue-600" />
-                    <span>View Stock</span>
+                    <span>View Stock Details</span>
                   </button>
 
-                  <button
-                    onClick={() => handleOpenEditModal(wh)}
-                    className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 rounded-xl transition-colors"
-                    title="Edit Warehouse"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
+                  {canManageWarehouse && (
+                    <>
+                      <button
+                        onClick={() => handleOpenEditModal(wh)}
+                        className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                        title="Edit Warehouse"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
 
-                  <button
-                    onClick={() => handleOpenDeleteModal(wh)}
-                    className="p-1.5 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 rounded-xl transition-colors"
-                    title="Delete Warehouse"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                      <button
+                        onClick={() => handleOpenDeleteModal(wh)}
+                        className="p-1.5 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                        title="Delete Warehouse"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -713,41 +744,57 @@ export const WarehousesPage: React.FC = () => {
                       </td>
 
                       <td className="py-3 px-3 text-center">
-                        <button
-                          onClick={() => handleToggleStatus(wh)}
-                          className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                            isActive
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}
-                        >
-                          {isActive ? 'Active' : 'Inactive'}
-                        </button>
+                        {canManageWarehouse ? (
+                          <button
+                            onClick={() => handleToggleStatus(wh)}
+                            className={`px-2 py-0.5 text-[10px] font-bold rounded-full border cursor-pointer ${
+                              isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                            }`}
+                          >
+                            {isActive ? 'Active' : 'Inactive'}
+                          </button>
+                        ) : (
+                          <span
+                            className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                              isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}
+                          >
+                            {isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleOpenStockModal(wh)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                             title="View Stock Breakdown"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => handleOpenEditModal(wh)}
-                            className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleOpenDeleteModal(wh)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canManageWarehouse && (
+                            <>
+                              <button
+                                onClick={() => handleOpenEditModal(wh)}
+                                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleOpenDeleteModal(wh)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>

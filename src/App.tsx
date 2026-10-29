@@ -249,6 +249,15 @@ export function App() {
                 }
               />
               <Route
+                path="purchases/delivery-tracking"
+                element={
+                  <ProtectedRoute requiredModule="purchases">
+                    <PurchaseOrdersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="delivery-tracking" element={<Navigate to="/purchases/delivery-tracking" replace />} />
+              <Route
                 path="purchases/new"
                 element={
                   <ProtectedRoute requiredModule="purchases" requiredAction="create">
@@ -307,6 +316,14 @@ export function App() {
                 element={
                   <ProtectedRoute requiredModule="products" requiredAction="edit" customValidator={canManageProducts}>
                     <NewProductPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="products/:id"
+                element={
+                  <ProtectedRoute requiredModule="products" customValidator={canManageProducts}>
+                    <ProductListPage />
                   </ProtectedRoute>
                 }
               />

@@ -32,7 +32,8 @@ import {
   Activity,
   Truck,
   DollarSign,
-  PackageCheck
+  PackageCheck,
+  ArrowRightLeft
 } from 'lucide-react';
 
 import { useERP } from '../../context/ERPContext';
@@ -180,13 +181,17 @@ export function isNavItemActive(
         current === '/purchases/barcode-override'
       );
     }
+    if (target === '/purchases/delivery-tracking') {
+      return current === '/purchases/delivery-tracking';
+    }
     if (target === '/purchases') {
       return current === '/purchases' || current === '/purchases/invoices';
     }
     if (target === '/products') {
       if (current === '/products/initial-stock' || current.startsWith('/products/initial-stock/')) return false;
       if (current === '/products/update-stock' || current.startsWith('/products/update-stock/')) return false;
-      return current === '/products' || current === '/products/new' || current.startsWith('/products/edit/');
+      if (current === '/inventory/transfers' || current.startsWith('/inventory/transfers/')) return false;
+      return current === '/products' || current.startsWith('/products/');
     }
     if (target === '/products/initial-stock') {
       return current === '/products/initial-stock' || current.startsWith('/products/initial-stock/');
@@ -201,7 +206,8 @@ export function isNavItemActive(
   if (target === '/products') {
     if (current === '/products/initial-stock' || current.startsWith('/products/initial-stock/')) return false;
     if (current === '/products/update-stock' || current.startsWith('/products/update-stock/')) return false;
-    return current === '/products' || current === '/products/new' || current.startsWith('/products/edit/');
+    if (current === '/inventory/transfers' || current.startsWith('/inventory/transfers/')) return false;
+    return current === '/products' || current.startsWith('/products/');
   }
   if (target === '/products/initial-stock') {
     return current === '/products/initial-stock' || current.startsWith('/products/initial-stock/');
@@ -229,6 +235,7 @@ export function isNavItemActive(
       current.startsWith('/purchases/returns/') ||
       current.startsWith('/purchases/requests') ||
       current.startsWith('/purchases/orders') ||
+      current.startsWith('/purchases/delivery-tracking') ||
       current.startsWith('/purchases/barcode') ||
       current.startsWith('/purchases/dashboard')
     ) {
@@ -368,8 +375,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: ShoppingBag,
       children: profile?.role === 'Purchase Manager'
         ? [
-            { name: 'Purchase Invoices', path: '/purchases', end: true },
             { name: 'Purchase Orders', path: '/purchases/orders', icon: Truck, end: true },
+            { name: 'Delivery Tracking', path: '/purchases/delivery-tracking', icon: PackageCheck, end: true },
+            { name: 'Purchase Bills', path: '/purchases', icon: FileText, end: true },
+            { name: 'New Purchase Order', path: '/purchases/new?docType=purchase_order', end: true },
             { name: 'New Purchase Bill', path: '/purchases/new', end: true },
             { name: 'Purchase Returns', path: '/purchases/returns', end: true }
           ]
@@ -377,6 +386,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { name: 'Purchase Invoices', path: '/purchases', end: true },
             { name: 'Purchase Requests', path: '/purchases/requests', icon: ClipboardList, end: true },
             { name: 'Purchase Orders', path: '/purchases/orders', icon: Truck, end: true },
+            { name: 'Delivery Tracking', path: '/purchases/delivery-tracking', icon: PackageCheck, end: true },
             { name: 'New Purchase Bill', path: '/purchases/new', end: true },
             { name: 'Purchase Returns', path: '/purchases/returns', end: true }
           ]
@@ -385,11 +395,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       name: 'Product',
       path: '/products',
       icon: Package,
-      children: [
-        { name: 'Product Master', path: '/products', end: true },
-        { name: 'Add Stock', path: '/products/initial-stock', end: true },
-        { name: 'Update Stock', path: '/products/update-stock', end: true }
-      ]
+      children: profile?.role === 'Purchase Manager'
+        ? [
+            { name: 'Product Master', path: '/products', end: true },
+            { name: 'Add Product / Initial Stock', path: '/products/initial-stock', end: true },
+            { name: 'Update Stock', path: '/products/update-stock', end: true },
+            { name: 'Stock Transfer', path: '/inventory/transfers', icon: ArrowRightLeft, end: true }
+          ]
+        : [
+            { name: 'Product Master', path: '/products', end: true },
+            { name: 'Add Stock', path: '/products/initial-stock', end: true },
+            { name: 'Update Stock', path: '/products/update-stock', end: true }
+          ]
     },
     {
       name: 'Inventory',
@@ -398,6 +415,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       children: profile?.role === 'Purchase Manager'
         ? [
             { name: 'Stock Overview', path: '/inventory', end: true },
+            { name: 'Warehouse Details', path: '/inventory/warehouses', icon: WarehouseIcon, end: true },
+            { name: 'Stock Transfers', path: '/inventory/transfers', icon: ArrowRightLeft, end: true },
             { name: 'Total Product Cost', path: '/inventory/total-cost', icon: DollarSign, end: true }
           ]
         : profile?.role === 'Warehouse Manager'
@@ -405,7 +424,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { name: 'Stock Overview', path: '/inventory', end: true },
             { name: 'Order Receive', path: '/inventory/receive', icon: PackageCheck, end: true },
             { name: 'Low Stock & Reorder', path: '/inventory/alerts', icon: AlertTriangle, end: true },
-            { name: 'Purchase Requests', path: '/inventory/purchase-requests', icon: ClipboardList, end: true },
+            { name: 'Stock Transfers', path: '/inventory/transfers', icon: ArrowRightLeft, end: true },
             { name: 'Batch Tracking', path: '/inventory/batches', end: true },
             { name: 'Stock Valuation', path: '/inventory/valuation', end: true }
           ]
@@ -413,12 +432,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { name: 'Stock Overview', path: '/inventory', end: true },
             { name: 'Low Stock & Reorder', path: '/inventory/alerts', icon: AlertTriangle, end: true },
             { name: 'Purchase Requests', path: '/inventory/purchase-requests', icon: ClipboardList, end: true },
+            { name: 'Stock Transfers', path: '/inventory/transfers', icon: ArrowRightLeft, end: true },
             { name: 'Batch Tracking', path: '/inventory/batches', end: true },
             { name: 'Stock Valuation', path: '/inventory/valuation', end: true }
           ]
     },
     {
-      name: 'Warehouses / Godowns',
+      name: profile?.role === 'Purchase Manager' ? 'Warehouse Details' : 'Warehouses / Godowns',
       path: '/inventory/warehouses',
       icon: WarehouseIcon,
       end: true

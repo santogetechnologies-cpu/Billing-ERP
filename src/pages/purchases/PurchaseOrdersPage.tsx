@@ -549,13 +549,22 @@ export const PurchaseOrdersPage: React.FC = () => {
           </button>
 
           {hasPermission(profile?.role, 'purchases', 'create') && (
-            <button
-              onClick={() => navigate('/purchases/new')}
-              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Record Purchase Bill</span>
-            </button>
+            <>
+              <button
+                onClick={() => navigate('/purchases/new?docType=purchase_order')}
+                className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Purchase Order</span>
+              </button>
+              <button
+                onClick={() => navigate('/purchases/new')}
+                className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Record Bill</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -685,10 +694,10 @@ export const PurchaseOrdersPage: React.FC = () => {
                 Clear Filters
               </button>
               <button
-                onClick={() => navigate('/purchases/requests')}
+                onClick={() => navigate('/purchases/new?docType=purchase_order')}
                 className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
               >
-                View Purchase Requests
+                Create Purchase Order
               </button>
             </div>
           </div>

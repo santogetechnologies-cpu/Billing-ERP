@@ -22,7 +22,8 @@ import {
   Warehouse as WarehouseIcon,
   HelpCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  Search
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -48,6 +49,7 @@ import {
 export interface SupplierDeliveryItem {
   supplierId: string;
   supplierName: string;
+  destinationWarehouse?: string;
   contact: string;
   activeOrders: number;
   itemsToDeliver: number;
@@ -65,14 +67,16 @@ export function computeSupplierDeliveries(params: {
   suppliers: Supplier[];
   purchaseOrders: any[];
   purchaseRequests: PurchaseRequest[];
+  warehouses?: WarehouseModel[];
   todayStr?: string;
 }): SupplierDeliveryItem[] {
-  const { suppliers, purchaseOrders, purchaseRequests, todayStr } = params;
+  const { suppliers, purchaseOrders, purchaseRequests, warehouses, todayStr } = params;
   const today = todayStr || new Date().toISOString().split('T')[0];
 
   const supplierMap = new Map<string, {
     supplierId: string;
     supplierName: string;
+    destinationWarehouses: string[];
     contact: string;
     activeOrders: number;
     itemsToDeliver: number;
@@ -89,6 +93,7 @@ export function computeSupplierDeliveries(params: {
     supplierMap.set(sup.id, {
       supplierId: sup.id,
       supplierName: sup.name,
+      destinationWarehouses: [],
       contact,
       activeOrders: 0,
       itemsToDeliver: 0,
@@ -115,6 +120,7 @@ export function computeSupplierDeliveries(params: {
     const entry = {
       supplierId: newId,
       supplierName: name,
+      destinationWarehouses: [] as string[],
       contact: 'Not available',
       activeOrders: 0,
       itemsToDeliver: 0,
@@ -163,6 +169,13 @@ export function computeSupplierDeliveries(params: {
 
     entry.activeOrders += 1;
     entry.itemsToDeliver += pendingQty;
+
+    const whId = po.warehouse_id || po.warehouse;
+    const matchedWh = warehouses?.find(w => w.id === whId || w.code === whId || (w.name && String(whId).toLowerCase() === w.name.toLowerCase()));
+    const whName = matchedWh?.name || po.warehouse_name || (typeof whId === 'string' && !whId.includes('-') && whId.trim() ? whId.trim() : undefined);
+    if (whName && !entry.destinationWarehouses.includes(whName)) {
+      entry.destinationWarehouses.push(whName);
+    }
 
     const expDate = po.expected_delivery || po.due_date || po.expectedDelivery;
     if (expDate && typeof expDate === 'string' && expDate.trim()) {
@@ -221,6 +234,12 @@ export function computeSupplierDeliveries(params: {
       entry.activeOrders += 1;
       entry.itemsToDeliver += pendingQty;
 
+      const matchedWh = warehouses?.find(w => w.id === req.warehouseId);
+      const whName = req.warehouseName || matchedWh?.name;
+      if (whName && !entry.destinationWarehouses.includes(whName)) {
+        entry.destinationWarehouses.push(whName);
+      }
+
       if (req.requestedDeliveryDate) {
         const cleanDate = req.requestedDeliveryDate.split('T')[0];
         entry.expectedDates.push(cleanDate);
@@ -262,6 +281,7 @@ export function computeSupplierDeliveries(params: {
     return {
       supplierId: e.supplierId,
       supplierName: e.supplierName,
+      destinationWarehouse: e.destinationWarehouses.length > 0 ? e.destinationWarehouses.join(', ') : 'Not available',
       contact: e.contact,
       activeOrders: e.activeOrders,
       itemsToDeliver: e.itemsToDeliver,
@@ -492,6 +512,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
     suppliers,
     products,
     warehouses,
+    getWarehouseStock,
     updatePurchaseRequestStatus,
     refreshPurchaseRequests,
     refreshData,
@@ -501,14 +522,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Review & Approval Modal state
-  const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null);
-  const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
-  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [approvalNotes, setApprovalNotes] = useState('');
-  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   // Current localized date string
@@ -520,7 +533,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       day: 'numeric'
     });
   }, []);
-
 
   const displayName = useMemo(() => {
     if (profile?.full_name && profile.full_name.trim() !== '') {
@@ -534,6 +546,69 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   const [purchaseOrdersData, setPurchaseOrdersData] = useState<any[]>([]);
   const [isPurchaseOrdersLoading, setIsPurchaseOrdersLoading] = useState(false);
   const [isActiveOrdersModalOpen, setIsActiveOrdersModalOpen] = useState(false);
+
+  // State for Warehouse Details section
+  const [warehouseSearchTerm, setWarehouseSearchTerm] = useState('');
+  const [warehouseStatusFilter, setWarehouseStatusFilter] = useState<'All' | 'Active' | 'Inactive'>('All');
+  const [selectedWarehouseForModal, setSelectedWarehouseForModal] = useState<WarehouseModel | null>(null);
+  const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
+  const [warehouseModalSearchTerm, setWarehouseModalSearchTerm] = useState('');
+
+  // Warehouse inventory statistics calculation
+  const getWarehouseStats = useCallback((whId: string) => {
+    let skuCount = 0;
+    let totalUnits = 0;
+    (products || []).forEach(p => {
+      const stock = getWarehouseStock ? getWarehouseStock(whId, p.id) : Number(p.currentStock || 0);
+      if (stock > 0) {
+        skuCount++;
+        totalUnits += stock;
+      }
+    });
+    if (skuCount === 0 && totalUnits === 0 && (products || []).length > 0) {
+      skuCount = products.length;
+      totalUnits = products.reduce((sum, p) => sum + (p.currentStock || 0), 0);
+    }
+    return { skuCount, totalUnits };
+  }, [products, getWarehouseStock]);
+
+  const filteredDashboardWarehouses = useMemo(() => {
+    return (warehouses || []).filter(w => {
+      const matchesSearch =
+        warehouseSearchTerm === '' ||
+        w.name.toLowerCase().includes(warehouseSearchTerm.toLowerCase()) ||
+        w.code.toLowerCase().includes(warehouseSearchTerm.toLowerCase()) ||
+        (w.contactPerson && w.contactPerson.toLowerCase().includes(warehouseSearchTerm.toLowerCase())) ||
+        (w.address && w.address.toLowerCase().includes(warehouseSearchTerm.toLowerCase()));
+
+      const isActive = w.isActive ?? true;
+      const matchesStatus =
+        warehouseStatusFilter === 'All' ||
+        (warehouseStatusFilter === 'Active' && isActive) ||
+        (warehouseStatusFilter === 'Inactive' && !isActive);
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [warehouses, warehouseSearchTerm, warehouseStatusFilter]);
+
+  const selectedWarehouseProducts = useMemo(() => {
+    if (!selectedWarehouseForModal) return [];
+    const q = warehouseModalSearchTerm.trim().toLowerCase();
+    return (products || [])
+      .map(p => ({
+        ...p,
+        warehouseQuantity: getWarehouseStock ? getWarehouseStock(selectedWarehouseForModal.id, p.id) : (p.currentStock || 0)
+      }))
+      .filter(p => {
+        if (!q) return true;
+        return (
+          p.name.toLowerCase().includes(q) ||
+          (p.sku && p.sku.toLowerCase().includes(q)) ||
+          (p.category && p.category.toLowerCase().includes(q))
+        );
+      })
+      .sort((a, b) => b.warehouseQuantity - a.warehouseQuantity);
+  }, [selectedWarehouseForModal, warehouseModalSearchTerm, products, getWarehouseStock]);
 
   const fetchPurchaseOrders = useCallback(async () => {
     const targetCompId = company?.id || '00000000-0000-0000-0000-000000000001';
@@ -633,9 +708,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
     return computeSupplierDeliveries({
       suppliers,
       purchaseOrders: ordersList,
-      purchaseRequests
+      purchaseRequests,
+      warehouses
     });
-  }, [suppliers, purchaseOrdersData, purchaseInvoices, purchaseRequests]);
+  }, [suppliers, purchaseOrdersData, purchaseInvoices, purchaseRequests, warehouses]);
 
   const totalActiveDeliveries = useMemo(() => {
     return supplierDeliveries.reduce((sum, s) => sum + s.activeOrders, 0);
@@ -655,6 +731,68 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
     });
   }, [purchaseOrdersData, purchaseInvoices, purchaseRequests, suppliers, warehouses]);
 
+  // All purchase orders list
+  const allPurchaseOrders = useMemo(() => {
+    return purchaseOrdersData.length > 0
+      ? purchaseOrdersData
+      : purchaseInvoices.filter(p => p.docType === 'purchase_order');
+  }, [purchaseOrdersData, purchaseInvoices]);
+
+  // Recent Purchase Orders mapped for direct tracking
+  const recentPurchaseOrders = useMemo(() => {
+    return allPurchaseOrders.slice(0, 8).map(po => {
+      const poNum = po.order_number || po.invoice_number || po.invoiceNumber || 'PO-2026';
+      const poDate = po.date || po.created_at || '';
+      const supplierName = po.supplier_name || po.supplierName || 'Supplier';
+
+      const whId = po.warehouse_id || po.warehouse;
+      const matchedWh = warehouses.find(w => w.id === whId || w.code === whId);
+      const whName = matchedWh?.name || po.warehouse_name || 'Main Warehouse';
+
+      const itemsList = po.items || [];
+      const numProducts = itemsList.length;
+
+      let orderedQty = 0;
+      let receivedQty = 0;
+      itemsList.forEach((it: any) => {
+        const ord = Number(it.qty || it.ordered_qty || it.orderedQty || 0);
+        const rec = Number(it.received_qty || it.receivedQty || 0);
+        orderedQty += ord;
+        receivedQty += rec;
+      });
+
+      const outstandingQty = Math.max(0, orderedQty - receivedQty);
+      const expDelivery = po.expected_delivery || po.due_date || po.expectedDelivery || po.dueDate;
+
+      let deliveryStatus: 'Delivered' | 'In Transit' | 'Partially Delivered' | 'Overdue' = 'In Transit';
+      const today = new Date().toISOString().split('T')[0];
+      if (outstandingQty === 0 && orderedQty > 0) {
+        deliveryStatus = 'Delivered';
+      } else if (receivedQty > 0) {
+        deliveryStatus = 'Partially Delivered';
+      } else if (expDelivery && typeof expDelivery === 'string' && expDelivery.split('T')[0] < today) {
+        deliveryStatus = 'Overdue';
+      } else {
+        deliveryStatus = 'In Transit';
+      }
+
+      return {
+        id: po.id,
+        orderNumber: poNum,
+        date: poDate,
+        supplierName,
+        destinationWarehouse: whName,
+        numProducts,
+        orderedQty,
+        outstandingQty,
+        expectedDelivery: expDelivery ? (typeof expDelivery === 'string' ? expDelivery.split('T')[0] : expDelivery) : 'Not available',
+        deliveryStatus,
+        grandTotal: po.grandTotal || po.grand_total || 0,
+        rawOrder: po
+      };
+    });
+  }, [allPurchaseOrders, warehouses]);
+
   // 1. KPI Metrics
   const metrics = useMemo(() => {
     // Current month identifier
@@ -671,10 +809,8 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
 
     const monthSpend = thisMonthInvoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
 
-    // Pending requests awaiting review / approval (sorted newest first)
-    const pendingRequests = purchaseRequests
-      .filter(r => isAwaitingPurchaseManagerReview(r.status))
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    // Total Purchase Orders
+    const totalOrdersCount = allPurchaseOrders.length;
 
     // Low stock products needing replenishment
     const lowStockItems = products.filter(p => {
@@ -688,14 +824,13 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
     return {
       monthSpend,
       monthInvoicesCount: thisMonthInvoices.length,
-      pendingRequestsCount: pendingRequests.length,
-      pendingRequestsList: pendingRequests,
+      totalOrdersCount,
       activeOrdersCount: activeInTransitOrders.length,
       lowStockCount: lowStockItems.length,
       lowStockList: lowStockItems.slice(0, 5),
       activeSuppliersCount
     };
-  }, [purchaseRequests, purchaseInvoices, products, supplierDeliveries, activeInTransitOrders]);
+  }, [purchaseInvoices, products, supplierDeliveries, activeInTransitOrders, allPurchaseOrders]);
 
   // Recent Invoices (Latest 5)
   const recentInvoices = useMemo(() => {
@@ -703,49 +838,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 5);
   }, [purchaseInvoices]);
-
-  // Quick Approve Handler
-  const handleApproveConfirm = async () => {
-    if (!selectedRequest) return;
-    setIsSubmittingAction(true);
-    setErrorMessage(null);
-    try {
-      await updatePurchaseRequestStatus({
-        requestId: selectedRequest.id,
-        status: 'Approved',
-        comments: approvalNotes.trim() || 'Approved by Purchase Manager'
-      });
-      setIsApproveModalOpen(false);
-      setSelectedRequest(null);
-      setApprovalNotes('');
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to approve purchase request.');
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  };
-
-  // Rejection Handler
-  const handleRejectConfirm = async () => {
-    if (!selectedRequest || !rejectionReason.trim()) return;
-    setIsSubmittingAction(true);
-    setErrorMessage(null);
-    try {
-      await updatePurchaseRequestStatus({
-        requestId: selectedRequest.id,
-        status: 'Rejected',
-        rejectionReason: rejectionReason.trim(),
-        comments: `Rejected by Purchase Manager: ${rejectionReason.trim()}`
-      });
-      setIsRejectModalOpen(false);
-      setSelectedRequest(null);
-      setRejectionReason('');
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to reject purchase request.');
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -772,10 +864,8 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
               Purchase Manager Dashboard
             </h1>
-            <p className="text-xs text-slate-500 max-w-xl mt-0.5 flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-slate-700">{company.name || 'Universal ERP Enterprise'}</span>
-              <span className="text-slate-300">•</span>
-              <span className="text-slate-500">{formattedToday}</span>
+            <p className="text-xs text-slate-500 max-w-xl mt-0.5">
+              Welcome back, <span className="font-semibold text-slate-700">{displayName}</span>! Purchasing, Suppliers & Delivery Operations
             </p>
           </div>
         </div>
@@ -799,23 +889,22 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             title="View Profile"
           >
             <div className="w-5 h-5 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-              {(profile?.full_name || user?.email || 'P')[0].toUpperCase()}
+              {(displayName || 'P')[0].toUpperCase()}
             </div>
             <span className="text-xs font-semibold text-slate-800 truncate max-w-[120px]">
               {displayName}
             </span>
           </button>
 
-          {canManageBarcodeOverride(profile?.role) && (
-            <button
-              onClick={() => navigate('/purchases/barcode-management')}
-              className="h-9 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-              title="Assign or override supplier barcodes"
-            >
-              <ScanBarcode className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-              <span>Barcode Override</span>
-            </button>
-          )}
+          {/* New Purchase Order Button */}
+          <button
+            onClick={() => navigate('/purchases/new?docType=purchase_order')}
+            className="h-9 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
+            title="Create new direct purchase order"
+          >
+            <Plus className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <span>New Purchase Order</span>
+          </button>
 
           {/* New Purchase Bill Button */}
           <button
@@ -823,7 +912,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
             title="Create new vendor purchase bill"
           >
-            <Plus className="w-4 h-4 shrink-0" />
+            <FileText className="w-3.5 h-3.5 shrink-0" />
             <span>New Purchase Bill</span>
           </button>
         </div>
@@ -848,13 +937,13 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       {/* 2. Procurement Summary KPI Cards */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${showLowStockCard ? 'lg:grid-cols-3 xl:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
         <StatCard
-          title="Pending Requests"
-          value={formatNumber(metrics.pendingRequestsCount)}
-          subtitle="Warehouse PRs awaiting review"
-          icon={Clock}
-          iconBgColor="bg-amber-50"
-          iconTextColor="text-amber-600"
-          onClick={() => navigate('/purchases/requests?status=Pending+Review')}
+          title="Total Purchase Orders"
+          value={formatNumber(metrics.totalOrdersCount)}
+          subtitle={`${metrics.activeOrdersCount} in progress`}
+          icon={Truck}
+          iconBgColor="bg-blue-50"
+          iconTextColor="text-blue-600"
+          onClick={() => navigate('/purchases/orders')}
         />
         <StatCard
           title="Month Purchases"
@@ -869,9 +958,9 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           title="Active Orders"
           value={formatNumber(metrics.activeOrdersCount)}
           subtitle="Purchase orders in-transit"
-          icon={Truck}
-          iconBgColor="bg-blue-50"
-          iconTextColor="text-blue-600"
+          icon={Clock}
+          iconBgColor="bg-amber-50"
+          iconTextColor="text-amber-600"
           onClick={() => setIsActiveOrdersModalOpen(true)}
         />
         <StatCard
@@ -896,192 +985,154 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         )}
       </div>
 
-
-
-      {/* 3. Action Required: Pending Purchase Requests Section */}
-      <div id="pending-requests-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+      {/* 3. Direct Procurement: Recent Purchase Orders Section */}
+      <div id="recent-orders-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <ClipboardList className="w-4 h-4 text-amber-500" />
-              <span>Pending Purchase Requests Awaiting Your Review</span>
-              {metrics.pendingRequestsCount > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                  {metrics.pendingRequestsCount} Actionable
+              <Truck className="w-4 h-4 text-blue-600" />
+              <span>Recent Purchase Orders</span>
+              {allPurchaseOrders.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+                  {allPurchaseOrders.length} {allPurchaseOrders.length === 1 ? 'Order' : 'Orders'}
                 </span>
               )}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Review stock replenishment requests from warehouse managers, verify requested quantities, and approve for PO creation.
+              Direct supplier purchase orders, fulfillment progress, and destination warehouse delivery tracking.
             </p>
           </div>
 
-          <button
-            onClick={() => navigate('/purchases/requests')}
-            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 self-start sm:self-auto cursor-pointer"
-          >
-            <span>View All Requests</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {contextLoading || isRefreshing ? (
-          <div className="p-8 flex flex-col items-center justify-center text-slate-400 gap-2">
-            <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
-            <span className="text-xs">Loading procurement requests...</span>
-          </div>
-        ) : (contextError || errorMessage) ? (
-          <div className="p-8 text-center bg-rose-50/40 border-t border-rose-100">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-rose-100 text-rose-600 mb-2">
-              <AlertCircle className="w-6 h-6" />
-            </div>
-            <p className="text-sm font-bold text-slate-900">Failed to Load Purchase Requests</p>
-            <p className="text-xs text-rose-600 mt-1 max-w-md mx-auto">
-              {errorMessage || contextError || 'Unable to retrieve pending requests. Please check your network connection.'}
-            </p>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
-              onClick={handleRefresh}
-              className="mt-3 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+              onClick={() => navigate('/purchases/orders')}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer mr-2"
             >
-              Retry
+              <span>View All Orders</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => navigate('/purchases/new?docType=purchase_order')}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Purchase Order</span>
             </button>
           </div>
-        ) : metrics.pendingRequestsList.length === 0 ? (
+        </div>
+
+        {isPurchaseOrdersLoading || isRefreshing ? (
+          <div className="p-8 flex flex-col items-center justify-center text-slate-400 gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            <span className="text-xs">Loading purchase orders...</span>
+          </div>
+        ) : recentPurchaseOrders.length === 0 ? (
           <div className="p-8 text-center bg-slate-50/50">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 mb-2">
-              <CheckCircle2 className="w-6 h-6" />
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 text-blue-600 mb-2">
+              <Truck className="w-6 h-6" />
             </div>
-            <p className="text-sm font-bold text-slate-800">All Clear! No Pending Requests</p>
+            <p className="text-sm font-bold text-slate-800">No Purchase Orders Created Yet</p>
             <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              There are currently no warehouse replenishment requests awaiting review. Warehouse managers submit new requests as stock levels deplete.
+              Start purchasing directly by creating your first purchase order for supplier delivery.
             </p>
+            <button
+              onClick={() => navigate('/purchases/new?docType=purchase_order')}
+              className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create Purchase Order</span>
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-4">Request # & Date</th>
-                  <th className="py-3 px-4">Requested Product & Qty</th>
-                  <th className="py-3 px-4">Warehouse Hub</th>
-                  <th className="py-3 px-4 text-center">Priority</th>
-                  <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4 text-right">Estimated Cost</th>
-                  <th className="py-3 px-4 text-center">Quick Action</th>
+                  <th className="py-3 px-4">Purchase Order Number</th>
+                  <th className="py-3 px-4">Supplier</th>
+                  <th className="py-3 px-4">Destination Warehouse</th>
+                  <th className="py-3 px-4 text-center">Number of Products</th>
+                  <th className="py-3 px-4 text-right">Ordered Quantity</th>
+                  <th className="py-3 px-4 text-right">Outstanding Quantity</th>
+                  <th className="py-3 px-4">Expected Delivery</th>
+                  <th className="py-3 px-4 text-center">Delivery Status</th>
+                  <th className="py-3 px-4 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {metrics.pendingRequestsList.slice(0, 8).map(req => {
-                  const itemsCount = req.items?.length || 0;
-                  const firstItem = req.items?.[0];
-                  const otherItemsCount = itemsCount - 1;
-                  const estCost = req.items?.reduce((sum, it) => sum + ((it.estimatedCost ?? 0) * (it.requestedQty || 0)), 0) || 0;
-
-                  return (
-                    <tr key={req.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="font-mono font-bold text-indigo-600 block">
-                          #{req.requestNumber}
-                        </span>
-                        <span className="text-[11px] text-slate-400">
-                          {formatDate(req.createdAt)}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {firstItem ? (
-                          <div>
-                            <span className="font-semibold text-slate-900 block truncate max-w-[220px]" title={firstItem.productName}>
-                              {firstItem.productName}
-                            </span>
-                            <span className="text-[11px] text-slate-600 flex items-center gap-1.5 mt-0.5">
-                              <span className="font-mono font-semibold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
-                                {formatNumber(firstItem.requestedQty)} {firstItem.unit || 'Piece'}
-                              </span>
-                              {otherItemsCount > 0 && (
-                                <span className="text-[10px] text-indigo-600 font-medium">
-                                  +{otherItemsCount} more {otherItemsCount === 1 ? 'item' : 'items'}
-                                </span>
-                              )}
-                            </span>
-                          </div>
+                {recentPurchaseOrders.map(order => (
+                  <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <span className="font-mono font-bold text-blue-600 block">
+                        #{order.orderNumber}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {order.date ? formatDate(order.date) : '—'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      <span className="block truncate max-w-[160px]" title={order.supplierName}>
+                        {order.supplierName}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-slate-800 font-medium flex items-center gap-1.5">
+                        <WarehouseIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        <span className="truncate max-w-[140px]">{order.destinationWarehouse}</span>
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center whitespace-nowrap font-mono font-semibold text-slate-700">
+                      {order.numProducts} {order.numProducts === 1 ? 'Product' : 'Products'}
+                    </td>
+                    <td className="py-3 px-4 text-right whitespace-nowrap font-mono font-bold text-slate-900">
+                      {formatNumber(order.orderedQty)} Units
+                    </td>
+                    <td className="py-3 px-4 text-right whitespace-nowrap font-mono font-bold text-amber-700">
+                      {order.outstandingQty > 0 ? `${formatNumber(order.outstandingQty)} Units` : '0 Units'}
+                    </td>
+                    <td className="py-3 px-4 whitespace-nowrap text-slate-600 text-[11px]">
+                      {order.expectedDelivery !== 'Not available' ? formatDate(order.expectedDelivery) : <span className="text-slate-400">Not available</span>}
+                    </td>
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        order.deliveryStatus === 'Delivered'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : order.deliveryStatus === 'Overdue'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : order.deliveryStatus === 'Partially Delivered'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-blue-100 text-blue-800 border border-blue-200'
+                      }`}>
+                        {order.deliveryStatus === 'Delivered' ? (
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
                         ) : (
-                          <span className="text-slate-400 italic">No items</span>
+                          <Truck className="w-3 h-3 shrink-0" />
                         )}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className="text-slate-800 font-medium flex items-center gap-1.5">
-                          <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[180px]">{req.warehouseName || 'All Hubs'}</span>
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            req.priority === 'Urgent'
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : req.priority === 'High'
-                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                              : 'bg-slate-100 text-slate-700 border border-slate-200'
-                          }`}
-                        >
-                          {req.priority}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <StatusBadge status={req.status} size="sm" />
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-bold text-slate-900 font-mono whitespace-nowrap">
-                        {estCost > 0 ? formatCurrency(estCost) : '—'}
-                      </td>
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => {
-                              setSelectedRequest(req);
-                              setApprovalNotes('');
-                              setIsApproveModalOpen(true);
-                            }}
-                            className="w-7 h-7 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-2xs transition-colors cursor-pointer"
-                            title="Approve Request"
-                            aria-label="Approve Request"
-                          >
-                            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedRequest(req);
-                              setRejectionReason('');
-                              setIsRejectModalOpen(true);
-                            }}
-                            className="w-7 h-7 flex items-center justify-center bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 hover:border-rose-300 rounded-lg shadow-2xs transition-colors cursor-pointer"
-                            title="Reject Request"
-                            aria-label="Reject Request"
-                          >
-                            <X className="w-3.5 h-3.5 stroke-[2.5]" />
-                          </button>
-                          <button
-                            onClick={() => navigate(`/purchases/requests?id=${req.id}`)}
-                            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                            title="Inspect Request Details"
-                            aria-label="Inspect Request Details"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        <span>{order.deliveryStatus}</span>
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <button
+                        onClick={() => navigate('/purchases/orders')}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                        title="View Purchase Order Details"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-slate-500" />
+                        <span>View</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* 4. Lower Grid: Recent Invoices (~40%) & Supplier Delivery Overview (~60%) */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-stretch">
-        {/* Left Column: Recent Vendor Purchase Invoices (~40% width) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
+      {/* 4. Lower Grid: Recent Invoices (~35%) & Supplier Delivery Overview (~65%) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Left Column: Recent Vendor Purchase Invoices (4 of 12 columns = ~33.3% width) */}
+        <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -1137,8 +1188,8 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Supplier Delivery Overview (~60% width) */}
-        <div id="supplier-delivery-overview-section" className="lg:col-span-3 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
+        {/* Right Column: Supplier Delivery Overview (8 of 12 columns = ~66.7% width) */}
+        <div id="supplier-delivery-overview-section" className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -1177,56 +1228,66 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                     <thead>
                       <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
                         <th className="py-2.5 px-3">Supplier Name</th>
-                        <th className="py-2.5 px-2">Contact</th>
-                        <th className="py-2.5 px-1.5 text-center">Active Orders</th>
-                        <th className="py-2.5 px-2 text-right">Items to Deliver</th>
-                        <th className="py-2.5 px-2">Expected Delivery</th>
-                        <th className="py-2.5 px-2 text-center">Delivery Status</th>
-                        <th className="py-2.5 px-2.5 text-center">Supplier Status</th>
+                        <th className="py-2.5 px-2.5">Contact</th>
+                        <th className="py-2.5 px-2 text-center">Active Orders</th>
+                        <th className="py-2.5 px-2.5 text-right">Items to Deliver</th>
+                        <th className="py-2.5 px-2.5">Expected Delivery</th>
+                        <th className="py-2.5 px-2.5 text-center">Delivery Status</th>
+                        <th className="py-2.5 px-3 text-center">Supplier Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {supplierDeliveries.slice(0, 5).map((item) => (
                         <tr key={item.supplierId} className="hover:bg-slate-50/70 transition-colors">
                           <td className="py-2.5 px-3 font-semibold text-slate-800">
-                            <span className="block truncate max-w-[110px] xl:max-w-[140px]" title={item.supplierName}>
+                            <span className="block truncate max-w-[140px] xl:max-w-[180px]" title={item.supplierName}>
                               {item.supplierName}
                             </span>
+                            {item.destinationWarehouse && item.destinationWarehouse !== 'Not available' && (
+                              <span
+                                className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5 truncate max-w-[140px]"
+                                title={`Destination Warehouse: ${item.destinationWarehouse}`}
+                              >
+                                <WarehouseIcon className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                                <span className="truncate">{item.destinationWarehouse}</span>
+                              </span>
+                            )}
                           </td>
-                          <td className="py-2.5 px-2 text-slate-600 font-mono text-[11px]">
-                            <span className="block truncate max-w-[85px] xl:max-w-[110px]" title={item.contact}>
+                          <td className="py-2.5 px-2.5 text-slate-600 font-mono text-[11px]">
+                            <span className="block truncate max-w-[110px] xl:max-w-[140px]" title={item.contact}>
                               {item.contact !== 'Not available' ? item.contact : <span className="text-slate-400 font-sans">Not available</span>}
                             </span>
                           </td>
-                          <td className="py-2.5 px-1.5 text-center whitespace-nowrap font-mono font-bold text-slate-700">
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap font-mono font-bold text-slate-700">
                             {item.activeOrders}
                           </td>
-                          <td className="py-2.5 px-2 text-right whitespace-nowrap font-mono font-bold text-slate-800">
+                          <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono font-bold text-slate-800">
                             {item.itemsToDeliver > 0 ? `${formatNumber(item.itemsToDeliver)} Units` : '0'}
                           </td>
-                          <td className="py-2.5 px-2 whitespace-nowrap text-slate-600 text-[11px]">
+                          <td className="py-2.5 px-2.5 whitespace-nowrap text-slate-600 text-[11px]">
                             {item.expectedDelivery !== 'Not available' ? formatDate(item.expectedDelivery) : <span className="text-slate-400">Not available</span>}
                           </td>
-                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
                             <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                               item.deliveryStatus === 'Delivered' || (item.activeOrders === 0 && item.itemsToDeliver === 0)
                                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : item.deliveryStatus === 'Overdue'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : item.deliveryStatus === 'Partially Delivered'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : item.deliveryStatus === 'In Transit'
+                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                                 : 'bg-blue-100 text-blue-800 border border-blue-200'
                             }`}>
                               {item.deliveryStatus === 'Delivered' || (item.activeOrders === 0 && item.itemsToDeliver === 0) ? (
-                                <>
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                                  <span>Delivered</span>
-                                </>
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
                               ) : (
-                                <>
-                                  <Truck className="w-3 h-3 text-blue-600 shrink-0" />
-                                  <span>Active</span>
-                                </>
+                                <Truck className="w-3 h-3 shrink-0" />
                               )}
+                              <span>{item.deliveryStatus}</span>
                             </span>
                           </td>
-                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                               item.supplierStatus === 'Active'
                                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
@@ -1260,6 +1321,160 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 5. Warehouse Details & Stock Availability Section */}
+      <div id="warehouse-details-section" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+        {/* Section Header */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3.5">
+          <div>
+            <div className="flex items-center gap-2">
+              <WarehouseIcon className="w-4 h-4 text-indigo-600" />
+              <h2 className="text-base font-bold text-slate-900">
+                Warehouse Details & Stock Availability
+              </h2>
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
+                {warehouses.length} {warehouses.length === 1 ? 'Location' : 'Locations'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Review existing warehouses, destination facilities, and real-time product quantities stored across hubs.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+            {/* Search Input */}
+            <div className="relative min-w-[180px] sm:min-w-[220px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search warehouse..."
+                value={warehouseSearchTerm}
+                onChange={e => setWarehouseSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Status Filter */}
+            <select
+              value={warehouseStatusFilter}
+              onChange={e => setWarehouseStatusFilter(e.target.value as any)}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 cursor-pointer focus:outline-hidden"
+            >
+              <option value="All">All Status</option>
+              <option value="Active">Active Only</option>
+              <option value="Inactive">Inactive Only</option>
+            </select>
+
+            {/* View Full Directory Link */}
+            <button
+              onClick={() => navigate('/inventory/warehouses')}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer shrink-0 ml-1"
+            >
+              <span>Full Directory</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Warehouses Table */}
+        {filteredDashboardWarehouses.length === 0 ? (
+          <div className="p-8 text-center text-slate-500 text-xs">
+            No warehouses matching your filter.
+          </div>
+        ) : (
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
+                  <th className="py-3 px-4">Warehouse</th>
+                  <th className="py-3 px-3">Location / Address</th>
+                  <th className="py-3 px-3">Contact Person & Phone</th>
+                  <th className="py-3 px-3 text-center">Total Products</th>
+                  <th className="py-3 px-3 text-right">Available Stock</th>
+                  <th className="py-3 px-3 text-center">Warehouse Status</th>
+                  <th className="py-3 px-4 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredDashboardWarehouses.map(wh => {
+                  const isActive = wh.isActive ?? true;
+                  const stats = getWarehouseStats(wh.id);
+                  const contactPerson = wh.contactPerson || wh.managerName || 'Not available';
+                  const phone = wh.phone || 'Not available';
+                  const address = wh.address || 'Not available';
+
+                  return (
+                    <tr key={wh.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/60">
+                            {wh.code}
+                          </span>
+                          <div>
+                            <span className="font-bold text-slate-900 block truncate max-w-[160px]" title={wh.name}>
+                              {wh.name}
+                            </span>
+                            {wh.isDefault && (
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 inline-block mt-0.5">
+                                Primary Hub
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-600 text-[11px]">
+                        <span className="block truncate max-w-[160px] xl:max-w-[200px]" title={address}>
+                          {address !== 'Not available' ? address : <span className="text-slate-400 font-sans">Not available</span>}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-slate-700">
+                        <span className="font-medium block truncate max-w-[140px]" title={contactPerson}>
+                          {contactPerson !== 'Not available' ? contactPerson : <span className="text-slate-400 font-sans">Not available</span>}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono block">
+                          {phone !== 'Not available' ? phone : <span className="text-slate-400 font-sans">Not available</span>}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap font-mono font-bold text-slate-700">
+                        {stats.skuCount} {stats.skuCount === 1 ? 'SKU' : 'SKUs'}
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap font-mono font-bold text-slate-900">
+                        {formatNumber(stats.totalUnits)} Units
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          isActive
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                          }`} />
+                          <span>{isActive ? 'Active' : 'Inactive'}</span>
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => {
+                            setSelectedWarehouseForModal(wh);
+                            setWarehouseModalSearchTerm('');
+                            setIsWarehouseModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 hover:border-indigo-300 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer mx-auto"
+                          title="View Products & Stock Details"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>View Stock</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Approve Modal */}
@@ -1345,6 +1560,129 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         products={products}
         initialFilter="Active"
       />
+
+      {/* Warehouse Complete Stock Details Modal */}
+      {isWarehouseModalOpen && selectedWarehouseForModal && (
+        <Modal
+          isOpen={isWarehouseModalOpen}
+          onClose={() => {
+            setIsWarehouseModalOpen(false);
+            setSelectedWarehouseForModal(null);
+          }}
+          title={`Warehouse Details & Stored Products: ${selectedWarehouseForModal.name}`}
+          size="2xl"
+        >
+          <div className="space-y-4 text-xs">
+            {/* Warehouse Summary Info Header */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Warehouse Code</span>
+                <span className="font-mono font-bold text-indigo-700 text-sm mt-0.5 block">{selectedWarehouseForModal.code}</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Location / Address</span>
+                <span className="font-medium text-slate-800 truncate block mt-0.5" title={selectedWarehouseForModal.address}>
+                  {selectedWarehouseForModal.address || 'Not available'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Contact Person</span>
+                <span className="font-medium text-slate-800 truncate block mt-0.5">
+                  {selectedWarehouseForModal.contactPerson || selectedWarehouseForModal.managerName || 'Not available'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Warehouse Status</span>
+                <span className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-full mt-0.5 ${
+                  selectedWarehouseForModal.isActive ?? true ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {selectedWarehouseForModal.isActive ?? true ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+            </div>
+
+            {/* Product Search Toolbar */}
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter products in this warehouse..."
+                  value={warehouseModalSearchTerm}
+                  onChange={e => setWarehouseModalSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <span className="text-slate-500 text-[11px] font-medium">
+                {selectedWarehouseProducts.length} {selectedWarehouseProducts.length === 1 ? 'Product Listed' : 'Products Listed'}
+              </span>
+            </div>
+
+            {/* Products Table */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
+              {selectedWarehouseProducts.length === 0 ? (
+                <div className="p-8 text-center text-slate-400">
+                  No products found stored at this warehouse.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 bg-slate-100/95 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider z-10">
+                    <tr>
+                      <th className="py-2.5 px-3">Product Name</th>
+                      <th className="py-2.5 px-3">SKU</th>
+                      <th className="py-2.5 px-3">Category</th>
+                      <th className="py-2.5 px-3">Unit</th>
+                      <th className="py-2.5 px-3 text-right">Available Quantity</th>
+                      <th className="py-2.5 px-3 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {selectedWarehouseProducts.map(prod => (
+                      <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3 font-semibold text-slate-900">{prod.name}</td>
+                        <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">{prod.sku || '—'}</td>
+                        <td className="py-2.5 px-3 text-slate-600">{prod.category || 'General'}</td>
+                        <td className="py-2.5 px-3 text-slate-600">{prod.primaryUnit || 'Piece'}</td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                          {formatNumber(prod.warehouseQuantity)} {prod.primaryUnit || 'Units'}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            prod.warehouseQuantity > 10
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : prod.warehouseQuantity > 0
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {prod.warehouseQuantity > 10 ? 'In Stock' : prod.warehouseQuantity > 0 ? 'Limited Stock' : 'Out of Stock'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWarehouseModalOpen(false);
+                  setSelectedWarehouseForModal(null);
+                }}
+                className="px-4 py-2 border border-rose-300 text-rose-600 hover:bg-rose-50 rounded-xl font-semibold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
     </div>
   );
 };

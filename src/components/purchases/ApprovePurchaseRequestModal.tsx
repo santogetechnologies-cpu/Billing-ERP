@@ -36,7 +36,7 @@ export const ApprovePurchaseRequestModal: React.FC<ApprovePurchaseRequestModalPr
   onApprovalSuccess
 }) => {
   const navigate = useNavigate();
-  const { suppliers, products, approvePurchaseRequestWithOrder } = useERP();
+  const { suppliers, products, warehouses, approvePurchaseRequestWithOrder } = useERP();
   const { user } = useAuth();
 
   // Active loaded request state (refreshed from DB by ID to guarantee complete product lines)
@@ -57,6 +57,7 @@ export const ApprovePurchaseRequestModal: React.FC<ApprovePurchaseRequestModalPr
   // State: Delivery & Notes
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>('');
   const [approvalNotes, setApprovalNotes] = useState<string>('');
+  const [destinationWarehouseId, setDestinationWarehouseId] = useState<string>('');
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -123,6 +124,7 @@ export const ApprovePurchaseRequestModal: React.FC<ApprovePurchaseRequestModalPr
 
       // Approval notes
       setApprovalNotes(activeRequest.notes || '');
+      setDestinationWarehouseId(activeRequest.warehouseId || (warehouses?.[0]?.id ?? ''));
       setErrorMessage(null);
       setIsSubmitting(false);
     }
@@ -298,6 +300,7 @@ export const ApprovePurchaseRequestModal: React.FC<ApprovePurchaseRequestModalPr
         supplierId: selectedSupplierId,
         supplierName: selectedSupplier?.company || selectedSupplier?.name,
         supplierGstin: selectedSupplier?.gstin,
+        destinationWarehouseId: destinationWarehouseId || activeRequest.warehouseId,
         notes: approvalNotes.trim() || undefined,
         expectedDelivery: expectedDeliveryDate || undefined,
         approvedItems: approvedPayload
@@ -343,11 +346,23 @@ export const ApprovePurchaseRequestModal: React.FC<ApprovePurchaseRequestModalPr
             <span className="font-mono font-black text-indigo-600 text-sm block mt-0.5">#{activeRequest.requestNumber}</span>
           </div>
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Warehouse</span>
-            <span className="font-bold text-slate-800 flex items-center gap-1.5 mt-0.5 truncate" title={activeRequest.warehouseName}>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+              Destination Warehouse <span className="text-rose-500">*</span>
+            </label>
+            <div className="flex items-center gap-1.5 mt-0.5">
               <WarehouseIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              <span className="truncate">{activeRequest.warehouseName || 'Main Warehouse'}</span>
-            </span>
+              <select
+                value={destinationWarehouseId}
+                onChange={e => setDestinationWarehouseId(e.target.value)}
+                className="bg-white border border-slate-200 rounded-lg px-2 py-0.5 text-xs font-semibold text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-500 w-full cursor-pointer"
+              >
+                {warehouses.filter(w => w.isActive ?? true).map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.code})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Requester</span>
