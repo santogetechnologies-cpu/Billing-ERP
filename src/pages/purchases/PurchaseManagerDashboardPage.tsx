@@ -515,6 +515,41 @@ export function computeActiveInTransitOrders(params: {
   return results.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 }
 
+/**
+ * Recalculate delivery status from actual purchase-order items and goods-receipt records.
+ * Required delivery statuses:
+ * - 'Received': When the Warehouse Manager has confirmed that ALL items and quantities in the purchase order have been received (outstandingQty === 0).
+ * - 'Ordered': When order is newly created, confirmed, or partially received with quantities remaining outstanding.
+ */
+export function computePurchaseOrderDeliveryStatus(po: any): 'Ordered' | 'Received' {
+  const itemsList = po.items || po.purchase_order_items || [];
+  let orderedQty = 0;
+  let receivedQty = 0;
+  let allItemsReceived = Array.isArray(itemsList) && itemsList.length > 0;
+
+  if (Array.isArray(itemsList) && itemsList.length > 0) {
+    itemsList.forEach((it: any) => {
+      const ord = Number(it.qty || it.ordered_qty || it.orderedQty || it.requestedQty || it.approvedQty || 0);
+      const rec = Number(it.received_qty || it.receivedQty || 0);
+      orderedQty += ord;
+      receivedQty += rec;
+      if (rec < ord || ord <= 0) {
+        allItemsReceived = false;
+      }
+    });
+  } else {
+    orderedQty = Number(po.qty || 1);
+    receivedQty = Number(po.received_qty || 0);
+    allItemsReceived = orderedQty > 0 && receivedQty >= orderedQty;
+  }
+
+  const outstandingQty = Math.max(0, orderedQty - receivedQty);
+  if (orderedQty > 0 && outstandingQty === 0 && allItemsReceived) {
+    return 'Received';
+  }
+  return 'Ordered';
+}
+
 export const PurchaseManagerDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
@@ -783,17 +818,13 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       const outstandingQty = Math.max(0, orderedQty - receivedQty);
       const expDelivery = po.expected_delivery || po.due_date || po.expectedDelivery || po.dueDate;
 
-      let deliveryStatus: 'Ordered' | 'Active' | 'Delivered' = 'Ordered';
-      const rawStatus = (po.status || '').toLowerCase();
-      if (orderedQty > 0 && outstandingQty === 0) {
-        deliveryStatus = 'Delivered';
-      } else if (receivedQty > 0 && outstandingQty > 0) {
-        deliveryStatus = 'Active';
-      } else if (rawStatus === 'in transit' || rawStatus === 'in_transit' || rawStatus === 'active') {
-        deliveryStatus = 'Active';
-      } else {
-        deliveryStatus = 'Ordered';
-      }
+      // Recalculate status from actual purchase-order and goods-receipt records across all order items
+      const deliveryStatus = computePurchaseOrderDeliveryStatus({
+        items: itemsList,
+        qty: orderedQty,
+        received_qty: receivedQty,
+        status: po.status
+      });
 
       return {
         id: po.id,
@@ -1401,10 +1432,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                       </td>
                       <td className="py-2 px-1.5 text-center whitespace-nowrap">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          order.deliveryStatus === 'Delivered'
+                          order.deliveryStatus === 'Received'
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : order.deliveryStatus === 'Active'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                            : order.deliveryStatus === 'Ordered'
+                            ? 'bg-blue-100 text-blue-800 border border-blue-200'
                             : 'bg-blue-100 text-blue-800 border border-blue-200'
                         }`}>
                           <span>{order.deliveryStatus}</span>
@@ -1516,11 +1547,9 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
               <div>
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">Delivery Status</span>
                 <span className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-full mt-0.5 ${
-                  selectedOrderForModal.deliveryStatus === 'Delivered'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : selectedOrderForModal.deliveryStatus === 'Active'
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-blue-100 text-blue-800'
+                  selectedOrderForModal.deliveryStatus === 'Received'
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : 'bg-blue-100 text-blue-800 border border-blue-200'
                 }`}>
                   {selectedOrderForModal.deliveryStatus}
                 </span>

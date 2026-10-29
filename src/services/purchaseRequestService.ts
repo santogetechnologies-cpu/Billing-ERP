@@ -1747,7 +1747,7 @@ export const purchaseRequestService = {
           // Sync purchase_orders table status if order exists (Delivered when complete, Active if partial)
           if (!isTableMarkedMissing('purchase_orders') && (existing.purchaseOrderId || existing.purchaseOrderNumber)) {
             try {
-              const poStatus = nextStatus === 'Completed' ? 'Delivered' : 'Active';
+              const poStatus = nextStatus === 'Completed' ? 'Received' : 'Ordered';
               if (existing.purchaseOrderId) {
                 await supabase.from('purchase_orders').update({ status: poStatus }).eq('id', existing.purchaseOrderId);
               } else if (existing.purchaseOrderNumber) {

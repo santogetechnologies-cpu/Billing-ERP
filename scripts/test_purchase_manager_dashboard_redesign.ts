@@ -203,10 +203,14 @@ async function runTestSuite() {
     }
 
     assert(
-      (pmDashboardCode.includes("deliveryStatus = 'Delivered'") || pmDashboardCode.includes("order.deliveryStatus === 'Delivered'")) &&
-      (pmDashboardCode.includes("deliveryStatus = 'Active'") || pmDashboardCode.includes("order.deliveryStatus === 'Active'")) &&
-      (pmDashboardCode.includes("deliveryStatus = 'Ordered'") || pmDashboardCode.includes("order.deliveryStatus === 'Ordered'")),
-      'Delivery status supports "Ordered", "Active", and "Delivered"'
+      pmDashboardCode.includes("order.deliveryStatus === 'Received'") &&
+      pmDashboardCode.includes("order.deliveryStatus === 'Ordered'"),
+      'Delivery status strictly uses only "Ordered" and "Received"'
+    );
+    assert(
+      !pmDashboardCode.includes("order.deliveryStatus === 'Delivered'") &&
+      !pmDashboardCode.includes("order.deliveryStatus === 'Active'"),
+      'Old delivery status labels "Active" and "Delivered" are replaced with "Ordered" and "Received"'
     );
 
     assert(

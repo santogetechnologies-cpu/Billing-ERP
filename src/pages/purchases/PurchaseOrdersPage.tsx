@@ -49,7 +49,7 @@ export interface PurchaseOrderItemRow {
   supplierGstin?: string;
   warehouseId: string | null;
   warehouseName: string;
-  status: 'Active' | 'Delivered' | 'Cancelled';
+  status: 'Ordered' | 'Received' | 'Cancelled';
   grandTotal: number;
   totalQty: number;
   receivedQty: number;
@@ -88,8 +88,9 @@ export const PurchaseOrdersPage: React.FC = () => {
   // Filters & State
   const [tabFilter, setTabFilter] = useState<string>(() => {
     const statusParam = searchParams.get('status');
-    if (!statusParam) return 'Active';
-    if (statusParam.toLowerCase() === 'active') return 'Active';
+    if (!statusParam) return 'All';
+    if (statusParam.toLowerCase() === 'ordered' || statusParam.toLowerCase() === 'active') return 'Ordered';
+    if (statusParam.toLowerCase() === 'received' || statusParam.toLowerCase() === 'delivered') return 'Received';
     if (statusParam.toLowerCase() === 'all') return 'All';
     return statusParam;
   });
@@ -209,19 +210,13 @@ export const PurchaseOrdersPage: React.FC = () => {
       const supplierEmail = matchedSupp?.email || undefined;
       const supplierGstin = po.supplier_gstin || matchedSupp?.gstin || undefined;
 
-      const rawStatus = (po.status || 'Active').trim();
-      let normalizedStatus: 'Active' | 'Delivered' | 'Cancelled' = 'Active';
-      const sLower = rawStatus.toLowerCase();
-      if (sLower === 'completed' || sLower === 'delivered') normalizedStatus = 'Delivered';
-      else if (sLower === 'cancelled' || sLower === 'rejected') normalizedStatus = 'Cancelled';
-      else normalizedStatus = 'Active';
-
       const expDate = po.expected_delivery || po.due_date || po.expectedDelivery || null;
       const cleanExpDate = expDate ? String(expDate).split('T')[0] : null;
 
       const itemsRaw = po.purchase_order_items || po.items || [];
       let totalQty = 0;
       let receivedQty = 0;
+      let allItemsReceived = Array.isArray(itemsRaw) && itemsRaw.length > 0;
       const mappedItems: PurchaseOrderItemRow['items'] = [];
 
       if (Array.isArray(itemsRaw) && itemsRaw.length > 0) {
@@ -231,6 +226,9 @@ export const PurchaseOrdersPage: React.FC = () => {
           const pq = Math.max(0, oq - rq);
           totalQty += oq;
           receivedQty += rq;
+          if (rq < oq || oq <= 0) {
+            allItemsReceived = false;
+          }
           mappedItems.push({
             id: it.id,
             productId: it.product_id || it.productId || 'prod-custom',
@@ -247,14 +245,22 @@ export const PurchaseOrdersPage: React.FC = () => {
       } else {
         totalQty = Number(po.qty || 1);
         receivedQty = Number(po.received_qty || 0);
+        allItemsReceived = totalQty > 0 && receivedQty >= totalQty;
       }
 
       const pendingQty = Math.max(0, totalQty - receivedQty);
-      if (pendingQty === 0 && totalQty > 0 && normalizedStatus !== 'Cancelled') {
-        normalizedStatus = 'Delivered';
+      const rawStatus = (po.status || 'Ordered').trim();
+      let normalizedStatus: 'Ordered' | 'Received' | 'Cancelled' = 'Ordered';
+      const sLower = rawStatus.toLowerCase();
+      if (sLower === 'cancelled' || sLower === 'rejected') {
+        normalizedStatus = 'Cancelled';
+      } else if (totalQty > 0 && pendingQty === 0 && allItemsReceived) {
+        normalizedStatus = 'Received';
+      } else {
+        normalizedStatus = 'Ordered';
       }
 
-      const isOverdue = !!(cleanExpDate && cleanExpDate < today && pendingQty > 0 && normalizedStatus !== 'Delivered');
+      const isOverdue = !!(cleanExpDate && cleanExpDate < today && pendingQty > 0 && normalizedStatus !== 'Received');
 
       results.push({
         id: po.id,
@@ -348,15 +354,23 @@ export const PurchaseOrdersPage: React.FC = () => {
       });
 
       const pendingQty = Math.max(0, totalQty - receivedQty);
-      let normalizedStatus: 'Active' | 'Delivered' | 'Cancelled' = 'Active';
-      if (statusLower === 'completed' || (statusLower as string) === 'delivered' || (totalQty > 0 && pendingQty === 0)) {
-        normalizedStatus = 'Delivered';
+      let allItemsReceived = mappedItems.length > 0;
+      mappedItems.forEach(it => {
+        if (it.receivedQty < it.orderedQty || it.orderedQty <= 0) {
+          allItemsReceived = false;
+        }
+      });
+
+      let normalizedStatus: 'Ordered' | 'Received' | 'Cancelled' = 'Ordered';
+      if (statusLower === 'cancelled' || statusLower === 'rejected') {
+        normalizedStatus = 'Cancelled';
+      } else if (totalQty > 0 && pendingQty === 0 && allItemsReceived) {
+        normalizedStatus = 'Received';
       } else {
-        normalizedStatus = 'Active';
+        normalizedStatus = 'Ordered';
       }
 
-      const expDate = req.requestedDeliveryDate ? req.requestedDeliveryDate.split('T')[0] : null;
-      const isOverdue = !!(expDate && expDate < today && pendingQty > 0 && normalizedStatus !== 'Delivered');
+      const isOverdue = !!(expDate && expDate < today && pendingQty > 0 && normalizedStatus !== 'Received');
 
       results.push({
         id: req.purchaseOrderId || `po-${req.id}`,
@@ -389,14 +403,14 @@ export const PurchaseOrdersPage: React.FC = () => {
   const filteredOrders = useMemo(() => {
     return allOrders.filter(order => {
       // Tab Status Filter
-      if (tabFilter === 'Active') {
-        if (order.status !== 'Active') return false;
-      } else if (tabFilter === 'Delivered' || tabFilter === 'Completed') {
-        if (order.status !== 'Delivered') return false;
+      if (tabFilter === 'Ordered' || tabFilter === 'Active') {
+        if (order.status !== 'Ordered') return false;
+      } else if (tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed') {
+        if (order.status !== 'Received') return false;
       } else if (tabFilter === 'Items to Deliver' || tabFilter === 'Pending') {
-        if (order.pendingQty <= 0 || order.status !== 'Active') return false;
+        if (order.pendingQty <= 0 || order.status !== 'Ordered') return false;
       } else if (tabFilter === 'Overdue') {
-        if (!order.isOverdue || order.status !== 'Active') return false;
+        if (!order.isOverdue || order.status !== 'Ordered') return false;
       } else if (tabFilter !== 'All') {
         if (order.status.toLowerCase() !== tabFilter.toLowerCase()) return false;
       }
@@ -427,12 +441,12 @@ export const PurchaseOrdersPage: React.FC = () => {
 
   // Statistics KPI counts
   const stats = useMemo(() => {
-    const active = allOrders.filter(o => o.status === 'Active');
-    const itemsToDeliver = active.reduce((sum, o) => sum + o.pendingQty, 0);
-    const overdueCount = active.filter(o => o.isOverdue).length;
-    const completedCount = allOrders.filter(o => o.status === 'Delivered').length;
+    const ordered = allOrders.filter(o => o.status === 'Ordered');
+    const itemsToDeliver = ordered.reduce((sum, o) => sum + o.pendingQty, 0);
+    const overdueCount = ordered.filter(o => o.isOverdue).length;
+    const completedCount = allOrders.filter(o => o.status === 'Received').length;
     return {
-      activeOrdersCount: active.length,
+      activeOrdersCount: ordered.length,
       itemsToDeliver,
       overdueCount,
       completedCount
@@ -572,14 +586,14 @@ export const PurchaseOrdersPage: React.FC = () => {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          title="Active Orders"
+          title="Ordered"
           value={formatNumber(stats.activeOrdersCount)}
-          subtitle="Orders currently in procurement"
+          subtitle="Awaiting warehouse receipt confirmation"
           icon={Truck}
           iconBgColor="bg-blue-50"
           iconTextColor="text-blue-600"
-          onClick={() => handleCardFilterClick('Active')}
-          isSelected={tabFilter === 'Active'}
+          onClick={() => handleCardFilterClick('Ordered')}
+          isSelected={tabFilter === 'Ordered' || tabFilter === 'Active'}
           selectedColor="blue"
         />
         <StatCard
@@ -605,14 +619,14 @@ export const PurchaseOrdersPage: React.FC = () => {
           selectedColor="rose"
         />
         <StatCard
-          title="Delivered Orders"
+          title="Received Orders"
           value={formatNumber(stats.completedCount)}
-          subtitle="Fully delivered and stocked"
+          subtitle="Confirmed received and stocked"
           icon={CheckCircle2}
           iconBgColor="bg-emerald-50"
           iconTextColor="text-emerald-600"
-          onClick={() => handleCardFilterClick('Delivered')}
-          isSelected={tabFilter === 'Delivered' || tabFilter === 'Completed'}
+          onClick={() => handleCardFilterClick('Received')}
+          isSelected={tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'}
           selectedColor="emerald"
         />
       </div>
@@ -711,7 +725,7 @@ export const PurchaseOrdersPage: React.FC = () => {
                   <th className="py-3 px-4">Destination Hub</th>
                   <th className="py-3 px-4 text-center">Quantities (Ord / Rec / Pend)</th>
                   <th className="py-3 px-4">Expected Delivery</th>
-                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4 text-center">Delivery Status</th>
                   <th className="py-3 px-4 text-right">Order Value</th>
                   <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
@@ -782,15 +796,15 @@ export const PurchaseOrdersPage: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                          order.status === 'Delivered'
+                          order.status === 'Received'
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                             : order.status === 'Cancelled'
                             ? 'bg-rose-100 text-rose-800 border border-rose-200'
                             : 'bg-blue-100 text-blue-800 border border-blue-200'
                         }`}
                       >
-                        {order.status === 'Delivered' && <CheckCircle2 className="w-3 h-3" />}
-                        {order.status === 'Active' && <Truck className="w-3 h-3" />}
+                        {order.status === 'Received' && <CheckCircle2 className="w-3 h-3" />}
+                        {order.status === 'Ordered' && <Truck className="w-3 h-3" />}
                         <span>{order.status}</span>
                       </span>
                     </td>
@@ -822,7 +836,7 @@ export const PurchaseOrdersPage: React.FC = () => {
                           </button>
                         )}
 
-                        {order.pendingQty > 0 && order.status === 'Active' && (
+                        {order.pendingQty > 0 && order.status === 'Ordered' && (
                           <button
                             onClick={() => handleOpenReceiveModal(order)}
                             className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
@@ -867,7 +881,18 @@ export const PurchaseOrdersPage: React.FC = () => {
                 <span className={`font-semibold text-xs mt-0.5 block ${selectedOrder.isOverdue ? 'text-rose-600 font-bold' : 'text-slate-800'}`}>
                   {selectedOrder.expectedDelivery ? formatDate(selectedOrder.expectedDelivery) : 'Standard Delivery'}
                 </span>
-                <span className="text-[11px] text-slate-500">Status: {selectedOrder.status}</span>
+                <span className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                  <span>Delivery Status:</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    selectedOrder.status === 'Received'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : selectedOrder.status === 'Cancelled'
+                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                      : 'bg-blue-100 text-blue-800 border border-blue-200'
+                  }`}>
+                    {selectedOrder.status}
+                  </span>
+                </span>
               </div>
             </div>
 
@@ -936,7 +961,7 @@ export const PurchaseOrdersPage: React.FC = () => {
               </button>
 
               <div className="flex items-center gap-2">
-                {selectedOrder.pendingQty > 0 && selectedOrder.status === 'Active' && (
+                {selectedOrder.pendingQty > 0 && selectedOrder.status === 'Ordered' && (
                   <button
                     type="button"
                     onClick={() => {
