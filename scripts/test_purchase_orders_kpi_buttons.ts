@@ -40,21 +40,21 @@ test('PurchaseOrdersPage.tsx implements handleCardFilterClick with smooth scroll
   assert(content.includes('scrollIntoView'), 'PurchaseOrdersPage must trigger scrollIntoView on filter click');
 });
 
-test('PurchaseOrdersPage.tsx KPI cards are interactive and bound to filter handler', () => {
+test('PurchaseOrdersPage.tsx buttons are interactive and bound to filter handler', () => {
   const pagePath = path.resolve('src/pages/purchases/PurchaseOrdersPage.tsx');
   const content = fs.readFileSync(pagePath, 'utf-8');
 
-  assert(content.includes("onClick={() => handleCardFilterClick('Active')}"), 'Active Orders card must call handleCardFilterClick');
-  assert(content.includes("isSelected={tabFilter === 'Active'}"), 'Active Orders card must set isSelected based on tabFilter');
+  assert(content.includes("onClick={() => handleCardFilterClick('Ordered')}") || content.includes("onClick={() => handleCardFilterClick('Active')}"), 'Ordered button must call handleCardFilterClick');
+  assert(content.includes("tabFilter === 'Ordered'"), 'Ordered button must set active state based on tabFilter');
 
-  assert(content.includes("onClick={() => handleCardFilterClick('Items to Deliver')}"), 'Items to Deliver card must be clickable');
-  assert(content.includes("isSelected={tabFilter === 'Items to Deliver'}"), 'Items to Deliver card must set isSelected');
+  assert(content.includes("onClick={() => handleCardFilterClick('Received')}") || content.includes("onClick={() => handleCardFilterClick('Completed')}"), 'Delivered/Received button must be clickable');
+  assert(content.includes("tabFilter === 'Received'"), 'Delivered/Received button must set active state based on tabFilter');
 
-  assert(content.includes("onClick={() => handleCardFilterClick('Overdue')}"), 'Overdue Deliveries card must be clickable');
-  assert(content.includes("isSelected={tabFilter === 'Overdue'}"), 'Overdue Deliveries card must set isSelected');
+  assert(content.includes("onClick={() => handleCardFilterClick('Overdue')}"), 'Overdue Deliveries button must be clickable');
+  assert(content.includes("tabFilter === 'Overdue'"), 'Overdue Deliveries button must set active state');
 
-  assert(content.includes("onClick={() => handleCardFilterClick('Completed')}"), 'Completed Orders card must be clickable');
-  assert(content.includes("isSelected={tabFilter === 'Completed'}"), 'Completed Orders card must set isSelected');
+  assert(content.includes("onClick={() => handleCardFilterClick('History')}"), 'History button must be clickable');
+  assert(content.includes("tabFilter === 'History'"), 'History button must set active state');
 });
 
 test('PurchaseOrdersPage.tsx filters support Items to Deliver and Overdue', () => {

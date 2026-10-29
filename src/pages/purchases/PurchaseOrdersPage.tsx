@@ -23,7 +23,9 @@ import {
   Phone,
   Mail,
   Check,
-  RotateCcw
+  RotateCcw,
+  ClipboardList,
+  History
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -91,9 +93,22 @@ export const PurchaseOrdersPage: React.FC = () => {
     if (!statusParam) return 'All';
     if (statusParam.toLowerCase() === 'ordered' || statusParam.toLowerCase() === 'active') return 'Ordered';
     if (statusParam.toLowerCase() === 'received' || statusParam.toLowerCase() === 'delivered') return 'Received';
-    if (statusParam.toLowerCase() === 'all') return 'All';
+    if (statusParam.toLowerCase() === 'overdue') return 'Overdue';
+    if (statusParam.toLowerCase() === 'history' || statusParam.toLowerCase() === 'all') return 'History';
     return statusParam;
   });
+
+  useEffect(() => {
+    const statusParam = searchParams.get('status');
+    if (statusParam) {
+      if (statusParam.toLowerCase() === 'ordered' || statusParam.toLowerCase() === 'active') setTabFilter('Ordered');
+      else if (statusParam.toLowerCase() === 'received' || statusParam.toLowerCase() === 'delivered') setTabFilter('Received');
+      else if (statusParam.toLowerCase() === 'overdue') setTabFilter('Overdue');
+      else if (statusParam.toLowerCase() === 'history') setTabFilter('History');
+      else if (statusParam.toLowerCase() === 'all') setTabFilter('All');
+      else setTabFilter(statusParam);
+    }
+  }, [searchParams]);
   const [warehouseFilter, setWarehouseFilter] = useState<string>('All');
   const [supplierFilter, setSupplierFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -370,6 +385,8 @@ export const PurchaseOrdersPage: React.FC = () => {
         normalizedStatus = 'Ordered';
       }
 
+      const expDateRaw = req.requestedDeliveryDate || (req as any).expectedDeliveryDate || (req as any).deliveryDate;
+      const expDate = expDateRaw ? String(expDateRaw).split('T')[0] : '';
       const isOverdue = !!(expDate && expDate < today && pendingQty > 0 && normalizedStatus !== 'Received');
 
       results.push({
@@ -407,10 +424,12 @@ export const PurchaseOrdersPage: React.FC = () => {
         if (order.status !== 'Ordered') return false;
       } else if (tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed') {
         if (order.status !== 'Received') return false;
-      } else if (tabFilter === 'Items to Deliver' || tabFilter === 'Pending') {
-        if (order.pendingQty <= 0 || order.status !== 'Ordered') return false;
       } else if (tabFilter === 'Overdue') {
         if (!order.isOverdue || order.status !== 'Ordered') return false;
+      } else if (tabFilter === 'History' || tabFilter === 'All') {
+        return true;
+      } else if (tabFilter === 'Items to Deliver' || tabFilter === 'Pending') {
+        if (order.pendingQty <= 0 || order.status !== 'Ordered') return false;
       } else if (tabFilter !== 'All') {
         if (order.status.toLowerCase() !== tabFilter.toLowerCase()) return false;
       }
@@ -442,14 +461,18 @@ export const PurchaseOrdersPage: React.FC = () => {
   // Statistics KPI counts
   const stats = useMemo(() => {
     const ordered = allOrders.filter(o => o.status === 'Ordered');
-    const itemsToDeliver = ordered.reduce((sum, o) => sum + o.pendingQty, 0);
+    const delivered = allOrders.filter(o => o.status === 'Received');
     const overdueCount = ordered.filter(o => o.isOverdue).length;
-    const completedCount = allOrders.filter(o => o.status === 'Received').length;
+    const historyCount = allOrders.length;
+    const itemsToDeliver = ordered.reduce((sum, o) => sum + o.pendingQty, 0);
     return {
+      orderedCount: ordered.length,
+      deliveredCount: delivered.length,
+      overdueCount,
+      historyCount,
       activeOrdersCount: ordered.length,
       itemsToDeliver,
-      overdueCount,
-      completedCount
+      completedCount: delivered.length
     };
   }, [allOrders]);
 
@@ -583,53 +606,153 @@ export const PurchaseOrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Ordered"
-          value={formatNumber(stats.activeOrdersCount)}
-          subtitle="Awaiting warehouse receipt confirmation"
-          icon={Truck}
-          iconBgColor="bg-blue-50"
-          iconTextColor="text-blue-600"
+      {/* 4 Clean Navigation Buttons replacing the 4 Summary Cards */}
+      <div id="po-status-buttons-row" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* 1. Ordered Button */}
+        <button
+          type="button"
           onClick={() => handleCardFilterClick('Ordered')}
-          isSelected={tabFilter === 'Ordered' || tabFilter === 'Active'}
-          selectedColor="blue"
-        />
-        <StatCard
-          title="Items to Deliver"
-          value={`${formatNumber(stats.itemsToDeliver)} Units`}
-          subtitle="Pending delivery across all suppliers"
-          icon={PackageCheck}
-          iconBgColor="bg-indigo-50"
-          iconTextColor="text-indigo-600"
-          onClick={() => handleCardFilterClick('Items to Deliver')}
-          isSelected={tabFilter === 'Items to Deliver'}
-          selectedColor="indigo"
-        />
-        <StatCard
-          title="Overdue Deliveries"
-          value={formatNumber(stats.overdueCount)}
-          subtitle="Orders past expected arrival date"
-          icon={AlertTriangle}
-          iconBgColor="bg-rose-50"
-          iconTextColor="text-rose-600"
-          onClick={() => handleCardFilterClick('Overdue')}
-          isSelected={tabFilter === 'Overdue'}
-          selectedColor="rose"
-        />
-        <StatCard
-          title="Received Orders"
-          value={formatNumber(stats.completedCount)}
-          subtitle="Confirmed received and stocked"
-          icon={CheckCircle2}
-          iconBgColor="bg-emerald-50"
-          iconTextColor="text-emerald-600"
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'Ordered' || tabFilter === 'Active'
+              ? 'bg-blue-50/90 text-blue-900 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+              : 'bg-white hover:bg-blue-50/50 text-slate-700 hover:text-blue-800 border-slate-200/90'
+          }`}
+          title="Filter to purchase orders awaiting warehouse receipt confirmation"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'Ordered' || tabFilter === 'Active' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600'
+            }`}>
+              <ClipboardList className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">Ordered</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Pending receipt</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'Ordered' || tabFilter === 'Active'
+              ? 'bg-blue-600 text-white'
+              : 'bg-blue-50 text-blue-700 border border-blue-200/60'
+          }`}>
+            {formatNumber(stats.orderedCount)}
+          </span>
+        </button>
+
+        {/* 2. Delivered Button */}
+        <button
+          type="button"
           onClick={() => handleCardFilterClick('Received')}
-          isSelected={tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'}
-          selectedColor="emerald"
-        />
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
+              ? 'bg-emerald-50/90 text-emerald-900 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+              : 'bg-white hover:bg-emerald-50/50 text-slate-700 hover:text-emerald-800 border-slate-200/90'
+          }`}
+          title="Filter to purchase orders fully received and confirmed by warehouse"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-600'
+            }`}>
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">Delivered</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Fully received</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+          }`}>
+            {formatNumber(stats.deliveredCount)}
+          </span>
+        </button>
+
+        {/* 3. Overdue Button */}
+        <button
+          type="button"
+          onClick={() => handleCardFilterClick('Overdue')}
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'Overdue'
+              ? 'bg-rose-50/90 text-rose-900 border-rose-400 ring-2 ring-rose-500/20 shadow-xs'
+              : 'bg-white hover:bg-rose-50/50 text-slate-700 hover:text-rose-800 border-slate-200/90'
+          }`}
+          title="Filter to purchase orders past expected arrival date with outstanding quantity"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'Overdue' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600'
+            }`}>
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">Overdue</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Past expected date</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'Overdue'
+              ? 'bg-rose-600 text-white'
+              : 'bg-rose-50 text-rose-700 border border-rose-200/60'
+          }`}>
+            {formatNumber(stats.overdueCount)}
+          </span>
+        </button>
+
+        {/* 4. History Button */}
+        <button
+          type="button"
+          onClick={() => handleCardFilterClick('History')}
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'History' || tabFilter === 'All'
+              ? 'bg-slate-100 text-slate-900 border-slate-400 ring-2 ring-slate-400/20 shadow-xs'
+              : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-200/90'
+          }`}
+          title="View complete purchase order history across all statuses"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'History' || tabFilter === 'All' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'
+            }`}>
+              <History className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">History</span>
+              <span className="block text-[10px] text-slate-400 font-normal">All order records</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'History' || tabFilter === 'All'
+              ? 'bg-slate-700 text-white'
+              : 'bg-slate-100 text-slate-700 border border-slate-200'
+          }`}>
+            {formatNumber(stats.historyCount)}
+          </span>
+        </button>
       </div>
+
+      {/* Return to All Orders Banner when filtered */}
+      {tabFilter !== 'All' && tabFilter !== 'History' && (
+        <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs">
+          <div className="flex items-center gap-2 text-blue-900 font-medium">
+            <Filter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>
+              Showing <strong className="font-bold capitalize">{tabFilter}</strong> orders ({filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'})
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleCardFilterClick('All')}
+            className="inline-flex items-center gap-1.5 font-bold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
+            title="Clear filter and view all orders"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Return to All Orders</span>
+          </button>
+        </div>
+      )}
 
       {/* Search & Filters Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">

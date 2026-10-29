@@ -24,7 +24,8 @@ import {
   AlertCircle,
   Loader2,
   Search,
-  FileText
+  FileText,
+  History
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1014,6 +1015,55 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       .slice(0, 5);
   }, [purchaseInvoices]);
 
+  // Purchase Order Status Navigation Counts (Ordered, Delivered, Overdue, History)
+  const orderStatusNavigationCounts = useMemo(() => {
+    let orderedCount = 0;
+    let deliveredCount = 0;
+    let overdueCount = 0;
+    const historyCount = allPurchaseOrders.length;
+    const today = new Date().toISOString().split('T')[0];
+
+    allPurchaseOrders.forEach(po => {
+      const itemsList = po.items || po.purchase_order_items || [];
+      let orderedQty = 0;
+      let receivedQty = 0;
+      if (Array.isArray(itemsList) && itemsList.length > 0) {
+        itemsList.forEach((it: any) => {
+          orderedQty += Number(it.qty || it.quantity || it.ordered_qty || it.orderedQty || 0);
+          receivedQty += Number(it.received_qty || it.receivedQty || 0);
+        });
+      } else {
+        orderedQty = Number(po.qty || 1);
+        receivedQty = Number(po.received_qty || 0);
+      }
+      const outstandingQty = Math.max(0, orderedQty - receivedQty);
+      const deliveryStatus = computePurchaseOrderDeliveryStatus({
+        items: itemsList,
+        qty: orderedQty,
+        received_qty: receivedQty,
+        status: po.status
+      });
+
+      if (deliveryStatus === 'Received') {
+        deliveredCount++;
+      } else {
+        orderedCount++;
+        const exp = po.expected_delivery || po.due_date || po.expectedDelivery || po.dueDate;
+        const cleanExp = exp ? (typeof exp === 'string' ? exp.split('T')[0] : '') : '';
+        if (cleanExp && cleanExp < today && outstandingQty > 0) {
+          overdueCount++;
+        }
+      }
+    });
+
+    return {
+      orderedCount,
+      deliveredCount,
+      overdueCount,
+      historyCount
+    };
+  }, [allPurchaseOrders]);
+
   return (
     <div className="space-y-6">
       {/* 1. Dashboard Header */}
@@ -1109,7 +1159,94 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Middle Section: Two-Column Balanced Layout (Stock Status Overview & Supplier Overview) */}
+      {/* 2. Purchase Order Status Navigation Buttons */}
+      <div id="po-status-navigation-buttons" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* 1. Ordered Button */}
+        <button
+          type="button"
+          onClick={() => navigate('/purchases/orders?status=Ordered')}
+          className="flex items-center justify-between p-3 sm:px-4 sm:py-3.5 bg-white hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-300 rounded-xl shadow-2xs text-xs font-semibold text-slate-700 hover:text-blue-800 transition-all cursor-pointer group"
+          title="View purchase orders awaiting warehouse receipt confirmation"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center shrink-0 transition-colors">
+              <ClipboardList className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold text-slate-900 group-hover:text-blue-700 truncate transition-colors">Ordered</span>
+              <span className="block text-[10px] text-slate-400 font-normal truncate">Pending warehouse receipt</span>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200/60 shrink-0 ml-2 group-hover:bg-blue-100 transition-colors">
+            {formatNumber(orderStatusNavigationCounts.orderedCount)}
+          </span>
+        </button>
+
+        {/* 2. Delivered Button */}
+        <button
+          type="button"
+          onClick={() => navigate('/purchases/orders?status=Received')}
+          className="flex items-center justify-between p-3 sm:px-4 sm:py-3.5 bg-white hover:bg-emerald-50/50 border border-slate-200/90 hover:border-emerald-300 rounded-xl shadow-2xs text-xs font-semibold text-slate-700 hover:text-emerald-800 transition-all cursor-pointer group"
+          title="View purchase orders confirmed received by warehouse"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center shrink-0 transition-colors">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold text-slate-900 group-hover:text-emerald-700 truncate transition-colors">Delivered</span>
+              <span className="block text-[10px] text-slate-400 font-normal truncate">Warehouse confirmed</span>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0 ml-2 group-hover:bg-emerald-100 transition-colors">
+            {formatNumber(orderStatusNavigationCounts.deliveredCount)}
+          </span>
+        </button>
+
+        {/* 3. Overdue Button */}
+        <button
+          type="button"
+          onClick={() => navigate('/purchases/orders?status=Overdue')}
+          className="flex items-center justify-between p-3 sm:px-4 sm:py-3.5 bg-white hover:bg-rose-50/50 border border-slate-200/90 hover:border-rose-300 rounded-xl shadow-2xs text-xs font-semibold text-slate-700 hover:text-rose-800 transition-all cursor-pointer group"
+          title="View purchase orders past expected arrival date with pending items"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white flex items-center justify-center shrink-0 transition-colors">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold text-slate-900 group-hover:text-rose-700 truncate transition-colors">Overdue</span>
+              <span className="block text-[10px] text-slate-400 font-normal truncate">Past expected date</span>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-rose-50 text-rose-700 border border-rose-200/60 shrink-0 ml-2 group-hover:bg-rose-100 transition-colors">
+            {formatNumber(orderStatusNavigationCounts.overdueCount)}
+          </span>
+        </button>
+
+        {/* 4. History Button */}
+        <button
+          type="button"
+          onClick={() => navigate('/purchases/orders?status=History')}
+          className="flex items-center justify-between p-3 sm:px-4 sm:py-3.5 bg-white hover:bg-slate-50 border border-slate-200/90 hover:border-slate-300 rounded-xl shadow-2xs text-xs font-semibold text-slate-700 hover:text-slate-900 transition-all cursor-pointer group"
+          title="View complete purchase order history across all statuses"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 group-hover:bg-slate-700 group-hover:text-white flex items-center justify-center shrink-0 transition-colors">
+              <History className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold text-slate-900 group-hover:text-slate-800 truncate transition-colors">History</span>
+              <span className="block text-[10px] text-slate-400 font-normal truncate">All purchase orders</span>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 shrink-0 ml-2 group-hover:bg-slate-200 transition-colors">
+            {formatNumber(orderStatusNavigationCounts.historyCount)}
+          </span>
+        </button>
+      </div>
+
+      {/* 3. Middle Section: Two-Column Balanced Layout (Stock Status Overview & Supplier Overview) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         {/* LEFT SIDE (~58%): Stock Status Overview */}
         <div
