@@ -740,19 +740,40 @@ export const inventoryService = {
       console.warn('Note inserting opening stock transaction:', txnErr);
     }
 
-    // 7. Optional Batch creation if batch tracking provided
+    // 7. Optional Batch creation if batch tracking provided (Idempotent for retries)
     if (params.batchNumber && params.batchNumber.trim()) {
       try {
-        await supabase.from('product_batches').insert({
-          company_id: finalCompanyId,
-          product_id: params.productId,
-          warehouse_id: params.warehouseId,
-          batch_number: params.batchNumber.trim(),
-          expiry_date: params.expiryDate || null,
-          cost: effectiveCost,
-          qty: qty,
-          status: 'Active'
-        });
+        const { data: existingBatch } = await supabase
+          .from('product_batches')
+          .select('id, qty')
+          .eq('company_id', finalCompanyId)
+          .eq('product_id', params.productId)
+          .eq('warehouse_id', params.warehouseId)
+          .eq('batch_number', params.batchNumber.trim())
+          .maybeSingle();
+
+        if (existingBatch) {
+          await supabase
+            .from('product_batches')
+            .update({
+              qty: (Number(existingBatch.qty) || 0) + qty,
+              cost: effectiveCost,
+              expiry_date: params.expiryDate || null,
+              status: 'Active'
+            })
+            .eq('id', existingBatch.id);
+        } else {
+          await supabase.from('product_batches').insert({
+            company_id: finalCompanyId,
+            product_id: params.productId,
+            warehouse_id: params.warehouseId,
+            batch_number: params.batchNumber.trim(),
+            expiry_date: params.expiryDate || null,
+            cost: effectiveCost,
+            qty: qty,
+            status: 'Active'
+          });
+        }
       } catch (e) {
         console.warn('Note creating batch for opening stock:', e);
       }

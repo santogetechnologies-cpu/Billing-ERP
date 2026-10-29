@@ -161,8 +161,17 @@ export const UpdateStockPage: React.FC = () => {
       } else {
         setBatchMode('new');
         setSelectedBatchId('');
-        setBatchNumber('');
         setExpiryDate('');
+        // Automatically allocate next sequential batch number for the new batch
+        const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
+        genFn(profile?.companyId || undefined)
+          .then(newB => {
+            if (newB) setBatchNumber(newB);
+          })
+          .catch(err => {
+            console.warn('Failed to auto-generate batch number on new product select:', err);
+            setBatchNumber('');
+          });
       }
 
       // 3. Serials
@@ -912,19 +921,32 @@ export const UpdateStockPage: React.FC = () => {
               {/* Field 2: Batch Number */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block font-semibold text-slate-700 text-xs">
-                    Batch Number {selectedProduct?.batchTracking && <span className="text-rose-500">*</span>}
-                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <label className="block font-semibold text-slate-700 text-xs">
+                      Batch Number {selectedProduct?.batchTracking && <span className="text-rose-500">*</span>}
+                    </label>
+                    {batchMode === 'new' && batchNumber && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                        Auto-generated
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5">
                     {productBatches.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           if (batchMode === 'existing') {
                             setBatchMode('new');
                             setSelectedBatchId('');
-                            setBatchNumber('');
                             setExpiryDate('');
+                            try {
+                              const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
+                              const newB = await genFn(profile?.companyId || undefined);
+                              setBatchNumber(newB);
+                            } catch {
+                              setBatchNumber('');
+                            }
                           } else {
                             setBatchMode('existing');
                             if (productBatches.length > 0) {
@@ -943,7 +965,7 @@ export const UpdateStockPage: React.FC = () => {
                         onClick={handleAutoBatch}
                         className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                       >
-                        Auto Generate
+                        Regenerate
                       </button>
                     )}
                   </div>

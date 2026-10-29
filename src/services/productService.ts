@@ -267,23 +267,44 @@ export const productService = {
         console.warn('Could not register warehouse stock balance:', sbErr);
       }
 
-      // Link initial batch record to the warehouse
+      // Link initial batch record to the warehouse (idempotent for retries)
       if (p.batchNumber && p.expiryDate) {
         const batchStatus = calculateBatchStatus(p.expiryDate, openingStockQty);
-        const { error: batchErr } = await supabase.from('product_batches').insert({
-          company_id: finalCompanyId,
-          product_id: prodId,
-          warehouse_id: whRec.id,
-          batch_number: p.batchNumber.trim(),
-          expiry_date: p.expiryDate,
-          purchase_date: new Date().toISOString().split('T')[0],
-          cost: effectiveCostPrice,
-          qty: openingStockQty,
-          status: batchStatus
-        });
+        const { data: existingBatch } = await supabase
+          .from('product_batches')
+          .select('id, qty')
+          .eq('company_id', finalCompanyId)
+          .eq('product_id', prodId)
+          .eq('warehouse_id', whRec.id)
+          .eq('batch_number', p.batchNumber.trim())
+          .maybeSingle();
 
-        if (batchErr) {
-          console.warn('Could not register initial batch record:', batchErr);
+        if (existingBatch) {
+          await supabase
+            .from('product_batches')
+            .update({
+              qty: (Number(existingBatch.qty) || 0) + openingStockQty,
+              cost: effectiveCostPrice,
+              expiry_date: p.expiryDate,
+              status: batchStatus
+            })
+            .eq('id', existingBatch.id);
+        } else {
+          const { error: batchErr } = await supabase.from('product_batches').insert({
+            company_id: finalCompanyId,
+            product_id: prodId,
+            warehouse_id: whRec.id,
+            batch_number: p.batchNumber.trim(),
+            expiry_date: p.expiryDate,
+            purchase_date: new Date().toISOString().split('T')[0],
+            cost: effectiveCostPrice,
+            qty: openingStockQty,
+            status: batchStatus
+          });
+
+          if (batchErr) {
+            console.warn('Could not register initial batch record:', batchErr);
+          }
         }
       }
     };

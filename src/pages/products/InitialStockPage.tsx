@@ -202,7 +202,7 @@ export const InitialStockPage: React.FC = () => {
   // ---------------------------------------------------------------------------
   // Product Items State (Starts with 1 product by default)
   // ---------------------------------------------------------------------------
-  const createDefaultItem = (index: number, existingItems?: ProductEntryItem[]): ProductEntryItem => {
+  const createDefaultItem = (index: number, existingItems?: ProductEntryItem[], initialBatch?: string): ProductEntryItem => {
     const defaultCat = 'Building Materials';
     const prefix = defaultCat.slice(0, 3).toUpperCase();
 
@@ -249,7 +249,7 @@ export const InitialStockPage: React.FC = () => {
       warehouse: warehouses.length > 0 ? warehouses[0].id : '',
       openingStock: '0',
       rack: '',
-      batchNumber: '',
+      batchNumber: initialBatch || '',
       expiryDate: exp.toISOString().split('T')[0],
       serialNumber: '',
       batchTracking: true,
@@ -264,9 +264,44 @@ export const InitialStockPage: React.FC = () => {
   const [itemErrors, setItemErrors] = useState<Record<number, string>>({});
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
-  // Add Item control
-  const handleAddItem = () => {
-    setItems(prev => [...prev, createDefaultItem(prev.length, prev)]);
+  // Auto-generate batch number for the initial entry on component mount
+  useEffect(() => {
+    let isMounted = true;
+    const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
+    if (items.length > 0 && !items[0].batchNumber && genFn) {
+      genFn(profile?.companyId || undefined, items[0].expiryDate || undefined)
+        .then(newBatch => {
+          if (isMounted && newBatch) {
+            setItems(prev =>
+              prev.map((item, idx) => (idx === 0 && !item.batchNumber ? { ...item, batchNumber: newBatch } : item))
+            );
+          }
+        })
+        .catch(err => {
+          console.warn('Initial auto batch number generation error:', err);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Add Item control with automatic unique batch generation
+  const handleAddItem = async () => {
+    const newItem = createDefaultItem(items.length, items);
+    setItems(prev => [...prev, newItem]);
+
+    try {
+      const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
+      const newBatch = await genFn(profile?.companyId || undefined, newItem.expiryDate || undefined);
+      if (newBatch) {
+        setItems(prev =>
+          prev.map(item => (item.id === newItem.id ? { ...item, batchNumber: newBatch } : item))
+        );
+      }
+    } catch (err) {
+      console.warn('Failed to auto-generate batch number for added item:', err);
+    }
   };
 
   // Remove Item control
@@ -302,9 +337,19 @@ export const InitialStockPage: React.FC = () => {
   };
 
   // Select / Match an Existing Product and Load its details including Serial Tracking
-  const handleSelectExistingProduct = (index: number, existing: Product) => {
+  const handleSelectExistingProduct = async (index: number, existing: Product) => {
     const matchingSerials = (serialNumbers || []).filter(s => s.productId === existing.id);
     const loadedSerial = matchingSerials.length > 0 ? matchingSerials[0].serialNumber : '';
+
+    let batchNumToUse = items[index]?.batchNumber;
+    if (!batchNumToUse || !batchNumToUse.trim()) {
+      try {
+        const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
+        batchNumToUse = await genFn(profile?.companyId || undefined, items[index]?.expiryDate || undefined);
+      } catch (e) {
+        console.warn('Failed to auto-generate batch number for existing product entry:', e);
+      }
+    }
 
     setItems(prev =>
       prev.map((item, idx) => {
@@ -334,6 +379,7 @@ export const InitialStockPage: React.FC = () => {
           taxRate: existing.taxRate ?? item.taxRate,
           hsn: existing.hsn || '',
           rack: existing.rack || item.rack,
+          batchNumber: batchNumToUse || item.batchNumber,
           serialNumber: loadedSerial,
           serialTracking: Boolean(existing.serialTracking || loadedSerial),
           batchTracking: Boolean(existing.batchTracking ?? true),
@@ -432,7 +478,7 @@ export const InitialStockPage: React.FC = () => {
   }, [items]);
 
   // Validation
-  const handleValidateAndSubmit = () => {
+  const handleValidateAndSubmit = async () => {
     setErrorMessage(null);
     const errors: Record<number, string> = {};
     const seenSkus = new Map<string, number>();
@@ -529,8 +575,15 @@ export const InitialStockPage: React.FC = () => {
         }
 
         if (!item.batchNumber.trim()) {
-          errors[i] = `Product #${entryNum}: Batch Number is required for opening stock tracking.`;
-          break;
+          try {
+            const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
+            const autoBatch = await genFn(profile?.companyId || undefined, item.expiryDate || undefined);
+            item.batchNumber = autoBatch;
+            handleUpdateItem(i, 'batchNumber', autoBatch);
+          } catch {
+            errors[i] = `Product #${entryNum}: Batch Number is required for opening stock tracking.`;
+            break;
+          }
         }
 
         if (!item.expiryDate.trim()) {
@@ -726,9 +779,21 @@ export const InitialStockPage: React.FC = () => {
           : `Successfully saved all ${items.length} products and updated warehouse stock balances!`
       );
 
-      // Reset to 1 fresh entry
-      setItems([createDefaultItem(0)]);
+      // Reset to 1 fresh entry with an auto-generated batch number
+      const freshItem = createDefaultItem(0);
+      setItems([freshItem]);
       setIsConfirmOpen(false);
+
+      const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
+      genFn(profile?.companyId || undefined, freshItem.expiryDate || undefined)
+        .then(newBatch => {
+          if (newBatch) {
+            setItems(prev =>
+              prev.map((item, idx) => (idx === 0 ? { ...item, batchNumber: newBatch } : item))
+            );
+          }
+        })
+        .catch(err => console.warn('Reset batch generation error:', err));
     } catch (err: any) {
       // Transactional rollback: safely remove any new products created during this partial batch
       for (const prodId of savedNewProductIds) {
@@ -1412,13 +1477,20 @@ export const InitialStockPage: React.FC = () => {
                     {/* Batch Number */}
                     <div>
                       <div className="flex items-center justify-between mb-1 min-h-[18px]">
-                        <label className="block text-xs font-semibold text-slate-700">Batch Number</label>
+                        <div className="flex items-center gap-1.5">
+                          <label className="block text-xs font-semibold text-slate-700">Batch Number</label>
+                          {item.batchNumber && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              Auto-generated
+                            </span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleAutoGenerateBatch(idx)}
                           className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                         >
-                          Auto Generate
+                          Regenerate
                         </button>
                       </div>
                       <input
