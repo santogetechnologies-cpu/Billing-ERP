@@ -83,7 +83,10 @@ async function runTestSuite() {
     assert.ok(source.includes('Serial Number'), 'Must include Serial Number label');
     assert.ok(source.includes('Track by Serial Number'), 'Must include Serial Tracking toggle');
 
-    const trackingSectionPos = source.indexOf('Identification & Tracking Details');
+    let trackingSectionPos = source.indexOf('Product Tracking Details');
+    if (trackingSectionPos === -1) {
+      trackingSectionPos = source.indexOf('Identification & Tracking Details');
+    }
     assert.ok(trackingSectionPos > -1, 'Must have Tracking Details section');
 
     const batchPos = source.indexOf('Batch Number', trackingSectionPos);
@@ -106,7 +109,10 @@ async function runTestSuite() {
     assert.ok(source.includes('Product Identification & Classification'), 'Section 1 must exist');
     assert.ok(source.includes('Units of Measurement & Conversions'), 'Section 2 must exist');
     assert.ok(source.includes('Pricing & Valuation (₹)'), 'Section 3 must exist');
-    assert.ok(source.includes('Identification & Tracking Details'), 'Section 4 must exist');
+    assert.ok(
+      source.includes('Product Tracking Details') || source.includes('Identification & Tracking Details'),
+      'Section 4 must exist'
+    );
     assert.ok(source.includes('Opening Stock Intake & Warehouse'), 'Section 5 must exist');
   });
 

@@ -70,3 +70,4 @@ BEGIN
   RETURN v_batch_number;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
