@@ -17,7 +17,10 @@ import {
   Layers,
   Tag,
   DollarSign,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Lock,
+  Barcode as BarcodeIcon,
+  Sparkles
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -29,6 +32,7 @@ import { Product } from '../../types';
 import { productService } from '../../services/productService';
 import { inventoryService } from '../../services/inventoryService';
 import { supabase } from '../../lib/supabase';
+import { canAssignBarcode, canManageBarcodeOverride } from '../../utils/rbac';
 
 // Product Entry Form Interface
 export interface ProductEntryItem {
@@ -95,6 +99,7 @@ export const InitialStockPage: React.FC = () => {
     addProduct,
     generateSKU,
     generateBarcode,
+    generateNextBatchNumber,
     refreshData,
     serialNumbers,
     addSerialNumber
@@ -103,6 +108,9 @@ export const InitialStockPage: React.FC = () => {
   // Role Security Check
   const canManageProducts =
     profile?.role === 'Owner' || profile?.role === 'Admin' || profile?.role === 'Purchase Manager';
+
+  const canAssign = canAssignBarcode(profile?.role);
+  const canOverride = canManageBarcodeOverride(profile?.role);
 
   // Status / Feedback
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -209,9 +217,6 @@ export const InitialStockPage: React.FC = () => {
       sku = `${prefix}-${randNum}`;
     }
 
-    const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-    const randBatch = Math.floor(100 + Math.random() * 900);
-
     const exp = new Date();
     exp.setFullYear(exp.getFullYear() + 1);
 
@@ -244,7 +249,7 @@ export const InitialStockPage: React.FC = () => {
       warehouse: warehouses.length > 0 ? warehouses[0].id : '',
       openingStock: '0',
       rack: '',
-      batchNumber: `BAT-${dateStr}-${randBatch}`,
+      batchNumber: '',
       expiryDate: exp.toISOString().split('T')[0],
       serialNumber: '',
       batchTracking: true,
@@ -367,10 +372,32 @@ export const InitialStockPage: React.FC = () => {
     }
   };
 
-  const handleAutoGenerateBatch = (index: number) => {
-    const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-    const rand = Math.floor(100 + Math.random() * 900);
-    handleUpdateItem(index, 'batchNumber', `BAT-${dateStr}-${rand}`);
+  const handleAutoGenerateBatch = async (index: number) => {
+    const item = items[index];
+    if (item.batchNumber && item.batchNumber.trim()) {
+      const confirmOverwrite = window.confirm(
+        `A batch number is already entered ("${item.batchNumber.trim()}"). Do you want to overwrite it with an automatically generated batch number?`
+      );
+      if (!confirmOverwrite) return;
+    }
+
+    try {
+      if (generateNextBatchNumber) {
+        const newBatch = await generateNextBatchNumber(item.expiryDate || undefined);
+        handleUpdateItem(index, 'batchNumber', newBatch);
+      } else {
+        const now = new Date();
+        const yy = String(now.getFullYear()).slice(-2);
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        handleUpdateItem(index, 'batchNumber', `BTH-${yy}${mm}-001`);
+      }
+    } catch (err) {
+      console.warn('Failed to auto-generate batch number via service:', err);
+      const now = new Date();
+      const yy = String(now.getFullYear()).slice(-2);
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      handleUpdateItem(index, 'batchNumber', `BTH-${yy}${mm}-001`);
+    }
   };
 
   const handleAutoGenerateSerial = (index: number) => {
@@ -409,6 +436,7 @@ export const InitialStockPage: React.FC = () => {
     setErrorMessage(null);
     const errors: Record<number, string> = {};
     const seenSkus = new Map<string, number>();
+    const seenBarcodes = new Map<string, number>();
     const seenSerials = new Map<string, number>();
 
     for (let i = 0; i < items.length; i++) {
@@ -439,6 +467,35 @@ export const InitialStockPage: React.FC = () => {
         const existingConflict = products.find(p => p.sku.trim().toLowerCase() === lowerSku);
         if (existingConflict) {
           errors[i] = `SKU "${item.sku}" in Product #${entryNum} is already used by existing product "${existingConflict.name}".`;
+          break;
+        }
+      }
+
+      // Barcode validation & duplicate prevention
+      if (item.barcode.trim()) {
+        const lowerBarcode = item.barcode.trim().toLowerCase();
+        if (seenBarcodes.has(lowerBarcode)) {
+          const priorIdx = seenBarcodes.get(lowerBarcode)! + 1;
+          errors[i] = `Duplicate Barcode "${item.barcode.trim()}" detected between Product #${priorIdx} and Product #${entryNum}. Each product entry must have a unique Barcode.`;
+          break;
+        }
+        seenBarcodes.set(lowerBarcode, i);
+
+        // Check against catalog
+        const conflictProd = products.find(
+          p => p.barcode && p.barcode.trim().toLowerCase() === lowerBarcode && p.id !== item.existingProductId
+        );
+        if (conflictProd) {
+          errors[i] = `Barcode "${item.barcode.trim()}" in Product #${entryNum} is already assigned to "${conflictProd.name}" (SKU: ${conflictProd.sku}).`;
+          break;
+        }
+      }
+
+      // Role check for modifying pre-assigned barcode on existing product
+      if (item.existingProductId && !canOverride) {
+        const origProd = products.find(p => p.id === item.existingProductId);
+        if (origProd?.barcode && origProd.barcode.trim() && item.barcode.trim() !== origProd.barcode.trim()) {
+          errors[i] = `Product #${entryNum}: You do not have permission to overwrite an existing assigned barcode. Requires Owner or Admin.`;
           break;
         }
       }
@@ -576,6 +633,14 @@ export const InitialStockPage: React.FC = () => {
             companyId: finalCompanyId,
             currentUser: profile ? { id: profile.id, name: (profile as any).fullName || (profile as any).name || 'User', role: profile.role } : undefined
           });
+
+          // Update barcode on existing product if assigned/modified by authorized user
+          if (canAssign && item.barcode.trim()) {
+            await supabase
+              .from('products')
+              .update({ barcode: item.barcode.trim() })
+              .eq('id', item.existingProductId);
+          }
 
           if (item.serialNumber.trim() && addSerialNumber) {
             try {
@@ -839,6 +904,11 @@ export const InitialStockPage: React.FC = () => {
           const hasError = Boolean(itemErrors[idx]);
           const entryNum = idx + 1;
 
+          // Barcode permission determination
+          const existingProduct = item.existingProductId ? products.find(p => p.id === item.existingProductId) : null;
+          const isBarcodePreAssigned = Boolean(existingProduct?.barcode && existingProduct.barcode.trim());
+          const isBarcodeEditable = isBarcodePreAssigned ? canOverride : canAssign;
+
           return (
             <div
               key={item.id}
@@ -1019,27 +1089,6 @@ export const InitialStockPage: React.FC = () => {
                         placeholder="e.g. CODE-1001"
                         value={item.code}
                         onChange={e => handleUpdateItem(idx, 'code', e.target.value)}
-                        className="h-9 w-full text-xs font-mono px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white text-slate-900"
-                      />
-                    </div>
-
-                    {/* Barcode */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1 min-h-[18px]">
-                        <label className="block text-xs font-semibold text-slate-700">Barcode</label>
-                        <button
-                          type="button"
-                          onClick={() => handleAutoGenerateBarcode(idx)}
-                          className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
-                        >
-                          Auto Barcode
-                        </button>
-                      </div>
-                      <input
-                        type="text"
-                        placeholder="e.g. 8901234567890"
-                        value={item.barcode}
-                        onChange={e => handleUpdateItem(idx, 'barcode', e.target.value)}
                         className="h-9 w-full text-xs font-mono px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white text-slate-900"
                       />
                     </div>
@@ -1292,14 +1341,14 @@ export const InitialStockPage: React.FC = () => {
                 </div>
 
                 {/* ------------------------------------------------------------- */}
-                {/* Section 4: Product Tracking & Identification Details         */}
+                {/* Section 4: Product Tracking Details (Barcode, Batch, Expiry)  */}
                 {/* ------------------------------------------------------------- */}
                 <div>
                   <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-100">
                     <div className="flex items-center gap-2">
                       <Hash className="w-3.5 h-3.5 text-blue-600" />
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                        Identification & Tracking Details
+                        Product Tracking Details
                       </h3>
                     </div>
                     <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 cursor-pointer select-none">
@@ -1313,7 +1362,53 @@ export const InitialStockPage: React.FC = () => {
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* Barcode */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1 min-h-[18px]">
+                        <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                          <span>Barcode</span>
+                          {!isBarcodeEditable && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-1 font-normal">
+                              <Lock className="w-2.5 h-2.5" /> Locked
+                            </span>
+                          )}
+                        </label>
+                        {isBarcodeEditable && (
+                          <button
+                            type="button"
+                            onClick={() => handleAutoGenerateBarcode(idx)}
+                            className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                          >
+                            Generate Barcode
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        disabled={!isBarcodeEditable}
+                        placeholder={
+                          isBarcodeEditable
+                            ? 'Scan, enter or generate barcode'
+                            : 'No barcode assigned'
+                        }
+                        value={item.barcode}
+                        onChange={e => handleUpdateItem(idx, 'barcode', e.target.value)}
+                        className={`h-9 w-full text-xs font-mono px-3 py-1.5 rounded-lg border transition-all ${
+                          !isBarcodeEditable
+                            ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
+                            : 'border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900'
+                        }`}
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {!canAssign
+                          ? 'Requires Owner, Admin, or Purchase Manager permission.'
+                          : isBarcodePreAssigned && !canOverride
+                          ? 'Existing barcode is locked. Requires Owner or Admin permission to overwrite.'
+                          : 'Product identifier barcode (EAN-13 / Code 128)'}
+                      </p>
+                    </div>
+
                     {/* Batch Number */}
                     <div>
                       <div className="flex items-center justify-between mb-1 min-h-[18px]">
@@ -1323,16 +1418,19 @@ export const InitialStockPage: React.FC = () => {
                           onClick={() => handleAutoGenerateBatch(idx)}
                           className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                         >
-                          Auto Batch
+                          Auto Generate
                         </button>
                       </div>
                       <input
                         type="text"
-                        placeholder="e.g. BAT-261028-101"
+                        placeholder="e.g. BTH-2610-001"
                         value={item.batchNumber}
                         onChange={e => handleUpdateItem(idx, 'batchNumber', e.target.value.toUpperCase())}
                         className="h-9 w-full text-xs font-mono px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white text-slate-900"
                       />
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Format: <span className="font-mono text-slate-600 font-medium">BTH-YYMM-###</span>
+                      </p>
                     </div>
 
                     {/* Expiry Date */}
@@ -1508,51 +1606,6 @@ export const InitialStockPage: React.FC = () => {
         })}
       </div>
 
-      {/* Bottom Sticky Action Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleAddItem}
-            className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-          >
-            <Plus className="w-4 h-4 text-blue-600" />
-            <span>+ Add Another Product Item</span>
-          </button>
-          <span className="text-xs text-slate-500 ml-2">
-            {items.length === 1 ? '1 product entry in batch' : `${items.length} product entries in batch`}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/products')}
-            className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="button"
-            onClick={handleValidateAndSubmit}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
-          >
-            {items.length === 1 ? (
-              <>
-                <Save className="w-4 h-4" />
-                <span>Save Product</span>
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                <span>Save All Products ({items.length})</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
       {/* ===================================================================== */}
       {/* MODAL: CONFIRM SAVE                                                   */}
       {/* ===================================================================== */}
@@ -1627,7 +1680,8 @@ export const InitialStockPage: React.FC = () => {
                     <th className="p-2.5">#</th>
                     <th className="p-2.5">Product Name</th>
                     <th className="p-2.5">SKU</th>
-                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5">Barcode</th>
+                    <th className="p-2.5">Batch</th>
                     <th className="p-2.5">Serial No.</th>
                     <th className="p-2.5">Warehouse</th>
                     <th className="p-2.5 text-right">Initial Stock</th>
@@ -1639,7 +1693,8 @@ export const InitialStockPage: React.FC = () => {
                       <td className="p-2.5 font-bold text-slate-500">{idx + 1}</td>
                       <td className="p-2.5 font-semibold text-slate-900">{item.name}</td>
                       <td className="p-2.5 font-mono text-[11px] text-slate-600">{item.sku}</td>
-                      <td className="p-2.5 text-slate-700">{item.category}</td>
+                      <td className="p-2.5 font-mono text-[11px] text-slate-600">{item.barcode || '—'}</td>
+                      <td className="p-2.5 font-mono text-[11px] text-indigo-700">{item.batchNumber || '—'}</td>
                       <td className="p-2.5 font-mono text-[11px] text-indigo-700">
                         {item.serialNumber || '—'}
                       </td>

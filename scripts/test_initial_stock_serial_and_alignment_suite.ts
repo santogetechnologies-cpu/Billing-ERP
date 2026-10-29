@@ -29,6 +29,19 @@ import { inventoryService } from '../src/services/inventoryService';
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 600): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      if (i < retries - 1) await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
 async function runTestSuite() {
   console.log('================================================================================');
   console.log('TEST SUITE: INITIAL STOCK / ADD PRODUCT — SERIAL NUMBER & FORM ALIGNMENT');
@@ -97,9 +110,9 @@ async function runTestSuite() {
     assert.ok(source.includes('Opening Stock Intake & Warehouse'), 'Section 5 must exist');
   });
 
-  await test('InitialStockPage.tsx has bottom actions bar with Add Item and Save controls', async () => {
-    assert.ok(source.includes('+ Add Another Product Item'), 'Must have bottom Add Item button');
-    assert.ok(source.includes('Save All Products') || source.includes('Save Product'), 'Must have Save buttons at bottom');
+  await test('InitialStockPage.tsx removed duplicate bottom action bar and retains clean top bar', async () => {
+    assert.ok(!source.includes('+ Add Another Product Item'), 'Bottom Add Item bar must be removed');
+    assert.ok(source.includes('Save All Products') || source.includes('Save Product'), 'Must retain Save buttons in top action bar');
   });
 
   // --- 2. DATA LAYER & BEHAVIORAL VERIFICATION ---
@@ -127,7 +140,7 @@ async function runTestSuite() {
   await test('Register product with serial number and initial stock balance', async () => {
     assert.ok(testWarehouseId, 'Valid warehouse required for test');
 
-    const newProd = await productService.createProduct({
+    const newProd = await withRetry(() => productService.createProduct({
       name: `Serial Tracked Drill ${timestamp}`,
       code: `SKU-SER-${timestamp.toString().slice(-5)}`,
       sku: `SKU-SER-${timestamp.toString().slice(-5)}`,
@@ -160,30 +173,30 @@ async function runTestSuite() {
       serialTracking: true,
       expiryTracking: true,
       isActive: true
-    }, COMPANY_ID);
+    }, COMPANY_ID));
 
     assert.ok(newProd.id, 'Product created');
     createdProductId = newProd.id;
 
     // Save serial number
-    const snRecord = await productService.createSerialNumber({
+    const snRecord = await withRetry(() => productService.createSerialNumber({
       productId: createdProductId,
       productName: newProd.name,
       serialNumber: testSerial,
       purchaseDate: new Date().toISOString().split('T')[0],
       warrantyMonths: 24,
       warrantyStatus: 'In Stock'
-    }, COMPANY_ID);
+    }, COMPANY_ID));
 
     assert.strictEqual(snRecord.serialNumber, testSerial, 'Serial number must match');
 
     // Verify serial number persisted in product_serial_numbers
-    const { data: dbSn } = await supabase
+    const { data: dbSn } = await withRetry(() => supabase
       .from('product_serial_numbers')
       .select('*')
       .eq('product_id', createdProductId)
       .eq('serial_number', testSerial)
-      .single();
+      .single());
 
     assert.ok(dbSn, 'Serial record must exist in DB');
     assert.strictEqual(dbSn.serial_number, testSerial);
@@ -191,7 +204,7 @@ async function runTestSuite() {
   });
 
   await test('Non-serial tracked product creates cleanly without serial number', async () => {
-    const nonSerialProd = await productService.createProduct({
+    const nonSerialProd = await withRetry(() => productService.createProduct({
       name: `Standard Non-Serial Item ${timestamp}`,
       code: `SKU-NS-${timestamp.toString().slice(-5)}`,
       sku: `SKU-NS-${timestamp.toString().slice(-5)}`,
@@ -224,12 +237,12 @@ async function runTestSuite() {
       serialTracking: false,
       expiryTracking: true,
       isActive: true
-    }, COMPANY_ID);
+    }, COMPANY_ID));
 
     assert.ok(nonSerialProd.id, 'Non-serial product created without error');
 
     // Clean up
-    await productService.rollbackProductCreation(nonSerialProd.id);
+    await withRetry(() => productService.rollbackProductCreation(nonSerialProd.id));
   });
 
   await test('Prevent duplicate serial number registration for different product', async () => {
@@ -274,8 +287,8 @@ async function runTestSuite() {
   console.log('\n--- 3. Cleanup Test Artifacts ---');
   await test('Clean up test serials and product', async () => {
     if (createdProductId) {
-      await supabase.from('product_serial_numbers').delete().eq('product_id', createdProductId);
-      await productService.rollbackProductCreation(createdProductId);
+      await withRetry(() => supabase.from('product_serial_numbers').delete().eq('product_id', createdProductId));
+      await withRetry(() => productService.rollbackProductCreation(createdProductId));
     }
   });
 

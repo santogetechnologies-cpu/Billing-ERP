@@ -120,6 +120,7 @@ export interface ERPContextType {
   deleteProduct: (id: string) => Promise<void>;
   generateSKU: (category: string, productName: string) => string;
   generateBarcode: (sku: string) => string;
+  generateNextBatchNumber: (targetDate?: string) => Promise<string>;
   customCategories: string[];
   addCustomCategory: (name: string) => Promise<string>;
 
@@ -816,6 +817,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const generateBarcode = (sku: string): string => {
     return barcodeService.generateEAN13(sku);
+  };
+
+  const generateNextBatchNumber = async (targetDate?: string): Promise<string> => {
+    return productService.generateNextBatchNumber(company.id, targetDate);
   };
 
   // Products
@@ -2180,6 +2185,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteProduct,
     generateSKU,
     generateBarcode,
+    generateNextBatchNumber,
     customCategories,
     addCustomCategory,
     customers,
@@ -2295,6 +2301,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteProduct,
     generateSKU,
     generateBarcode,
+    generateNextBatchNumber,
     customers,
     addCustomer,
     updateCustomer,

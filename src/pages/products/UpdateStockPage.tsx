@@ -15,13 +15,14 @@ import {
   Calendar,
   Hash,
   Lock,
-  Plus
+  Plus,
+  Sparkles
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import { Modal } from '../../components/common/Modal';
-import { canUpdateStock, canManageBarcodeOverride } from '../../utils/rbac';
+import { canUpdateStock, canAssignBarcode, canManageBarcodeOverride } from '../../utils/rbac';
 import { cleanQuantityInput } from './InitialStockPage';
 
 type AdjustmentType = 'ADD' | 'REDUCE' | 'CORRECT';
@@ -42,12 +43,15 @@ export const UpdateStockPage: React.FC = () => {
     addSerialNumber,
     updateSerialNumber,
     updateProduct,
-    refreshStockBalances
+    refreshStockBalances,
+    generateBarcode,
+    generateNextBatchNumber
   } = useERP();
 
   // Role Permissions Check: Restricted to Owner, Admin, and Purchase Manager (Strictly denied for Warehouse Manager)
   const canAccess = canUpdateStock(profile?.role);
-  const canEditBarcode = canManageBarcodeOverride(profile?.role);
+  const canAssign = canAssignBarcode(profile?.role);
+  const canOverride = canManageBarcodeOverride(profile?.role);
 
   // URL query pre-population
   const queryProductId = searchParams.get('productId') || '';
@@ -97,6 +101,9 @@ export const UpdateStockPage: React.FC = () => {
   const selectedProduct = useMemo(() => {
     return products.find(p => p.id === selectedProductId) || null;
   }, [products, selectedProductId]);
+
+  const isBarcodePreAssigned = Boolean(selectedProduct?.barcode && selectedProduct.barcode.trim());
+  const canEditBarcode = isBarcodePreAssigned ? canOverride : canAssign;
 
   // Selected Warehouse Details
   const selectedWarehouseObj = useMemo(() => {
@@ -225,12 +232,54 @@ export const UpdateStockPage: React.FC = () => {
   };
 
   // Auto Generators
-  const handleAutoBatch = () => {
-    const d = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-    const r = Math.floor(100 + Math.random() * 900);
-    setBatchMode('new');
-    setSelectedBatchId('');
-    setBatchNumber(`BAT-${d}-${r}`);
+  const handleGenerateBarcode = () => {
+    if (!canEditBarcode) return;
+    if (barcode.trim()) {
+      const confirmOverwrite = window.confirm(
+        `A barcode is already entered ("${barcode.trim()}"). Do you want to generate and overwrite it with a new barcode?`
+      );
+      if (!confirmOverwrite) return;
+    }
+    const baseVal = selectedProduct?.sku?.trim() || 'PROD';
+    const newBarcode = generateBarcode ? generateBarcode(baseVal) : `${Date.now()}`;
+    setBarcode(newBarcode);
+    if (trackingErrors.barcode) {
+      setTrackingErrors(prev => ({ ...prev, barcode: undefined }));
+    }
+  };
+
+  const handleAutoBatch = async () => {
+    if (batchNumber.trim()) {
+      const confirmOverwrite = window.confirm(
+        `A batch number is already entered ("${batchNumber.trim()}"). Do you want to overwrite it with an automatically generated batch number?`
+      );
+      if (!confirmOverwrite) return;
+    }
+
+    try {
+      if (generateNextBatchNumber) {
+        const newBatch = await generateNextBatchNumber(expiryDate || undefined);
+        setBatchMode('new');
+        setSelectedBatchId('');
+        setBatchNumber(newBatch);
+      } else {
+        const now = new Date();
+        const yy = String(now.getFullYear()).slice(-2);
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        setBatchMode('new');
+        setSelectedBatchId('');
+        setBatchNumber(`BTH-${yy}${mm}-001`);
+      }
+    } catch (err) {
+      console.warn('Failed to auto-generate batch number via service:', err);
+      const now = new Date();
+      const yy = String(now.getFullYear()).slice(-2);
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      setBatchMode('new');
+      setSelectedBatchId('');
+      setBatchNumber(`BTH-${yy}${mm}-001`);
+    }
+
     if (trackingErrors.batchNumber) {
       setTrackingErrors(prev => ({ ...prev, batchNumber: undefined }));
     }
@@ -809,11 +858,22 @@ export const UpdateStockPage: React.FC = () => {
                   <label className="block font-semibold text-slate-700 text-xs">
                     Barcode
                   </label>
-                  {!canEditBarcode && (
-                    <span className="text-[9px] text-slate-400 inline-flex items-center gap-0.5">
-                      <Lock className="w-2.5 h-2.5" /> Locked
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    {canEditBarcode ? (
+                      <button
+                        type="button"
+                        onClick={handleGenerateBarcode}
+                        className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer flex items-center gap-1"
+                      >
+                        <Sparkles className="w-2.5 h-2.5" />
+                        <span>Generate Barcode</span>
+                      </button>
+                    ) : (
+                      <span className="text-[9px] text-slate-400 inline-flex items-center gap-0.5">
+                        <Lock className="w-2.5 h-2.5" /> Locked
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="relative">
                   <input
@@ -838,9 +898,13 @@ export const UpdateStockPage: React.FC = () => {
                   <p className="text-[10px] text-rose-600 font-medium mt-1">{trackingErrors.barcode}</p>
                 ) : (
                   <p className="text-[10px] text-slate-400 mt-1">
-                    {canEditBarcode
-                      ? 'Product identifier barcode (Owner/Admin editable)'
-                      : 'Product barcode (Requires Owner or Admin to modify)'}
+                    {isBarcodePreAssigned
+                      ? canOverride
+                        ? 'Existing barcode (Owner/Admin can modify)'
+                        : 'Barcode assigned. Only Owner or Admin can overwrite'
+                      : canAssign
+                      ? 'Assign or generate barcode for this product'
+                      : 'Warehouse Manager does not have permission to modify barcodes'}
                   </p>
                 )}
               </div>
@@ -877,9 +941,9 @@ export const UpdateStockPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleAutoBatch}
-                        className="text-[10px] text-slate-600 hover:text-slate-800 font-medium cursor-pointer"
+                        className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                       >
-                        Auto
+                        Auto Generate
                       </button>
                     )}
                   </div>
@@ -909,7 +973,7 @@ export const UpdateStockPage: React.FC = () => {
                       setBatchNumber(e.target.value.toUpperCase());
                       if (trackingErrors.batchNumber) setTrackingErrors(prev => ({ ...prev, batchNumber: undefined }));
                     }}
-                    placeholder="e.g. BAT-261029-101"
+                    placeholder="e.g. BTH-2610-001"
                     className={`w-full text-xs font-mono px-3 py-1.5 bg-white border rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900 ${
                       trackingErrors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
                     }`}
@@ -924,7 +988,7 @@ export const UpdateStockPage: React.FC = () => {
                   </p>
                 ) : (
                   <p className="text-[10px] text-slate-400 mt-1">
-                    {selectedProduct?.batchTracking ? 'Mandatory for batch-tracked items' : 'Optional batch tag'}
+                    Format: <span className="font-mono text-slate-600 font-medium">BTH-YYMM-###</span>
                   </p>
                 )}
               </div>

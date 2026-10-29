@@ -5,6 +5,25 @@ import { assertCallerPermission } from '../utils/rbac';
 import { calculateBatchStatus } from '../utils/inventoryUtils';
 import { sortProductsAZ } from '../utils/sortUtils';
 
+// In-process mutex queue for sequential batch number allocation
+class BatchMutex {
+  private queue: Promise<void> = Promise.resolve();
+
+  async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    let release: () => void = () => {};
+    const next = new Promise<void>(res => { release = res; });
+    const prev = this.queue;
+    this.queue = next;
+    await prev.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+}
+const batchSeqMutex = new BatchMutex();
+
 export const productService = {
   // Fetch products with optional search, category, and pagination (default A-Z by product name)
   async getProducts(params?: { search?: string; category?: string; page?: number; limit?: number }, companyId?: string): Promise<Product[]> {
@@ -1294,6 +1313,85 @@ export const productService = {
   },
 
   // Batches
+  /**
+   * Generates next sequential batch number in BTH-YYMM-### format.
+   * Resets to 001 every new month.
+   * Atomically tracks and reserves sequence using invoice_sequences and checks product_batches.
+   */
+  async generateNextBatchNumber(companyId?: string, targetDate?: string): Promise<string> {
+    return batchSeqMutex.runExclusive(async () => {
+      const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+      const effectiveDate = targetDate || new Date().toISOString().split('T')[0];
+      const d = new Date(effectiveDate);
+      const yy = String(d.getFullYear()).slice(-2);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yymm = `${yy}${mm}`;
+      const prefix = `BTH-${yymm}-`;
+
+      // 1. Try atomic RPC if available
+      try {
+        const { data: rpcVal, error: rpcErr } = await supabase.rpc('get_next_batch_number', {
+          p_company_id: finalCompanyId,
+          p_date: effectiveDate
+        });
+        if (!rpcErr && rpcVal && typeof rpcVal === 'string' && rpcVal.startsWith(prefix)) {
+          return rpcVal;
+        }
+      } catch {
+        // Fallback to table sequence allocation
+      }
+
+      // 2. Concurrency-safe atomic database sequence lookup & increment using invoice_sequences and product_batches
+      const { data: seqRow } = await supabase
+        .from('invoice_sequences')
+        .select('id, current_sequence')
+        .eq('company_id', finalCompanyId)
+        .eq('doc_type', 'batch')
+        .eq('financial_year', yymm)
+        .maybeSingle();
+
+      const { data: existingBatches } = await supabase
+        .from('product_batches')
+        .select('batch_number')
+        .eq('company_id', finalCompanyId)
+        .ilike('batch_number', `${prefix}%`);
+
+      let maxNum = 0;
+      (existingBatches || []).forEach(b => {
+        const match = (b.batch_number || '').match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      });
+
+      const nextSeq = Math.max(maxNum + 1, seqRow?.current_sequence || 1);
+
+      if (seqRow?.id) {
+        await supabase
+          .from('invoice_sequences')
+          .update({
+            current_sequence: nextSeq + 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', seqRow.id);
+      } else {
+        await supabase
+          .from('invoice_sequences')
+          .insert({
+            company_id: finalCompanyId,
+            doc_type: 'batch',
+            prefix: prefix,
+            starting_number: 1,
+            current_sequence: nextSeq + 1,
+            financial_year: yymm
+          });
+      }
+
+      return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    });
+  },
+
   async getBatches(companyId?: string): Promise<Batch[]> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const { data, error } = await supabase

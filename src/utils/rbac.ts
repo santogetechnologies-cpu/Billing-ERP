@@ -483,10 +483,17 @@ export function canPerformManualStockAdjustment(role?: UserRole | string | null)
   return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
 }
 
+export function canAssignBarcode(role?: UserRole | string | null): boolean {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+}
+
 export function canManageBarcodeOverride(role?: UserRole | string | null): boolean {
   if (!role) return false;
-  if (role === 'Purchase Manager') return false;
-  if ((role === 'Owner' || role === 'Admin') && (hasPermission(role, 'purchases', 'edit') || hasPermission(role, 'barcode', 'edit') || hasPermission(role, 'products', 'edit'))) return true;
+  const normalized = normalizeRole(role);
+  if (normalized === 'Purchase Manager') return false;
+  if ((normalized === 'Owner' || normalized === 'Admin') && (hasPermission(role, 'purchases', 'edit') || hasPermission(role, 'barcode', 'edit') || hasPermission(role, 'products', 'edit'))) return true;
   return false;
 }
 
