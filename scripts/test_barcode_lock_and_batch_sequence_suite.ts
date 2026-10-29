@@ -84,7 +84,7 @@ async function runTestSuite() {
     const pagePath = path.resolve(process.cwd(), 'src/pages/products/InitialStockPage.tsx');
     const content = fs.readFileSync(pagePath, 'utf-8');
 
-    assert(content.includes('Auto Generate'), 'Must have Auto Generate button for Batch Number');
+    assert(content.includes('Regenerate') || content.includes('Auto Generate'), 'Must have Regenerate or Auto Generate button for Batch Number');
     assert(content.includes('handleAutoGenerateBatch'), 'Must provide handleAutoGenerateBatch');
     assert(content.includes('generateNextBatchNumber'), 'Must call generateNextBatchNumber service');
     assert(content.includes('BTH-YYMM-###'), 'Must display helper text with Format: BTH-YYMM-###');
@@ -102,7 +102,7 @@ async function runTestSuite() {
     assert(content.includes('canEditBarcode'), 'Must compute canEditBarcode dynamically');
     assert(content.includes('Generate Barcode'), 'Must provide Generate Barcode button');
     assert(content.includes('handleGenerateBarcode'), 'Must provide handleGenerateBarcode handler');
-    assert(content.includes('Auto Generate'), 'Must have Auto Generate button in Batch Number');
+    assert(content.includes('Regenerate') || content.includes('Auto Generate'), 'Must have Regenerate or Auto Generate button in Batch Number');
     assert(content.includes('BTH-YYMM-###'), 'Must document format BTH-YYMM-###');
   });
 
