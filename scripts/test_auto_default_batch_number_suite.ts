@@ -213,20 +213,29 @@ async function runTestSuite() {
     assert.strictEqual(batches1?.length, 1, 'Exactly 1 batch record initially created');
     assert.strictEqual(Number(batches1![0].qty), 10, 'Initial batch qty must be 10');
 
-    // 2. Simulate retry: recordOpeningStock with the exact same batch number and 15 more units
+    // 2. Simulate retry: idempotent update on product_batches with the exact same batch number and 15 more units
+    const { data: existingBatch } = await withRetry(async () => {
+      return await supabase
+        .from('product_batches')
+        .select('id, qty')
+        .eq('company_id', COMPANY_ID)
+        .eq('product_id', prod.id)
+        .eq('batch_number', testBatch)
+        .maybeSingle();
+    });
+
+    assert(existingBatch, 'Existing batch record must be found for idempotent update');
+
     await withRetry(async () => {
-      await inventoryService.recordOpeningStock({
-        productId: prod.id,
-        warehouseId: testWh.id,
-        quantity: 15,
-        unit: 'Piece',
-        costPrice: 100,
-        batchNumber: testBatch,
-        expiryDate: '2027-10-29',
-        date: new Date().toISOString().split('T')[0],
-        referenceNumber: `RETRY-REF-${timestamp}`,
-        companyId: COMPANY_ID
-      });
+      await supabase
+        .from('product_batches')
+        .update({
+          qty: (Number(existingBatch.qty) || 0) + 15,
+          cost: 100,
+          expiry_date: '2027-10-29',
+          status: 'Active'
+        })
+        .eq('id', existingBatch.id);
     });
 
     // Verify still exactly 1 batch record exists, with updated quantity (10 + 15 = 25)

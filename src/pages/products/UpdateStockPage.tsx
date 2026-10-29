@@ -24,6 +24,7 @@ import { formatCurrency, formatNumber } from '../../utils/formatters';
 import { Modal } from '../../components/common/Modal';
 import { canUpdateStock, canAssignBarcode, canManageBarcodeOverride } from '../../utils/rbac';
 import { cleanQuantityInput } from './InitialStockPage';
+import { productService } from '../../services/productService';
 
 type AdjustmentType = 'ADD' | 'REDUCE' | 'CORRECT';
 
@@ -52,6 +53,42 @@ export const UpdateStockPage: React.FC = () => {
   const canAccess = canUpdateStock(profile?.role);
   const canAssign = canAssignBarcode(profile?.role);
   const canOverride = canManageBarcodeOverride(profile?.role);
+
+  const getNextBatch = async (targetDate?: string): Promise<string> => {
+    if (generateNextBatchNumber) {
+      return await generateNextBatchNumber(targetDate);
+    }
+    const cId = (profile as any)?.company_id || (profile as any)?.companyId;
+    return await productService.generateNextBatchNumber(cId, targetDate);
+  };
+
+  // Computes the next batch number sequentially based on DB batches and product catalog
+  const computeNextBatchPreview = (targetDate?: string): string => {
+    const d = targetDate ? new Date(targetDate) : new Date();
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const prefix = `BTH-${yy}${mm}-`;
+
+    let maxNum = 0;
+    (batches || []).forEach(b => {
+      const match = (b.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+
+    (products || []).forEach(p => {
+      const match = (p.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+
+    const nextSeq = maxNum + 1;
+    return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+  };
 
   // URL query pre-population
   const queryProductId = searchParams.get('productId') || '';
@@ -163,14 +200,13 @@ export const UpdateStockPage: React.FC = () => {
         setSelectedBatchId('');
         setExpiryDate('');
         // Automatically allocate next sequential batch number for the new batch
-        const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
-        genFn(profile?.companyId || undefined)
+        setBatchNumber(computeNextBatchPreview());
+        getNextBatch()
           .then(newB => {
             if (newB) setBatchNumber(newB);
           })
           .catch(err => {
             console.warn('Failed to auto-generate batch number on new product select:', err);
-            setBatchNumber('');
           });
       }
 
@@ -205,8 +241,15 @@ export const UpdateStockPage: React.FC = () => {
     if (batchId === '__NEW__') {
       setBatchMode('new');
       setSelectedBatchId('');
-      setBatchNumber('');
       setExpiryDate('');
+      setBatchNumber(computeNextBatchPreview());
+      getNextBatch()
+        .then(newB => {
+          if (newB) setBatchNumber(newB);
+        })
+        .catch(err => {
+          console.warn('Failed to auto-generate batch number on select __NEW__:', err);
+        });
       return;
     }
     setBatchMode('existing');
@@ -265,28 +308,17 @@ export const UpdateStockPage: React.FC = () => {
       if (!confirmOverwrite) return;
     }
 
+    setBatchMode('new');
+    setSelectedBatchId('');
+    setBatchNumber(computeNextBatchPreview(expiryDate || undefined));
+
     try {
-      if (generateNextBatchNumber) {
-        const newBatch = await generateNextBatchNumber(expiryDate || undefined);
-        setBatchMode('new');
-        setSelectedBatchId('');
+      const newBatch = await getNextBatch(expiryDate || undefined);
+      if (newBatch) {
         setBatchNumber(newBatch);
-      } else {
-        const now = new Date();
-        const yy = String(now.getFullYear()).slice(-2);
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        setBatchMode('new');
-        setSelectedBatchId('');
-        setBatchNumber(`BTH-${yy}${mm}-001`);
       }
     } catch (err) {
       console.warn('Failed to auto-generate batch number via service:', err);
-      const now = new Date();
-      const yy = String(now.getFullYear()).slice(-2);
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      setBatchMode('new');
-      setSelectedBatchId('');
-      setBatchNumber(`BTH-${yy}${mm}-001`);
     }
 
     if (trackingErrors.batchNumber) {
@@ -921,16 +953,9 @@ export const UpdateStockPage: React.FC = () => {
               {/* Field 2: Batch Number */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <label className="block font-semibold text-slate-700 text-xs">
-                      Batch Number {selectedProduct?.batchTracking && <span className="text-rose-500">*</span>}
-                    </label>
-                    {batchMode === 'new' && batchNumber && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                        Auto-generated
-                      </span>
-                    )}
-                  </div>
+                  <label className="block font-semibold text-slate-700 text-xs">
+                    Batch Number {selectedProduct?.batchTracking && <span className="text-rose-500">*</span>}
+                  </label>
                   <div className="flex items-center gap-1.5">
                     {productBatches.length > 0 && (
                       <button
@@ -940,12 +965,12 @@ export const UpdateStockPage: React.FC = () => {
                             setBatchMode('new');
                             setSelectedBatchId('');
                             setExpiryDate('');
+                            setBatchNumber(computeNextBatchPreview());
                             try {
-                              const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
-                              const newB = await genFn(profile?.companyId || undefined);
-                              setBatchNumber(newB);
+                              const newB = await getNextBatch();
+                              if (newB) setBatchNumber(newB);
                             } catch {
-                              setBatchNumber('');
+                              // keep preview
                             }
                           } else {
                             setBatchMode('existing');
@@ -1004,6 +1029,16 @@ export const UpdateStockPage: React.FC = () => {
 
                 {trackingErrors.batchNumber ? (
                   <p className="text-[10px] text-rose-600 font-medium mt-1">{trackingErrors.batchNumber}</p>
+                ) : batchMode === 'new' ? (
+                  <div className="flex items-center justify-between mt-1 min-h-[16px]">
+                    <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                      Auto-generated
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Format: BTH-YYMM-###
+                    </span>
+                  </div>
                 ) : selectedBatchObj ? (
                   <p className="text-[10px] text-emerald-700 font-medium mt-1">
                     Available in batch: {selectedBatchObj.qty} {selectedProduct?.primaryUnit || 'units'}

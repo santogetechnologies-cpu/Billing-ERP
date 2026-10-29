@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   PackagePlus,
@@ -94,6 +94,7 @@ export const InitialStockPage: React.FC = () => {
     products,
     warehouses,
     units,
+    batches,
     customCategories,
     addCustomCategory,
     addProduct,
@@ -202,6 +203,49 @@ export const InitialStockPage: React.FC = () => {
   // ---------------------------------------------------------------------------
   // Product Items State (Starts with 1 product by default)
   // ---------------------------------------------------------------------------
+  // Computes the next batch number sequentially based on DB batches and items currently in the form
+  const computeNextBatchPreview = (
+    indexOffset = 0,
+    existingInForm?: ProductEntryItem[],
+    targetDate?: string
+  ): string => {
+    const d = targetDate ? new Date(targetDate) : new Date();
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const prefix = `BTH-${yy}${mm}-`;
+
+    let maxNum = 0;
+    // Check batches already loaded in context from database
+    (batches || []).forEach(b => {
+      const match = (b.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+
+    // Check products catalog
+    (products || []).forEach(p => {
+      const match = (p.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+
+    // Check items currently in form
+    (existingInForm || []).forEach(item => {
+      const match = (item.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+
+    const nextSeq = maxNum + 1 + indexOffset;
+    return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+  };
+
   const createDefaultItem = (index: number, existingItems?: ProductEntryItem[], initialBatch?: string): ProductEntryItem => {
     const defaultCat = 'Building Materials';
     const prefix = defaultCat.slice(0, 3).toUpperCase();
@@ -219,6 +263,9 @@ export const InitialStockPage: React.FC = () => {
 
     const exp = new Date();
     exp.setFullYear(exp.getFullYear() + 1);
+
+    // Compute immediate sequential batch number so the field is NEVER empty on initial paint
+    const autoBatch = initialBatch || computeNextBatchPreview(0, existingItems);
 
     return {
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -249,7 +296,7 @@ export const InitialStockPage: React.FC = () => {
       warehouse: warehouses.length > 0 ? warehouses[0].id : '',
       openingStock: '0',
       rack: '',
-      batchNumber: initialBatch || '',
+      batchNumber: autoBatch,
       expiryDate: exp.toISOString().split('T')[0],
       serialNumber: '',
       batchTracking: true,
@@ -264,12 +311,19 @@ export const InitialStockPage: React.FC = () => {
   const [itemErrors, setItemErrors] = useState<Record<number, string>>({});
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
+  const getNextBatch = async (targetDate?: string): Promise<string> => {
+    if (generateNextBatchNumber) {
+      return await generateNextBatchNumber(targetDate);
+    }
+    const cId = (profile as any)?.company_id || (profile as any)?.companyId;
+    return await productService.generateNextBatchNumber(cId, targetDate);
+  };
+
   // Auto-generate batch number for the initial entry on component mount
   useEffect(() => {
     let isMounted = true;
-    const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
-    if (items.length > 0 && !items[0].batchNumber && genFn) {
-      genFn(profile?.companyId || undefined, items[0].expiryDate || undefined)
+    if (items.length > 0 && !items[0].batchNumber) {
+      getNextBatch(items[0].expiryDate || undefined)
         .then(newBatch => {
           if (isMounted && newBatch) {
             setItems(prev =>
@@ -292,8 +346,7 @@ export const InitialStockPage: React.FC = () => {
     setItems(prev => [...prev, newItem]);
 
     try {
-      const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
-      const newBatch = await genFn(profile?.companyId || undefined, newItem.expiryDate || undefined);
+      const newBatch = await getNextBatch(newItem.expiryDate || undefined);
       if (newBatch) {
         setItems(prev =>
           prev.map(item => (item.id === newItem.id ? { ...item, batchNumber: newBatch } : item))
@@ -344,8 +397,7 @@ export const InitialStockPage: React.FC = () => {
     let batchNumToUse = items[index]?.batchNumber;
     if (!batchNumToUse || !batchNumToUse.trim()) {
       try {
-        const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
-        batchNumToUse = await genFn(profile?.companyId || undefined, items[index]?.expiryDate || undefined);
+        batchNumToUse = await getNextBatch(items[index]?.expiryDate || undefined);
       } catch (e) {
         console.warn('Failed to auto-generate batch number for existing product entry:', e);
       }
@@ -576,8 +628,7 @@ export const InitialStockPage: React.FC = () => {
 
         if (!item.batchNumber.trim()) {
           try {
-            const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
-            const autoBatch = await genFn(profile?.companyId || undefined, item.expiryDate || undefined);
+            const autoBatch = await getNextBatch(item.expiryDate || undefined);
             item.batchNumber = autoBatch;
             handleUpdateItem(i, 'batchNumber', autoBatch);
           } catch {
@@ -784,8 +835,7 @@ export const InitialStockPage: React.FC = () => {
       setItems([freshItem]);
       setIsConfirmOpen(false);
 
-      const genFn = generateNextBatchNumber || productService.generateNextBatchNumber;
-      genFn(profile?.companyId || undefined, freshItem.expiryDate || undefined)
+      getNextBatch(freshItem.expiryDate || undefined)
         .then(newBatch => {
           if (newBatch) {
             setItems(prev =>
@@ -1477,14 +1527,7 @@ export const InitialStockPage: React.FC = () => {
                     {/* Batch Number */}
                     <div>
                       <div className="flex items-center justify-between mb-1 min-h-[18px]">
-                        <div className="flex items-center gap-1.5">
-                          <label className="block text-xs font-semibold text-slate-700">Batch Number</label>
-                          {item.batchNumber && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                              Auto-generated
-                            </span>
-                          )}
-                        </div>
+                        <label className="block text-xs font-semibold text-slate-700">Batch Number</label>
                         <button
                           type="button"
                           onClick={() => handleAutoGenerateBatch(idx)}
@@ -1500,9 +1543,15 @@ export const InitialStockPage: React.FC = () => {
                         onChange={e => handleUpdateItem(idx, 'batchNumber', e.target.value.toUpperCase())}
                         className="h-9 w-full text-xs font-mono px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white text-slate-900"
                       />
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        Format: <span className="font-mono text-slate-600 font-medium">BTH-YYMM-###</span>
-                      </p>
+                      <div className="flex items-center justify-between mt-1 min-h-[16px]">
+                        <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                          Auto-generated
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Format: BTH-YYMM-###
+                        </span>
+                      </div>
                     </div>
 
                     {/* Expiry Date */}
