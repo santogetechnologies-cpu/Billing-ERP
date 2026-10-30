@@ -15,9 +15,12 @@ import {
 import { useERP } from '../../context/ERPContext';
 import { formatCurrency } from '../../utils/formatters';
 import { sortProductsAZ } from '../../utils/sortUtils';
-import { PurchaseInvoice, PurchaseDocType } from '../../types';
+import { PurchaseInvoice, PurchaseDocType, Product } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { isTableMarkedMissing } from '../../utils/schemaDetector';
+import { Modal } from '../../components/common/Modal';
+import { AddSupplierModal } from '../../components/suppliers/AddSupplierModal';
+import { InitialStockPage } from '../products/InitialStockPage';
 
 export const NewPurchaseInvoicePage: React.FC = () => {
   const navigate = useNavigate();
@@ -84,6 +87,8 @@ export const NewPurchaseInvoicePage: React.FC = () => {
   const [paidAmount, setPaidAmount] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [isAddNewProductModalOpen, setIsAddNewProductModalOpen] = useState(false);
   const [originalPoItems, setOriginalPoItems] = useState<Record<string, { orderedQty: number; rate: number; productName: string }>>({});
 
   useEffect(() => {
@@ -331,6 +336,36 @@ export const NewPurchaseInvoicePage: React.FC = () => {
     ]);
   };
 
+  const handleNewProductCreated = (created: Product | Product[]) => {
+    const prods = Array.isArray(created) ? created : [created];
+    if (prods.length === 0) {
+      setIsAddNewProductModalOpen(false);
+      return;
+    }
+
+    const newRows = prods.map(newProd => {
+      const defaultRate =
+        newProd.purchasePrice !== undefined && newProd.purchasePrice !== null && Number(newProd.purchasePrice) > 0
+          ? newProd.purchasePrice
+          : (newProd.costPrice || 0);
+
+      const defaultQty = Number(newProd.openingStock) > 0 ? Number(newProd.openingStock) : 1;
+
+      return {
+        productId: newProd.id,
+        productName: newProd.name,
+        qty: defaultQty,
+        unit: newProd.primaryUnit || 'Piece',
+        rate: defaultRate,
+        discount: 0,
+        taxRate: Number(newProd.taxRate) || 0
+      };
+    });
+
+    setItems(prev => [...prev, ...newRows]);
+    setIsAddNewProductModalOpen(false);
+  };
+
   const removeItemRow = (idx: number) => {
     setItems(prev => prev.filter((_, i) => i !== idx));
   };
@@ -429,7 +464,8 @@ export const NewPurchaseInvoicePage: React.FC = () => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <>
+      <form onSubmit={handleSubmit} className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
         <div className="flex items-center gap-3">
@@ -537,9 +573,20 @@ export const NewPurchaseInvoicePage: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="sm:col-span-2">
-            <label className="block font-medium text-slate-700 mb-1">
-              Select Supplier {suppliers.length === 0 && <span className="text-slate-400 font-normal">(No saved suppliers)</span>}
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-medium text-slate-700">
+                Select Supplier {suppliers.length === 0 && <span className="text-slate-400 font-normal">(No saved suppliers)</span>}
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsAddSupplierModalOpen(true)}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/80 px-2 py-0.5 rounded-md transition-colors cursor-pointer border border-blue-200/60 shrink-0"
+                title="Register and link a new supplier"
+              >
+                <Plus className="w-3 h-3 shrink-0 text-blue-600" />
+                <span>Add Supplier</span>
+              </button>
+            </div>
             {suppliers.length > 0 ? (
               <select
                 value={selectedSupplierId}
@@ -665,7 +712,14 @@ export const NewPurchaseInvoicePage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {calculatedItems.map((item, idx) => (
+              {calculatedItems.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-6 text-center text-slate-400">
+                    No inward items added yet. Click &quot;Add Product Item&quot; or &quot;Add New Product&quot; to begin.
+                  </td>
+                </tr>
+              ) : (
+                calculatedItems.map((item, idx) => (
                 <tr key={idx} className="hover:bg-slate-50/50">
                   <td className="py-2 px-2 text-center text-slate-400 font-mono">{idx + 1}</td>
                   <td className="py-2 px-2">
@@ -748,18 +802,28 @@ export const NewPurchaseInvoicePage: React.FC = () => {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
 
-        <button
-          type="button"
-          onClick={addItemRow}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add Product Item
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={addItemRow}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Product Item
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsAddNewProductModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
+          >
+            <Plus className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Add New Product</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary and Settlement */}
@@ -875,5 +939,36 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         </div>
       </div>
     </form>
-  );
+
+    {/* Quick Add Supplier Modal */}
+    <AddSupplierModal
+      isOpen={isAddSupplierModalOpen}
+      onClose={() => setIsAddSupplierModalOpen(false)}
+      onSuccess={newSupplier => {
+        setSelectedSupplierId(newSupplier.id);
+        setCustomSupplierName(newSupplier.company || newSupplier.name);
+        setIsAddSupplierModalOpen(false);
+      }}
+    />
+
+    {/* Initial Stock & Product Intake Modal */}
+    {isAddNewProductModalOpen && (
+      <Modal
+        isOpen={isAddNewProductModalOpen}
+        onClose={() => setIsAddNewProductModalOpen(false)}
+        title="Initial Stock & Product Intake"
+        subtitle="Register new products with opening stock details and serial tracking in your warehouse locations"
+        size="2xl"
+      >
+        <div className="max-h-[80vh] overflow-y-auto px-1 py-1">
+          <InitialStockPage
+            isEmbedded={true}
+            onSuccess={handleNewProductCreated}
+            onCancel={() => setIsAddNewProductModalOpen(false)}
+          />
+        </div>
+      </Modal>
+    )}
+  </>
+);
 };

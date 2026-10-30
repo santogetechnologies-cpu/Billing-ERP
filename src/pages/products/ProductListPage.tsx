@@ -299,7 +299,7 @@ export const ProductListPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            Product Master & Inventory Catalog
+            Product Master
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             Maintain SKU definitions, barcode generation, multi-tier pricing, and unit conversions.

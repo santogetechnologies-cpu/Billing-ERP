@@ -56,15 +56,31 @@ const STEPS: WizardStep[] = [
 
 export interface NewProductPageProps {
   isEmbedded?: boolean;
+  onSuccess?: (product: Product) => void;
+  onCancel?: () => void;
+  disableOpeningStock?: boolean;
 }
 
-export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = false }) => {
+export const NewProductPage: React.FC<NewProductPageProps> = ({
+  isEmbedded = false,
+  onSuccess,
+  onCancel,
+  disableOpeningStock = false
+}) => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
   const { profile } = useAuth();
   const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory, batches, serialNumbers, addSerialNumber } = useERP();
   const existingProduct = isEditMode && id ? products.find(p => p.id === id) : null;
+
+  const handleCancel = () => {
+    if (onCancel) {
+      onCancel();
+    } else {
+      navigate('/products');
+    }
+  };
 
   // Custom Category Modal State
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
@@ -368,6 +384,14 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
     }
   }, [name, category, generateSKU, generateBarcode, sku, isEditMode]);
 
+  // Auto-select default warehouse if none is currently selected
+  useEffect(() => {
+    if (!isEditMode && !warehouse && warehouses.length > 0) {
+      const def = warehouses.find(w => w.isDefault || (w as any).is_default) || warehouses[0];
+      if (def) setWarehouse(def.id);
+    }
+  }, [warehouses, warehouse, isEditMode]);
+
   // Regenerate SKU helper
   const handleRegenerateSKU = () => {
     const newSku = generateSKU(category, name || 'Item');
@@ -429,6 +453,15 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
           errs.code = `Product code "${code.trim()}" is already in use.`;
         }
       }
+
+      if (barcode.trim()) {
+        const isDuplicateBarcode = products.some(
+          p => p.barcode && p.barcode.toLowerCase() === barcode.trim().toLowerCase() && (!isEditMode || p.id !== id)
+        );
+        if (isDuplicateBarcode) {
+          errs.barcode = `Barcode "${barcode.trim()}" is already assigned to another product.`;
+        }
+      }
     }
 
     // STEP 2: Multi-Tier Pricing
@@ -480,12 +513,14 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
         errs.warehouse = 'Please select a warehouse.';
       }
 
-      if (openingStock === '' || openingStock === null || openingStock === undefined) {
-        errs.openingStock = 'Opening stock quantity is required.';
-      } else if (isNaN(Number(openingStock))) {
-        errs.openingStock = 'Opening stock quantity must be a valid number.';
-      } else if (Number(openingStock) < 0) {
-        errs.openingStock = 'Opening stock quantity cannot be negative.';
+      if (!disableOpeningStock) {
+        if (openingStock === '' || openingStock === null || openingStock === undefined) {
+          errs.openingStock = 'Opening stock quantity is required.';
+        } else if (isNaN(Number(openingStock))) {
+          errs.openingStock = 'Opening stock quantity must be a valid number.';
+        } else if (Number(openingStock) < 0) {
+          errs.openingStock = 'Opening stock quantity cannot be negative.';
+        }
       }
 
       if (reorderLevel !== '' && (isNaN(Number(reorderLevel)) || Number(reorderLevel) < 0)) {
@@ -673,6 +708,10 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
       const finalReorderLevel = reorderLevel.trim() === '' ? null : Number(reorderLevel);
       const existingProd = isEditMode && id ? products.find(p => p.id === id) : null;
 
+      const finalOpeningStock = disableOpeningStock ? 0 : numOpeningStock;
+      const finalOpeningStockValue = disableOpeningStock ? 0 : (numOpeningStock * effectiveCostPrice);
+      const finalCurrentStock = isEditMode && existingProd ? existingProd.currentStock : finalOpeningStock;
+
       const payload = {
         name: name.trim(),
         code: code.trim() || sku.trim(),
@@ -693,9 +732,9 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
         mrp: Number(mrp) || numSellingPrice,
         minSellingPrice: Number(minSellingPrice) || 0,
         reorderLevel: finalReorderLevel,
-        openingStock: numOpeningStock,
-        openingStockValue: numOpeningStock * effectiveCostPrice,
-        currentStock: isEditMode && existingProd ? existingProd.currentStock : numOpeningStock,
+        openingStock: finalOpeningStock,
+        openingStockValue: finalOpeningStockValue,
+        currentStock: finalCurrentStock,
         primaryUnit: primaryUnit.trim() || 'Piece',
         secondaryUnit: secondaryUnit.trim() || undefined,
         conversionFactor: Number(conversionFactor) || 1,
@@ -748,6 +787,11 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
         await refreshData();
       }
 
+      if (onSuccess) {
+        onSuccess(savedProduct);
+        return;
+      }
+
       navigate('/products', {
         state: {
           message: isEditMode
@@ -766,12 +810,12 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
   return (
     <div className={`space-y-6 ${isEmbedded ? '' : 'max-w-5xl mx-auto'}`}>
       {/* Header Banner */}
-      {!isEmbedded && (
+      {!isEmbedded ? (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => navigate('/products')}
+              onClick={handleCancel}
               className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
               title="Return to Product Master"
             >
@@ -795,7 +839,7 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => navigate('/products')}
+              onClick={handleCancel}
               className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
             >
               Cancel
@@ -816,6 +860,48 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
                   <>
                     <Save className="w-3.5 h-3.5" />
                     <span>{isEditMode ? 'Update Product' : 'Save Product'}</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 bg-white">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-800">
+              {STEPS[currentStep - 1].title}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+              Step {currentStep} of {STEPS.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+            {(isEditMode || currentStep === STEPS.length) && (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleFinalSubmit}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save Product</span>
                   </>
                 )}
               </button>
@@ -1131,10 +1217,16 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
                   id="field-barcode"
                   type="text"
                   value={barcode}
-                  onChange={e => setBarcode(e.target.value)}
+                  onChange={e => {
+                    setBarcode(e.target.value);
+                    if (errors.barcode) setErrors(prev => ({ ...prev, barcode: '' }));
+                  }}
                   placeholder="8901234567890"
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900 text-xs"
+                  className={`w-full px-3 py-1.5 bg-white border rounded-lg font-mono text-slate-900 text-xs ${
+                    errors.barcode ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-300'
+                  }`}
                 />
+                {errors.barcode && <p className="text-[11px] text-rose-600 font-medium">{errors.barcode}</p>}
                 <div className="pt-1 flex justify-center bg-white p-1 rounded border border-slate-200">
                   <BarcodeCanvas value={barcode || '8901234567890'} height={35} showText={false} />
                 </div>
@@ -1476,7 +1568,20 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
                 </div>
 
                 {/* Opening Stock Quantity (Editable only on creation; strictly preserved on edit) */}
-                {isEditMode ? (
+                {disableOpeningStock ? (
+                  <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-blue-900">Opening Stock (Catalog Only)</span>
+                      <span className="text-[10px] font-mono text-blue-500">Unit: {primaryUnit || 'Piece'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-base font-bold text-blue-900">0 {primaryUnit || 'Piece'}</span>
+                    </div>
+                    <p className="text-[10px] text-blue-600">
+                      Catalog record only. Stock will be inwarded automatically when this Purchase Bill is finalized.
+                    </p>
+                  </div>
+                ) : isEditMode ? (
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-700">Current Stock Balance (Preserved)</span>
@@ -2252,7 +2357,16 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({ isEmbedded = fal
 
         {/* Wizard Step Navigation Footer */}
         <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
-          <div>
+          <div className="flex items-center gap-2">
+            {isEmbedded && onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="button"
               disabled={currentStep === 1 || isSubmitting}

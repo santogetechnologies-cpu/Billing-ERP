@@ -87,7 +87,17 @@ export const cleanQuantityInput = (val: string): string => {
   return noNeg.replace(/^0+(?=\d)/, '');
 };
 
-export const InitialStockPage: React.FC = () => {
+export interface InitialStockPageProps {
+  isEmbedded?: boolean;
+  onSuccess?: (products: Product[]) => void;
+  onCancel?: () => void;
+}
+
+export const InitialStockPage: React.FC<InitialStockPageProps> = ({
+  isEmbedded = false,
+  onSuccess,
+  onCancel
+}) => {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const {
@@ -707,6 +717,7 @@ export const InitialStockPage: React.FC = () => {
     setSuccessMessage(null);
 
     const savedNewProductIds: string[] = [];
+    const savedProductsList: Product[] = [];
 
     try {
       for (let i = 0; i < items.length; i++) {
@@ -737,6 +748,15 @@ export const InitialStockPage: React.FC = () => {
             companyId: finalCompanyId,
             currentUser: profile ? { id: profile.id, name: (profile as any).fullName || (profile as any).name || 'User', role: profile.role } : undefined
           });
+
+          // Track for return callback
+          const existingProd = products.find(p => p.id === item.existingProductId);
+          if (existingProd) {
+            savedProductsList.push({
+              ...existingProd,
+              currentStock: (existingProd.currentStock || 0) + numQty
+            });
+          }
 
           // Update barcode on existing product if assigned/modified by authorized user
           if (canAssign && item.barcode.trim()) {
@@ -801,6 +821,7 @@ export const InitialStockPage: React.FC = () => {
 
           const saved = await addProduct(payload);
           savedNewProductIds.push(saved.id);
+          savedProductsList.push(saved);
 
           // Save Serial Number to database if provided
           if (item.serialNumber && item.serialNumber.trim() && addSerialNumber) {
@@ -834,6 +855,11 @@ export const InitialStockPage: React.FC = () => {
       const freshItem = createDefaultItem(0);
       setItems([freshItem]);
       setIsConfirmOpen(false);
+
+      if (onSuccess && savedProductsList.length > 0) {
+        onSuccess(savedProductsList);
+        return;
+      }
 
       getNextBatch(freshItem.expiryDate || undefined)
         .then(newBatch => {
@@ -877,23 +903,23 @@ export const InitialStockPage: React.FC = () => {
         </p>
         <button
           type="button"
-          onClick={() => navigate('/products')}
+          onClick={() => (isEmbedded && onCancel ? onCancel() : navigate('/products'))}
           className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer"
         >
-          Return to Product Master
+          {isEmbedded ? 'Close' : 'Return to Product Master'}
         </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-20">
+    <div className={`space-y-6 ${isEmbedded ? 'pb-6' : 'max-w-6xl mx-auto pb-20'}`}>
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Initial Stock & Product Intake
+              Initial Stock
             </h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
               Add Product
@@ -905,9 +931,18 @@ export const InitialStockPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          {isEmbedded && onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>Cancel</span>
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => navigate('/products')}
+            onClick={() => (isEmbedded && onCancel ? onCancel() : navigate('/products'))}
             className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <span>Product Master</span>

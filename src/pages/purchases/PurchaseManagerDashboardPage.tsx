@@ -7,7 +7,6 @@ import {
   TrendingUp,
   Building2,
   AlertTriangle,
-  Plus,
   RefreshCw,
   Eye,
   Check,
@@ -859,9 +858,9 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         limitedStockCount: 0,
         activeStockCount: 0,
         slices: [
-          { label: 'Low Stock', count: 0, pct: 0, color: '#f43f5e', bgDot: 'bg-rose-500', badgeBg: 'bg-rose-50 text-rose-700 border-rose-200', onClick: () => navigate('/inventory/alerts') },
-          { label: 'Limited Stock', count: 0, pct: 0, color: '#f59e0b', bgDot: 'bg-amber-500', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200', onClick: () => navigate('/inventory/alerts') },
-          { label: 'Active Stock', count: 0, pct: 0, color: '#10b981', bgDot: 'bg-emerald-500', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200', onClick: () => navigate('/products') }
+          { label: 'Low Stock', count: 0, pct: 0, color: '#f43f5e', bgDot: 'bg-rose-500', badgeBg: 'bg-rose-50 text-rose-700 border-rose-200' },
+          { label: 'Limited Stock', count: 0, pct: 0, color: '#f59e0b', bgDot: 'bg-amber-500', badgeBg: 'bg-amber-50 text-amber-700 border-amber-200' },
+          { label: 'Active Stock', count: 0, pct: 0, color: '#10b981', bgDot: 'bg-emerald-500', badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
         ]
       };
     }
@@ -899,8 +898,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           pct: lowPct,
           color: '#f43f5e',
           bgDot: 'bg-rose-500',
-          badgeBg: 'bg-rose-50 text-rose-700 border-rose-200',
-          onClick: () => navigate('/inventory/alerts')
+          badgeBg: 'bg-rose-50 text-rose-700 border-rose-200'
         },
         {
           label: 'Limited Stock',
@@ -908,8 +906,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           pct: limitedPct,
           color: '#f59e0b',
           bgDot: 'bg-amber-500',
-          badgeBg: 'bg-amber-50 text-amber-700 border-amber-200',
-          onClick: () => navigate('/inventory/alerts')
+          badgeBg: 'bg-amber-50 text-amber-700 border-amber-200'
         },
         {
           label: 'Active Stock',
@@ -917,12 +914,11 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           pct: activePct,
           color: '#10b981',
           bgDot: 'bg-emerald-500',
-          badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-          onClick: () => navigate('/products')
+          badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200'
         }
       ]
     };
-  }, [products, navigate]);
+  }, [products]);
 
   // Supplier Overview Data (clean list with only name and status Active/Inactive)
   const supplierOverviewList = useMemo(() => {
@@ -1072,7 +1068,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* 1. Dashboard Header */}
-      <div className="bg-white px-4 py-3.5 sm:px-5 sm:py-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 sm:gap-4">
+      <div className="bg-white px-4 py-3.5 sm:px-5 sm:py-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4">
         {/* Left Column: Breadcrumb & Date (Row 1), Title & Subtitle (Row 2) */}
         <div className="min-w-0 space-y-1">
           {/* Breadcrumb & Date Badge */}
@@ -1101,7 +1097,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         </div>
 
         {/* Right Column: Action Controls Toolbar */}
-        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap sm:flex-nowrap shrink-0">
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 self-start sm:self-auto">
           {/* Refresh Button */}
           <button
             type="button"
@@ -1129,23 +1125,12 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             </span>
           </button>
 
-          {/* New Order Button */}
-          <button
-            type="button"
-            onClick={() => navigate('/purchases/new?docType=purchase_order')}
-            className="h-9 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
-            title="Create new direct purchase order"
-          >
-            <Plus className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-            <span>New Order</span>
-          </button>
-
           {/* New Bill Button */}
           <button
             type="button"
-            onClick={() => navigate('/purchases/new')}
+            onClick={() => navigate('/purchases/orders?new=bulk-order')}
             className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
-            title="Create new vendor purchase bill"
+            title="Create Commercial Quotation"
           >
             <FileText className="w-3.5 h-3.5 shrink-0" />
             <span>New Bill</span>
@@ -1278,8 +1263,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => navigate('/products')}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer shrink-0"
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                title="View complete product stock catalog"
               >
                 <span>View Catalog</span>
                 <ArrowRight className="w-3 h-3" />
@@ -1355,20 +1342,18 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Status Breakdown Legend & Clickable Filter Buttons */}
+              {/* Status Breakdown Legend (Display Only) */}
               <div className="flex-1 w-full space-y-2">
                 {stockData.slices.map((slice) => {
                   return (
-                    <button
+                    <div
                       key={slice.label}
-                      onClick={slice.onClick}
-                      className="w-full flex items-center justify-between p-2.5 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/80 transition-all text-left cursor-pointer group"
-                      title={`Filter inventory by ${slice.label}`}
+                      className="w-full flex items-center justify-between p-2.5 rounded-xl border border-slate-100 bg-white text-left select-none cursor-default"
                     >
                       <div className="flex items-center gap-2.5">
                         <span className={`w-3 h-3 rounded-full ${slice.bgDot} shrink-0 ring-2 ring-white shadow-2xs`} />
                         <div>
-                          <span className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                          <span className="text-xs font-bold text-slate-800">
                             {slice.label}
                           </span>
                           <span className="text-[10px] text-slate-400 ml-1.5 font-medium">
@@ -1380,11 +1365,11 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                         <span className="font-mono font-bold text-xs text-slate-900">
                           {formatNumber(slice.count)}
                         </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${slice.badgeBg}`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${slice.badgeBg} select-none cursor-default`}>
                           {slice.count === 1 ? 'Product' : 'Products'}
                         </span>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1393,7 +1378,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
 
           <div className="pt-3.5 mt-3.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <span>Mutually exclusive inventory classification</span>
-            <span className="text-[11px] text-slate-400">Click any status to filter products</span>
           </div>
         </div>
 
@@ -1474,13 +1458,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             <span className="text-slate-500 font-medium">
               Total Suppliers: {supplierOverviewList.length} ({supplierOverviewList.filter(s => s.status === 'Active').length} Active)
             </span>
-            <button
-              onClick={() => navigate('/suppliers')}
-              className="text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
-            >
-              <span>Manage Directory</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
           </div>
         </div>
       </div>
