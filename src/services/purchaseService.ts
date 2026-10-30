@@ -225,7 +225,11 @@ export const purchaseService = {
     // 0. Strict RBAC Enforcement: Only Purchase Manager, Admin, and Owner can create purchase invoices
     await assertCallerPermission('purchases', 'create');
 
-    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const finalCompanyId = isValidUuid(companyId) ? companyId! : '00000000-0000-0000-0000-000000000001';
+    const finalSupplierId = isValidUuid(invoice.supplierId) ? invoice.supplierId!.trim() : null;
+    const finalWarehouseId = isValidUuid(invoice.warehouse) ? invoice.warehouse!.trim() : null;
+    const finalPoId = isValidUuid(invoice.purchaseOrderId) ? invoice.purchaseOrderId!.trim() : null;
+    const finalPrId = isValidUuid(invoice.purchaseRequestId) ? invoice.purchaseRequestId!.trim() : null;
 
     const initialMeta: BillMetadata = {
       purchaseOrderId: invoice.purchaseOrderId,
@@ -247,14 +251,14 @@ export const purchaseService = {
 
     const payload = {
       company_id: finalCompanyId,
-      supplier_id: invoice.supplierId,
+      supplier_id: finalSupplierId,
       supplier_name: invoice.supplierName,
       supplier_gstin: invoice.supplierGstin,
       invoice_number: invoice.invoiceNumber,
       doc_type: invoice.docType,
       date: invoice.date,
       due_date: invoice.dueDate,
-      warehouse_id: invoice.warehouse,
+      warehouse_id: finalWarehouseId,
       subtotal: invoice.subtotal,
       tax_total: invoice.taxTotal,
       freight_charges: invoice.freightCharges || 0,
@@ -264,7 +268,7 @@ export const purchaseService = {
       payment_status: invoice.paymentStatus,
       notes: notesWithMeta,
       items: invoice.items.map(it => ({
-        product_id: it.productId,
+        product_id: isValidUuid(it.productId) ? it.productId : null,
         product_name: it.productName,
         qty: it.qty,
         unit: it.unit,
@@ -331,7 +335,8 @@ export const purchaseService = {
       doc_type: invoice.docType,
       date: invoice.date,
       due_date: invoice.dueDate,
-      supplier_id: invoice.supplierId,
+      supplier_id: finalSupplierId,
+      warehouse_id: finalWarehouseId,
       supplier_name: invoice.supplierName,
       supplier_gstin: invoice.supplierGstin,
       subtotal: invoice.subtotal,
@@ -342,9 +347,9 @@ export const purchaseService = {
       paid_amount: invoice.paidAmount || 0,
       payment_status: invoice.paymentStatus,
       notes: notesWithMeta,
-      purchase_order_id: invoice.purchaseOrderId || null,
+      purchase_order_id: finalPoId,
       purchase_order_number: invoice.purchaseOrderNumber || null,
-      purchase_request_id: invoice.purchaseRequestId || null,
+      purchase_request_id: finalPrId,
       purchase_request_number: invoice.purchaseRequestNumber || null,
       supplier_invoice_number: invoice.supplierInvoiceNumber || null,
       has_discrepancy: invoice.hasDiscrepancy || false,
@@ -369,7 +374,7 @@ export const purchaseService = {
     if (invoice.items.length > 0) {
       const itemsPayload = invoice.items.map(item => ({
         purchase_id: purData.id,
-        product_id: item.productId,
+        product_id: isValidUuid(item.productId) ? item.productId : null,
         product_name: item.productName,
         qty: item.qty,
         unit: item.unit,
@@ -382,7 +387,7 @@ export const purchaseService = {
       await supabase.from('purchase_items').insert(itemsPayload);
 
       for (const item of invoice.items) {
-        if (item.productId) {
+        if (isValidUuid(item.productId)) {
           // Increment stock
           const { data: prodData } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
           if (prodData) {

@@ -674,9 +674,8 @@ export const notificationService = {
     try {
       await supabase
         .from('notifications')
-        .update({ is_read: true, read: true })
+        .update({ is_read: true })
         .eq('company_id', finalCompanyId)
-        .eq('warehouse_id', warehouseId)
         .eq('title', 'Missing Warehouse Manager Assignment');
     } catch (e) {
       console.warn('Failed to resolve missing warehouse manager alert in DB:', e);

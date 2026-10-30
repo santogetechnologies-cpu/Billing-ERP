@@ -485,10 +485,28 @@ export async function filterSupportedPurchasePayload(
 ): Promise<Record<string, any>> {
   const supportedCols = await getAvailablePurchaseColumns();
   const safePayload: Record<string, any> = {};
+  const uuidCols = new Set([
+    'company_id',
+    'branch_id',
+    'warehouse_id',
+    'supplier_id',
+    'purchase_order_id',
+    'purchase_request_id'
+  ]);
 
   for (const [key, value] of Object.entries(rawPayload)) {
     if (supportedCols.has(key) && value !== undefined) {
-      safePayload[key] = value;
+      if (
+        uuidCols.has(key) &&
+        (value === '' ||
+          value === null ||
+          (typeof value === 'string' &&
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())))
+      ) {
+        safePayload[key] = null;
+      } else {
+        safePayload[key] = value;
+      }
     }
   }
 

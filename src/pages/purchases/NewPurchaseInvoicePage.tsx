@@ -77,6 +77,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
     return d.toISOString().split('T')[0];
   });
   const [selectedSupplierId, setSelectedSupplierId] = useState(suppliers[0]?.id || '');
+  const [customSupplierName, setCustomSupplierName] = useState('');
   const [warehouse, setWarehouse] = useState(warehouses[0]?.id || '');
   const [freightCharges, setFreightCharges] = useState<string>('');
   const [otherCharges, setOtherCharges] = useState<string>('');
@@ -84,6 +85,19 @@ export const NewPurchaseInvoicePage: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [originalPoItems, setOriginalPoItems] = useState<Record<string, { orderedQty: number; rate: number; productName: string }>>({});
+
+  useEffect(() => {
+    if (!selectedSupplierId && suppliers.length > 0) {
+      setSelectedSupplierId(suppliers[0].id);
+    }
+  }, [suppliers, selectedSupplierId]);
+
+  useEffect(() => {
+    if (!warehouse && warehouses.length > 0) {
+      const defaultWh = warehouses.find(w => w.isDefault && (w.isActive ?? true)) || warehouses[0];
+      setWarehouse(defaultWh?.id || '');
+    }
+  }, [warehouses, warehouse]);
 
   const [items, setItems] = useState<Array<{
     productId: string;
@@ -189,7 +203,11 @@ export const NewPurchaseInvoicePage: React.FC = () => {
       setSelectedSupplierId(po.supplier_id);
     } else if (po.supplier_name) {
       const matchSup = suppliers.find(s => s.name?.toLowerCase() === po.supplier_name?.toLowerCase() || s.company?.toLowerCase() === po.supplier_name?.toLowerCase());
-      if (matchSup) setSelectedSupplierId(matchSup.id);
+      if (matchSup) {
+        setSelectedSupplierId(matchSup.id);
+      } else {
+        setCustomSupplierName(po.supplier_name);
+      }
     }
 
     if (po.warehouse_id) {
@@ -367,14 +385,17 @@ export const NewPurchaseInvoicePage: React.FC = () => {
       if (numPaid >= grandTotal && grandTotal > 0) paymentStatus = 'Paid';
       else if (numPaid > 0) paymentStatus = 'Partially Paid';
 
+      const resolvedSupplierName = activeSupplier?.company || activeSupplier?.name || customSupplierName.trim() || 'Supplier';
+      const resolvedSupplierId = (activeSupplier && activeSupplier.id) ? activeSupplier.id : '';
+
       await createPurchaseInvoice({
         invoiceNumber,
         supplierInvoiceNumber: finalSupplierInv,
         docType,
         date,
         dueDate,
-        supplierId: activeSupplier?.id || '',
-        supplierName: activeSupplier?.company || activeSupplier?.name || 'Supplier',
+        supplierId: resolvedSupplierId,
+        supplierName: resolvedSupplierName,
         supplierGstin: activeSupplier?.gstin,
         warehouse,
         items: calculatedItems,
@@ -516,18 +537,35 @@ export const NewPurchaseInvoicePage: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="sm:col-span-2">
-            <label className="block font-medium text-slate-700 mb-1">Select Supplier</label>
-            <select
-              value={selectedSupplierId}
-              onChange={e => setSelectedSupplierId(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold"
-            >
-              {suppliers.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.company} ({s.name}) — Payable: {formatCurrency(s.currentOutstanding)}
-                </option>
-              ))}
-            </select>
+            <label className="block font-medium text-slate-700 mb-1">
+              Select Supplier {suppliers.length === 0 && <span className="text-slate-400 font-normal">(No saved suppliers)</span>}
+            </label>
+            {suppliers.length > 0 ? (
+              <select
+                value={selectedSupplierId}
+                onChange={e => {
+                  setSelectedSupplierId(e.target.value);
+                  const found = suppliers.find(s => s.id === e.target.value);
+                  if (found) setCustomSupplierName(found.company || found.name);
+                }}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold cursor-pointer"
+              >
+                {suppliers.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.company} ({s.name}) — Payable: {formatCurrency(s.currentOutstanding)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={customSupplierName}
+                onChange={e => setCustomSupplierName(e.target.value)}
+                placeholder="Enter supplier name (e.g. supplier2)..."
+                required
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            )}
           </div>
 
           <div>
