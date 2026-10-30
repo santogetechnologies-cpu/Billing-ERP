@@ -1,29 +1,52 @@
 import { supabase } from '../src/lib/supabase';
 
-async function checkSales() {
-  const { count: salesCount } = await supabase.from('sales').select('*', { count: 'exact', head: true });
-  const { count: saleItemsCount } = await supabase.from('sale_items').select('*', { count: 'exact', head: true });
-  const { count: paymentsCount } = await supabase.from('payments').select('*', { count: 'exact', head: true });
-  const { count: productsCount } = await supabase.from('products').select('*', { count: 'exact', head: true });
-  const { count: productBarcodesCount } = await supabase.from('product_barcodes').select('*', { count: 'exact', head: true });
-  const { count: stockTxCount } = await supabase.from('stock_transactions').select('*', { count: 'exact', head: true });
-  const { count: stockTransfersCount } = await supabase.from('stock_transfers').select('*', { count: 'exact', head: true });
-  const { count: stockTransferItemsCount } = await supabase.from('stock_transfer_items').select('*', { count: 'exact', head: true });
-  const { count: notifCount } = await supabase.from('notifications').select('*', { count: 'exact', head: true });
-  const { count: auditCount } = await supabase.from('audit_logs').select('*', { count: 'exact', head: true });
+async function check() {
+  const tables = [
+    'sales',
+    'sales_items',
+    'quotations',
+    'quotation_items',
+    'sales_orders',
+    'sales_order_items',
+    'sales_returns',
+    'sales_return_items',
+    'purchases',
+    'purchase_items',
+    'purchase_requests',
+    'purchase_request_items',
+    'purchase_returns',
+    'purchase_return_items',
+    'stock_transactions',
+    'stock_transfers',
+    'stock_transfer_items',
+    'stocks',
+    'stock_adjustments',
+    'batches',
+    'serial_numbers',
+    'products',
+    'product_barcodes',
+    'payments',
+    'payment_allocations',
+    'expenses',
+    'notifications',
+    'audit_logs',
+    'customers',
+    'suppliers',
+    'warehouses',
+    'companies',
+    'profiles',
+    'roles',
+    'permissions',
+    'role_permissions',
+    'user_roles'
+  ];
 
-  console.log({
-    sales: salesCount,
-    sale_items: saleItemsCount,
-    payments: paymentsCount,
-    products: productsCount,
-    product_barcodes: productBarcodesCount,
-    stock_transactions: stockTxCount,
-    stock_transfers: stockTransfersCount,
-    stock_transfer_items: stockTransferItemsCount,
-    notifications: notifCount,
-    audit_logs: auditCount
-  });
+  const results: Record<string, number | null> = {};
+  for (const t of tables) {
+    const { count, error } = await supabase.from(t).select('*', { count: 'exact', head: true });
+    results[t] = error ? null : (count ?? 0);
+  }
+  console.log(JSON.stringify(results, null, 2));
 }
 
-checkSales();
+check();

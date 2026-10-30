@@ -51,19 +51,19 @@ async function main() {
   const { count: salesCount } = await supabase.from('sales').select('*', { count: 'exact', head: true });
   const { count: custCount } = await supabase.from('customers').select('*', { count: 'exact', head: true });
 
-  console.log(`- Products:           ${prodCount} (Expected: 58)`);
-  console.log(`- Suppliers:          ${suppCount} (Expected: 2)`);
+  console.log(`- Products:           ${prodCount} (Expected: 0)`);
+  console.log(`- Suppliers:          ${suppCount} (Expected: 0)`);
   console.log(`- Warehouses:         ${whCount} (Expected: 7)`);
-  console.log(`- Payments:           ${payCount} (Expected: 86)`);
-  console.log(`- Stock Transactions: ${stCount} (Expected: 246)`);
-  console.log(`- Sales:              ${salesCount} (Expected: 37)`);
-  console.log(`- Customers:          ${custCount} (Expected: 5)`);
+  console.log(`- Payments:           ${payCount} (Expected: 0)`);
+  console.log(`- Stock Transactions: ${stCount} (Expected: 0)`);
+  console.log(`- Sales:              ${salesCount} (Expected: 0)`);
+  console.log(`- Customers:          ${custCount} (Expected: 0)`);
 
-  if (prodCount !== 58 || suppCount !== 2 || whCount !== 7 || payCount !== 86 || stCount !== 246 || salesCount !== 37) {
-    console.error('❌ Safety Audit Failed: Protected business records were modified!');
+  if (whCount !== 7 || prodCount !== 0 || suppCount !== 0 || payCount !== 0 || stCount !== 0 || salesCount !== 0) {
+    console.error('❌ Safety Audit Failed: Business records must be 0 after mock data removal, and warehouses must be 7!');
     process.exit(1);
   }
-  console.log('  ✓ PASS: All protected inventory, financial, and master data are 100% intact');
+  console.log('  ✓ PASS: All mock data verified cleared (0 records) & warehouses intact (7 records)');
 
   // 3. Purchase Request & Cache Sanitization Check
   console.log('\n--- 3. Purchase Requests & Cache Sanitization Check ---');
