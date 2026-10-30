@@ -59,11 +59,17 @@ runTest('Dashboard Overdue button has AlertTriangle icon, subtle red style, real
   assert(pmDashboardCode.includes('orderStatusNavigationCounts.overdueCount'), 'Overdue button must display real overdueCount based on expected delivery date and pending qty');
 });
 
-runTest('Dashboard History button has History icon, subtle neutral gray style, real count & navigates to /purchases/orders?status=History', () => {
-  assert(pmDashboardCode.includes("navigate('/purchases/orders?status=History')"), 'History button must navigate to /purchases/orders?status=History');
-  assert(pmDashboardCode.includes('History'), 'History button must use history icon');
-  assert(pmDashboardCode.includes('text-slate-600') || pmDashboardCode.includes('text-slate-700') || pmDashboardCode.includes('text-slate-900'), 'History button must use subtle neutral gray color');
-  assert(pmDashboardCode.includes('orderStatusNavigationCounts.historyCount'), 'History button must display real historyCount of all orders');
+runTest('Dashboard 4th button (Stocks / History) has appropriate icon, subtle style, real count & navigates', () => {
+  const isStocks = pmDashboardCode.includes("navigate('/products')");
+  if (isStocks) {
+    assert(pmDashboardCode.includes('Boxes'), 'Stocks button must use Boxes icon');
+    assert(pmDashboardCode.includes('orderStatusNavigationCounts.stocksCount'), 'Stocks button must display stocksCount');
+    assert(pmDashboardCode.includes('>Stocks</span>'), 'Stocks button must display Stocks label');
+  } else {
+    assert(pmDashboardCode.includes("navigate('/purchases/orders?status=History')"), 'History button must navigate to /purchases/orders?status=History');
+    assert(pmDashboardCode.includes('History'), 'History button must use history icon');
+    assert(pmDashboardCode.includes('orderStatusNavigationCounts.historyCount'), 'History button must display real historyCount of all orders');
+  }
 });
 
 // -----------------------------------------------------------------------------

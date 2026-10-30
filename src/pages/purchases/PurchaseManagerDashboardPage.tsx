@@ -25,7 +25,8 @@ import {
   Loader2,
   Search,
   FileText,
-  History
+  History,
+  Boxes
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1015,12 +1016,13 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       .slice(0, 5);
   }, [purchaseInvoices]);
 
-  // Purchase Order Status Navigation Counts (Ordered, Delivered, Overdue, History)
+  // Purchase Order Status Navigation Counts (Ordered, Delivered, Overdue, Stocks)
   const orderStatusNavigationCounts = useMemo(() => {
     let orderedCount = 0;
     let deliveredCount = 0;
     let overdueCount = 0;
     const historyCount = allPurchaseOrders.length;
+    const stocksCount = (products || []).length;
     const today = new Date().toISOString().split('T')[0];
 
     allPurchaseOrders.forEach(po => {
@@ -1060,9 +1062,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
       orderedCount,
       deliveredCount,
       overdueCount,
-      historyCount
+      historyCount,
+      stocksCount
     };
-  }, [allPurchaseOrders]);
+  }, [allPurchaseOrders, products]);
 
   return (
     <div className="space-y-6">
@@ -1229,24 +1232,24 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           </span>
         </button>
 
-        {/* 4. History Button */}
+        {/* 4. Stocks Button */}
         <button
           type="button"
-          onClick={() => navigate('/purchases/orders?status=History')}
+          onClick={() => navigate('/products')}
           className="flex items-center justify-between p-3 sm:px-4 sm:py-3.5 bg-white hover:bg-slate-50 border border-slate-200/90 hover:border-slate-300 rounded-xl shadow-2xs text-xs font-semibold text-slate-700 hover:text-slate-900 transition-all cursor-pointer group"
-          title="View complete purchase order history across all statuses"
+          title="View all product stock"
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 group-hover:bg-slate-700 group-hover:text-white flex items-center justify-center shrink-0 transition-colors">
-              <History className="w-4 h-4" />
+              <Boxes className="w-4 h-4" />
             </div>
             <div className="text-left truncate">
-              <span className="block font-bold text-slate-900 group-hover:text-slate-800 truncate transition-colors">History</span>
-              <span className="block text-[10px] text-slate-400 font-normal truncate">All purchase orders</span>
+              <span className="block font-bold text-slate-900 group-hover:text-slate-800 truncate transition-colors">Stocks</span>
+              <span className="block text-[10px] text-slate-400 font-normal truncate">View all product stock</span>
             </div>
           </div>
           <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 shrink-0 ml-2 group-hover:bg-slate-200 transition-colors">
-            {formatNumber(orderStatusNavigationCounts.historyCount)}
+            {formatNumber(orderStatusNavigationCounts.stocksCount)}
           </span>
         </button>
       </div>
