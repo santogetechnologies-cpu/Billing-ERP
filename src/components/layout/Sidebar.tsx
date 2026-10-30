@@ -377,15 +377,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ? [
             { name: 'Purchase Orders', path: '/purchases/orders', icon: Truck, end: true },
             { name: 'Purchase Bills', path: '/purchases', icon: FileText, end: true },
-            { name: 'New Purchase Order', path: '/purchases/new?docType=purchase_order', end: true },
-            { name: 'New Purchase Bill', path: '/purchases/new', end: true },
             { name: 'Purchase Returns', path: '/purchases/returns', end: true }
           ]
         : [
             { name: 'Purchase Invoices', path: '/purchases', end: true },
             { name: 'Purchase Requests', path: '/purchases/requests', icon: ClipboardList, end: true },
             { name: 'Purchase Orders', path: '/purchases/orders', icon: Truck, end: true },
-            { name: 'New Purchase Bill', path: '/purchases/new', end: true },
             { name: 'Purchase Returns', path: '/purchases/returns', end: true }
           ]
     },

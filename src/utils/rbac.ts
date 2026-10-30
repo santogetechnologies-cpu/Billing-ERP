@@ -990,8 +990,8 @@ export function canRoleAccessSubItem(
     return false;
   }
   if (normalizedRole === 'Purchase Manager') {
-    // In Purchases: Barcode Management and Delivery Tracking must NOT appear for Purchase Manager
-    // Authorized: Purchase Orders, Purchase Bills, New Purchase Bill, Purchase Returns
+    // In Purchases: Barcode Management, Delivery Tracking, New Purchase Order, and New Purchase Bill must NOT appear for Purchase Manager
+    // Authorized: Purchase Orders, Purchase Bills, Purchase Returns
     if (parentName === 'Purchases') {
       if (
         subItemPath.startsWith('/purchases/barcode') ||
@@ -999,7 +999,11 @@ export function canRoleAccessSubItem(
         subItemPath === '/purchases/requests' ||
         _subItemName === 'Purchase Requests' ||
         subItemPath === '/purchases/delivery-tracking' ||
-        _subItemName === 'Delivery Tracking'
+        _subItemName === 'Delivery Tracking' ||
+        subItemPath === '/purchases/new?docType=purchase_order' ||
+        _subItemName === 'New Purchase Order' ||
+        subItemPath === '/purchases/new' ||
+        _subItemName === 'New Purchase Bill'
       ) {
         return false;
       }

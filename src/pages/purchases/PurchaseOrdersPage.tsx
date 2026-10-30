@@ -473,11 +473,12 @@ export const PurchaseOrdersPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-shrink-0 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0 self-start sm:self-auto">
           <button
+            type="button"
             onClick={handleManualRefresh}
             disabled={isRefreshing}
-            className="h-9 px-3.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-2xs"
+            className="h-9 px-3.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-2xs"
             title="Refresh order records"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
@@ -487,18 +488,22 @@ export const PurchaseOrdersPage: React.FC = () => {
           {hasPermission(profile?.role, 'purchases', 'create') && (
             <>
               <button
+                type="button"
                 onClick={() => navigate('/purchases/new?docType=purchase_order')}
-                className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                title="Create new purchase order"
               >
-                <Plus className="w-4 h-4" />
-                <span>New Purchase Order</span>
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>New Order</span>
               </button>
               <button
+                type="button"
                 onClick={() => navigate('/purchases/new')}
-                className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200/90 rounded-xl text-xs font-semibold shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                title="Create new vendor purchase bill"
               >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Record Bill</span>
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <span>New Bill</span>
               </button>
             </>
           )}
