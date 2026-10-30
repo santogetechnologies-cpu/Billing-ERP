@@ -1067,7 +1067,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* 1. Dashboard Header */}
-      <div className="bg-white px-4 py-3.5 sm:px-5 sm:py-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+      <div className="bg-white px-4 py-3.5 sm:px-5 sm:py-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 sm:gap-4">
         {/* Left Column: Breadcrumb & Date (Row 1), Title & Subtitle (Row 2) */}
         <div className="min-w-0 space-y-1">
           {/* Breadcrumb & Date Badge */}
@@ -1099,18 +1099,21 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
         <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap sm:flex-nowrap shrink-0">
           {/* Refresh Button */}
           <button
+            type="button"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="h-9 w-9 flex items-center justify-center rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
             title="Refresh Procurement Metrics"
+            aria-label="Refresh Procurement Metrics"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
           </button>
 
           {/* User Profile Menu Button */}
           <button
+            type="button"
             onClick={() => setIsProfileModalOpen(true)}
-            className="h-9 flex items-center gap-2 pl-2 pr-3 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 transition-all cursor-pointer shadow-2xs shrink-0"
+            className="h-9 inline-flex items-center justify-center gap-2 pl-2 pr-3 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 transition-all cursor-pointer shadow-2xs shrink-0"
             title="View Profile"
           >
             <div className="w-5 h-5 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
@@ -1121,24 +1124,26 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             </span>
           </button>
 
-          {/* New Purchase Order Button */}
+          {/* New Order Button */}
           <button
+            type="button"
             onClick={() => navigate('/purchases/new?docType=purchase_order')}
-            className="h-9 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
+            className="h-9 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
             title="Create new direct purchase order"
           >
             <Plus className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-            <span>New Purchase Order</span>
+            <span>New Order</span>
           </button>
 
-          {/* New Purchase Bill Button */}
+          {/* New Bill Button */}
           <button
+            type="button"
             onClick={() => navigate('/purchases/new')}
-            className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+            className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
             title="Create new vendor purchase bill"
           >
             <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span>New Purchase Bill</span>
+            <span>New Bill</span>
           </button>
         </div>
       </div>

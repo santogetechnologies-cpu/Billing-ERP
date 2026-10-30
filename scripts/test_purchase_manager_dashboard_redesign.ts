@@ -52,9 +52,9 @@ async function runTestSuite() {
       'Header includes Refresh button with tooltip and spinner state'
     );
     assert(
-      pmDashboardCode.includes('New Purchase Order') &&
+      (pmDashboardCode.includes('New Order') || pmDashboardCode.includes('New Purchase Order')) &&
       pmDashboardCode.includes('navigate(\'/purchases/new?docType=purchase_order\')'),
-      'Header includes "New Purchase Order" action button navigating to /purchases/new?docType=purchase_order'
+      'Header includes "New Order" action button navigating to /purchases/new?docType=purchase_order'
     );
   }
 
