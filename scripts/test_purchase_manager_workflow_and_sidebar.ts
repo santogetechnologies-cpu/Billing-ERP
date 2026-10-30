@@ -129,7 +129,7 @@ async function runSuite() {
     assert(canRoleAccessNavItem('Purchase Manager', 'Inventory'), 'Inventory menu must be accessible');
   });
 
-  test('Purchase Manager Purchases submenus include Direct PO, Orders, Delivery Tracking, Bills (Requests retired)', () => {
+  test('Purchase Manager Purchases submenus include Direct PO, Orders, Bills (Requests & Delivery Tracking retired)', () => {
     assert(
       !canRoleAccessSubItem('Purchase Manager', 'Purchases', 'Purchase Requests', '/purchases/requests'),
       'Purchase Requests must not be visible in Purchases submenu following direct purchasing workflow'
@@ -143,8 +143,8 @@ async function runSuite() {
       'Purchase Orders must be visible in Purchases submenu'
     );
     assert(
-      canRoleAccessSubItem('Purchase Manager', 'Purchases', 'Delivery Tracking', '/purchases/delivery-tracking'),
-      'Delivery Tracking must be visible in Purchases submenu'
+      !canRoleAccessSubItem('Purchase Manager', 'Purchases', 'Delivery Tracking', '/purchases/delivery-tracking'),
+      'Delivery Tracking must be removed from Purchases submenu'
     );
     assert(
       canRoleAccessSubItem('Purchase Manager', 'Purchases', 'Purchase Bills', '/purchases'),

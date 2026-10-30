@@ -990,14 +990,16 @@ export function canRoleAccessSubItem(
     return false;
   }
   if (normalizedRole === 'Purchase Manager') {
-    // In Purchases: Barcode Management must NOT appear for Purchase Manager (restricted to Owner/Admin)
-    // Authorized: Purchase Requests, Purchase Orders, Delivery Tracking, Purchase Bills, New Purchase Bill, Purchase Returns
+    // In Purchases: Barcode Management and Delivery Tracking must NOT appear for Purchase Manager
+    // Authorized: Purchase Orders, Purchase Bills, New Purchase Bill, Purchase Returns
     if (parentName === 'Purchases') {
       if (
         subItemPath.startsWith('/purchases/barcode') ||
         _subItemName.toLowerCase().includes('barcode') ||
         subItemPath === '/purchases/requests' ||
-        _subItemName === 'Purchase Requests'
+        _subItemName === 'Purchase Requests' ||
+        subItemPath === '/purchases/delivery-tracking' ||
+        _subItemName === 'Delivery Tracking'
       ) {
         return false;
       }
