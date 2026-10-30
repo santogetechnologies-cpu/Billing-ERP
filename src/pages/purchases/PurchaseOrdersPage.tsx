@@ -301,116 +301,15 @@ export const PurchaseOrdersPage: React.FC = () => {
       });
     });
 
-    // 2. Process Purchase Requests in Ordered / In Transit / Partially Received state
+    // 2. Attach linkedRequestId from Purchase Requests to matching Database Orders
     (purchaseRequests || []).forEach(req => {
       const orderNum = req.purchaseOrderNumber || req.purchaseOrderId;
-      const statusLower = (req.status || '').toLowerCase();
-      const isOrderStage =
-        statusLower === 'ordered' ||
-        (statusLower as string) === 'active' ||
-        statusLower === 'partially received' ||
-        (statusLower === 'completed' && req.purchaseOrderNumber) ||
-        ((statusLower as string) === 'delivered' && req.purchaseOrderNumber);
-
-      if (!isOrderStage) return;
-
-      const orderKey = orderNum ? String(orderNum).trim().toLowerCase() : `req-${req.id}`;
-      if (processedKeys.has(orderKey)) {
-        // Order was already indexed from DB table, but attach linkedRequestId if missing
-        const existing = results.find(r => r.orderNumber.toLowerCase() === orderKey);
-        if (existing && !existing.linkedRequestId) {
-          existing.linkedRequestId = req.id;
-        }
-        return;
+      if (!orderNum) return;
+      const orderKey = String(orderNum).trim().toLowerCase();
+      const existing = results.find(r => r.orderNumber.toLowerCase() === orderKey || r.id === req.purchaseOrderId);
+      if (existing && !existing.linkedRequestId) {
+        existing.linkedRequestId = req.id;
       }
-      processedKeys.add(orderKey);
-
-      // Extract vendor name from history comments if available
-      let suppName: string | null = null;
-      if (req.history) {
-        for (const h of req.history) {
-          if (h.comments && h.comments.includes('Vendor:')) {
-            const match = h.comments.match(/Vendor:\s*([^)]+)/);
-            if (match && match[1]) {
-              suppName = match[1].trim();
-              break;
-            }
-          }
-        }
-      }
-
-      const matchedSupp = suppliers.find(
-        s => (suppName && s.name.toLowerCase() === suppName.toLowerCase())
-      );
-      const supplierName = suppName || matchedSupp?.name || 'Authorized Supplier';
-      const supplierContact = matchedSupp?.phone || 'Not available';
-
-      let totalQty = 0;
-      let receivedQty = 0;
-      const mappedItems: PurchaseOrderItemRow['items'] = [];
-
-      (req.items || []).forEach(it => {
-        const oq = Number(it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty || 0);
-        const rq = Number(it.receivedQty || 0);
-        const pq = Math.max(0, oq - rq);
-        totalQty += oq;
-        receivedQty += rq;
-        mappedItems.push({
-          id: it.id,
-          productId: it.productId,
-          productName: it.productName,
-          orderedQty: oq,
-          receivedQty: rq,
-          pendingQty: pq,
-          unit: it.unit || 'Units',
-          rate: Number(it.estimatedCost || 0),
-          total: oq * Number(it.estimatedCost || 0)
-        });
-      });
-
-      const pendingQty = Math.max(0, totalQty - receivedQty);
-      let allItemsReceived = mappedItems.length > 0;
-      mappedItems.forEach(it => {
-        if (it.receivedQty < it.orderedQty || it.orderedQty <= 0) {
-          allItemsReceived = false;
-        }
-      });
-
-      let normalizedStatus: 'Ordered' | 'Received' | 'Cancelled' = 'Ordered';
-      if (statusLower === 'cancelled' || statusLower === 'rejected') {
-        normalizedStatus = 'Cancelled';
-      } else if (totalQty > 0 && pendingQty === 0 && allItemsReceived) {
-        normalizedStatus = 'Received';
-      } else {
-        normalizedStatus = 'Ordered';
-      }
-
-      const expDateRaw = req.requestedDeliveryDate || (req as any).expectedDeliveryDate || (req as any).deliveryDate;
-      const expDate = expDateRaw ? String(expDateRaw).split('T')[0] : '';
-      const isOverdue = !!(expDate && expDate < today && pendingQty > 0 && normalizedStatus !== 'Received');
-
-      results.push({
-        id: req.purchaseOrderId || `po-${req.id}`,
-        orderNumber: req.purchaseOrderNumber || `PO-${req.requestNumber.replace('PR-', '')}`,
-        date: req.createdAt ? req.createdAt.split('T')[0] : today,
-        expectedDelivery: expDate,
-        supplierId: matchedSupp?.id || null,
-        supplierName,
-        supplierContact,
-        supplierEmail: matchedSupp?.email,
-        supplierGstin: matchedSupp?.gstin,
-        warehouseId: req.warehouseId,
-        warehouseName: req.warehouseName || 'Warehouse Hub',
-        status: normalizedStatus,
-        grandTotal: mappedItems.reduce((sum, it) => sum + (it.total || 0), 0),
-        totalQty,
-        receivedQty,
-        pendingQty,
-        isOverdue,
-        notes: req.reason || `Linked to PR #${req.requestNumber}`,
-        linkedRequestId: req.id,
-        items: sortProductsAZ(mappedItems)
-      });
     });
 
     return results;

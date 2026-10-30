@@ -230,6 +230,9 @@ export const ActiveOrdersModal: React.FC<ActiveOrdersModalProps> = ({
       const orderKey = orderNum ? String(orderNum).trim().toLowerCase() : `req-${req.id}`;
       if (ordersMap.has(orderKey)) return;
 
+      // If database purchase orders were cleared, do not synthesize ghost orders from requests
+      if (!orderNum || (purchaseOrders && purchaseOrders.length === 0)) return;
+
       // Extract vendor name from history if not explicit
       let suppName: string | null = req.supplierName || null;
       if (!suppName && req.history) {

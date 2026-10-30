@@ -207,7 +207,8 @@ export function computeSupplierDeliveries(params: {
   // Process purchaseRequests in 'Ordered' or 'Partially Received' state
   (purchaseRequests || []).forEach(req => {
     const poNum = req.purchaseOrderNumber || req.purchaseOrderId;
-    if (poNum && processedOrderKeys.has(String(poNum).trim().toLowerCase())) {
+    if (!poNum || (purchaseOrders && purchaseOrders.length === 0)) return;
+    if (processedOrderKeys.has(String(poNum).trim().toLowerCase())) {
       return;
     }
 
@@ -443,6 +444,7 @@ export function computeActiveInTransitOrders(params: {
   // 2. Process Purchase Requests in Ordered / In Transit / Partially Received state
   (purchaseRequests || []).forEach(req => {
     const orderNum = req.purchaseOrderNumber || req.purchaseOrderId;
+    if (!orderNum || (purchaseOrders && purchaseOrders.length === 0)) return;
     const statusLower = (req.status || '').toLowerCase();
     const isOrderStage =
       statusLower === 'ordered' ||
