@@ -2,10 +2,12 @@ import { assertCallerPermission, getActiveUserRole, hasPermission } from '../uti
 import { supabase } from '../lib/supabase';
 import {
   PurchaseRequest,
+  PurchaseRequestItem,
   PurchaseRequestHistory,
   PurchaseRequestStatus,
   PurchaseRequestPriority,
-  CreatePurchaseRequestInput
+  CreatePurchaseRequestInput,
+  CustomerSupportPriority
 } from '../types';
 import { getAppStorage } from '../utils/storageUtils';
 import { notificationService } from './notificationService';
@@ -23,12 +25,13 @@ export const purchaseRequestService = {
       warehouseId?: string;
       priority?: string;
       search?: string;
-    },
+    } | string,
     companyId?: string,
     userRole?: string,
     userId?: string
   ): Promise<PurchaseRequest[]> {
-    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const actualParams = typeof params === 'object' && params !== null ? params : undefined;
+    const finalCompanyId = (typeof params === 'string' ? params : companyId) || '00000000-0000-0000-0000-000000000001';
     let requests: PurchaseRequest[] = [];
 
     // Helper maps to enrich requester and product information
@@ -74,14 +77,14 @@ export const purchaseRequestService = {
           .eq('company_id', finalCompanyId)
           .order('created_at', { ascending: false });
 
-        if (params?.status && params.status !== 'All') {
-          query = query.eq('status', params.status);
+        if (actualParams?.status && actualParams.status !== 'All') {
+          query = query.eq('status', actualParams.status);
         }
-        if (params?.warehouseId && params.warehouseId !== 'All') {
-          query = query.eq('warehouse_id', params.warehouseId);
+        if (actualParams?.warehouseId && actualParams.warehouseId !== 'All') {
+          query = query.eq('warehouse_id', actualParams.warehouseId);
         }
-        if (params?.priority && params.priority !== 'All') {
-          query = query.eq('priority', params.priority);
+        if (actualParams?.priority && actualParams.priority !== 'All') {
+          query = query.eq('priority', actualParams.priority);
         }
 
         const { data, error } = await query;
@@ -161,6 +164,7 @@ export const purchaseRequestService = {
                   unit: it.unit || prod?.primary_unit || 'Piece',
                   estimatedCost: Number(it.estimated_cost || 0),
                   adjustmentReason: it.adjustment_reason,
+                  isCustom: Boolean(it.is_custom || it.isCustom || (it.adjustment_reason && it.adjustment_reason.includes('Custom item')) || (it.requested_qty === 0 && it.approved_qty > 0)),
                   createdAt: it.created_at
                 };
               }),
@@ -193,7 +197,55 @@ export const purchaseRequestService = {
       try {
         const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
         if (raw) {
-          const cached: PurchaseRequest[] = JSON.parse(raw);
+          let cached: PurchaseRequest[] = JSON.parse(raw);
+
+          // Verify against live database: if purchase orders have been deleted in Supabase,
+          // purge any orphaned PO references or synthetic PO-only records from cached requests
+          try {
+            const { data: dbPOs, error: dbPOErr } = await supabase
+              .from('purchases')
+              .select('id, invoice_number')
+              .eq('company_id', finalCompanyId)
+              .eq('doc_type', 'purchase_order');
+
+            if (!dbPOErr) {
+              const validPoIds = new Set((dbPOs || []).map(p => p.id));
+              const validPoNumbers = new Set((dbPOs || []).map(p => String(p.invoice_number).trim().toLowerCase()));
+
+              let hasCacheModifications = false;
+              cached = cached.filter(c => {
+                // If this was a synthetic request created purely for a PO that is now deleted, discard it
+                if (c.id.startsWith('po-') || (c.requestNumber && c.requestNumber.startsWith('PO-'))) {
+                  const poNum = (c.purchaseOrderNumber || c.requestNumber || '').trim().toLowerCase();
+                  if (!validPoNumbers.has(poNum) && !validPoIds.has(c.purchaseOrderId || '')) {
+                    hasCacheModifications = true;
+                    return false;
+                  }
+                }
+                return true;
+              }).map(c => {
+                if (c.purchaseOrderId || c.purchaseOrderNumber) {
+                  const poNum = (c.purchaseOrderNumber || '').trim().toLowerCase();
+                  const poId = c.purchaseOrderId || '';
+                  if (!validPoIds.has(poId) && !validPoNumbers.has(poNum)) {
+                    // Linked PO no longer exists in database
+                    hasCacheModifications = true;
+                    return {
+                      ...c,
+                      purchaseOrderId: undefined,
+                      purchaseOrderNumber: undefined,
+                      status: (c.status === 'Ordered' || c.status === 'Partially Received') ? 'Pending Review' : c.status
+                    };
+                  }
+                }
+                return c;
+              });
+
+              if (hasCacheModifications) {
+                storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(cached));
+              }
+            }
+          } catch {}
           const existingIds = new Set(requests.map(r => r.id));
           cached.forEach(c => {
             if (!existingIds.has(c.id)) {
@@ -240,8 +292,8 @@ export const purchaseRequestService = {
     }
 
     // Optional Search Filter
-    if (params?.search) {
-      const q = params.search.toLowerCase();
+    if (actualParams?.search && typeof actualParams.search === 'string') {
+      const q = actualParams.search.toLowerCase();
       requests = requests.filter(r =>
         r.requestNumber.toLowerCase().includes(q) ||
         r.warehouseName.toLowerCase().includes(q) ||
@@ -260,11 +312,149 @@ export const purchaseRequestService = {
   },
 
   /**
-   * Retrieves single purchase request by ID
+  /**
+   * Retrieves single purchase request by ID, PO ID, PO Number, or Request Number,
+   * with fallbacks to local storage cache, public.purchases, and purchase_orders.
    */
   async getPurchaseRequestById(id: string, companyId?: string): Promise<PurchaseRequest | null> {
-    const list = await this.getPurchaseRequests(undefined, companyId);
-    return list.find(r => r.id === id) || null;
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const list = await this.getPurchaseRequests(undefined, finalCompanyId);
+    let match = list.find(r =>
+      r.id === id ||
+      r.purchaseOrderId === id ||
+      r.purchaseOrderNumber === id ||
+      r.requestNumber === id ||
+      (r.requestNumber && id && id.toLowerCase().includes(r.requestNumber.toLowerCase()))
+    );
+    if (match) return match;
+
+    // Check localStorage fallback for purchase_requests
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const parsed: PurchaseRequest[] = JSON.parse(raw);
+          match = parsed.find(r =>
+            r.id === id ||
+            r.purchaseOrderId === id ||
+            r.purchaseOrderNumber === id ||
+            r.requestNumber === id ||
+            (r.requestNumber && id && id.toLowerCase().includes(r.requestNumber.toLowerCase()))
+          );
+          if (match) return match;
+        }
+      } catch {}
+    }
+
+    // Check if ID is a PO in public.purchases table
+    try {
+      const { data: poData } = await supabase
+        .from('purchases')
+        .select('*')
+        .or(`id.eq.${id},invoice_number.eq.${id}`)
+        .maybeSingle();
+
+      if (poData) {
+        // If notes link to a PR, check if that PR exists
+        const prNumberMatch = (poData.notes || '').match(/PR-\d+-\d+/i);
+        if (prNumberMatch) {
+          const matchedByNote = list.find(r => r.requestNumber === prNumberMatch[0]);
+          if (matchedByNote) return matchedByNote;
+        }
+
+        // Construct synthetic PurchaseRequest representing this purchase order
+        const syntheticItems: PurchaseRequestItem[] = [];
+        const rawItems = Array.isArray(poData.items) ? poData.items : [];
+        rawItems.forEach((it: any, idx: number) => {
+          const qty = Number(it.qty || it.quantity || it.ordered_qty || it.requestedQty || 1);
+          syntheticItems.push({
+            id: it.id || `po-item-${idx}`,
+            requestId: poData.id,
+            productId: it.productId || it.product_id || `prod-${idx}`,
+            productName: it.productName || it.product_name || 'Product',
+            sku: it.sku || 'SKU-N/A',
+            currentStock: 0,
+            requestedQty: qty,
+            approvedQty: qty,
+            receivedQty: Number(it.receivedQty || it.received_qty || 0),
+            unit: it.unit || 'Piece',
+            estimatedCost: Number(it.rate || it.cost || 0),
+            createdAt: poData.created_at
+          });
+        });
+
+        return {
+          id: poData.id,
+          companyId: poData.company_id || finalCompanyId,
+          requestNumber: prNumberMatch ? prNumberMatch[0] : (poData.invoice_number || `PO-${poData.id.slice(0, 8)}`),
+          warehouseId: poData.warehouse_id || '00000000-0000-0000-0000-000000000002',
+          warehouseName: 'Main Central Warehouse',
+          requesterId: '00000000-0000-0000-0000-000000000000',
+          requesterName: 'Warehouse Staff',
+          status: 'Ordered',
+          priority: 'Normal',
+          purchaseOrderId: poData.id,
+          purchaseOrderNumber: poData.invoice_number,
+          items: syntheticItems,
+          createdAt: poData.created_at || new Date().toISOString(),
+          updatedAt: poData.updated_at || new Date().toISOString()
+        };
+      }
+    } catch {}
+
+    // Check if ID is in purchase_orders table
+    if (!isTableMarkedMissing('purchase_orders')) {
+      try {
+        const { data: poTableData, error: poErr } = await supabase
+          .from('purchase_orders')
+          .select('*, purchase_order_items(*)')
+          .or(`id.eq.${id},order_number.eq.${id}`)
+          .maybeSingle();
+
+        if (poErr && isTableNotFoundError(poErr)) {
+          markTableMissing('purchase_orders');
+        } else if (poTableData) {
+          const syntheticItems: PurchaseRequestItem[] = (poTableData.purchase_order_items || []).map((it: any, idx: number) => ({
+            id: it.id || `po-item-${idx}`,
+            requestId: poTableData.id,
+            productId: it.product_id,
+            productName: it.product_name || 'Product',
+            sku: it.sku || 'SKU-N/A',
+            currentStock: 0,
+            requestedQty: Number(it.qty || 1),
+            approvedQty: Number(it.qty || 1),
+            receivedQty: Number(it.received_qty || 0),
+            unit: it.unit || 'Piece',
+            estimatedCost: Number(it.rate || 0),
+            createdAt: poTableData.created_at
+          }));
+
+          return {
+            id: poTableData.id,
+            companyId: poTableData.company_id || finalCompanyId,
+            requestNumber: poTableData.order_number || `PO-${poTableData.id.slice(0, 8)}`,
+            warehouseId: poTableData.warehouse_id || '00000000-0000-0000-0000-000000000002',
+            warehouseName: 'Main Central Warehouse',
+            requesterId: '00000000-0000-0000-0000-000000000000',
+            requesterName: 'Warehouse Staff',
+            status: 'Ordered',
+            priority: 'Normal',
+            purchaseOrderId: poTableData.id,
+            purchaseOrderNumber: poTableData.order_number,
+            items: syntheticItems,
+            createdAt: poTableData.created_at || new Date().toISOString(),
+            updatedAt: poTableData.updated_at || new Date().toISOString()
+          };
+        }
+      } catch (err: any) {
+        if (isTableNotFoundError(err)) {
+          markTableMissing('purchase_orders');
+        }
+      }
+    }
+
+    return null;
   },
 
   /**
@@ -316,7 +506,7 @@ export const purchaseRequestService = {
       companyId: finalCompanyId,
       requestNumber,
       warehouseId: input.warehouseId,
-      warehouseName: input.warehouseName,
+      warehouseName: input.warehouseName || 'Main Central Warehouse',
       requesterId,
       requesterName,
       status: 'Pending Approval',
@@ -330,7 +520,7 @@ export const purchaseRequestService = {
         id: `${requestId}-item-${idx + 1}`,
         requestId,
         productId: it.productId,
-        productName: it.productName,
+        productName: it.productName || 'Product',
         sku: it.sku,
         currentStock: Number(it.currentStock || 0),
         warningLimit: it.warningLimit,
@@ -612,27 +802,61 @@ export const purchaseRequestService = {
       let notifMsg = `Your purchase request has been moved to ${params.status} by ${reviewerName}.`;
       let targetUserId: string | null = existing.requesterId;
       let targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+      let priority: CustomerSupportPriority = 'Normal';
+      let actionText = 'View Purchase Request';
+      let dedupKey: string | undefined = undefined;
+
+      // Extract requested product summary (e.g. Cement, Paint)
+      const productSummary =
+        existing.items && existing.items.length > 0
+          ? Array.from(new Set(existing.items.map(it => it.productName).filter(Boolean))).join(', ')
+          : 'items';
 
       if (params.status === 'Approved') {
-        notifTitle = `Purchase Request Approved: ${existing.requestNumber}`;
-        notifMsg = `Approved by ${reviewerName}. Ready for purchase order generation.`;
-        targetUserId = existing.requesterId;
-        targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+        // Rule: Trigger only when the request status changes to Approved
+        if (existing.status !== 'Approved') {
+          notifTitle = 'Purchase Request Approved';
+          notifMsg = `Your purchase request for ${productSummary} has been approved. You can view the request details.`;
+          priority = 'Normal';
+          actionText = 'View Purchase Request';
+          targetUserId = existing.requesterId;
+          targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+          dedupKey = `pr_approved_${existing.id}`;
+        } else {
+          // No repeated notification when unchanged
+          return updatedRequest;
+        }
       } else if (params.status === 'Rejected') {
-        notifTitle = `Purchase Request Rejected: ${existing.requestNumber}`;
-        notifMsg = `Rejected by ${reviewerName}. Reason: ${params.rejectionReason || 'No reason provided'}`;
-        targetUserId = existing.requesterId;
-        targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+        // Rule: Trigger only when the request status changes to Rejected
+        if (existing.status !== 'Rejected') {
+          notifTitle = 'Purchase Request Rejected';
+          if (params.rejectionReason && params.rejectionReason.trim()) {
+            notifMsg = `Your purchase request has been rejected. Reason: ${params.rejectionReason.trim()}.`;
+          } else {
+            notifMsg = 'Your purchase request has been rejected. Please review the request details.';
+          }
+          priority = 'High';
+          actionText = 'View Purchase Request';
+          targetUserId = existing.requesterId;
+          targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+          dedupKey = `pr_rejected_${existing.id}`;
+        } else {
+          // No repeated notification when unchanged
+          return updatedRequest;
+        }
       } else if (params.status === 'Clarification Requested') {
         notifTitle = `Clarification Requested: ${existing.requestNumber}`;
         notifMsg = `${reviewerName} requested clarification: "${params.clarificationNotes}"`;
         targetUserId = existing.requesterId;
         targetLink = `/inventory/purchase-requests?id=${existing.id}`;
+        priority = 'High';
+        actionText = 'View Purchase Request';
       } else if (params.status === 'Under Review' && (params.comments?.includes('Clarification provided') || user?.role === 'Warehouse Manager')) {
         notifTitle = `Clarification Provided: ${existing.requestNumber}`;
         notifMsg = `Clarification provided by ${reviewerName} for request #${existing.requestNumber}. Ready for review.`;
         targetUserId = null;
         targetLink = `/purchases/requests?id=${existing.id}`;
+        priority = 'Normal';
       } else if (params.status === 'Cancelled') {
         const reason = params.cancellationReason || params.rejectionReason || params.comments || 'No reason specified';
         notifTitle = `Purchase Request Cancelled: ${existing.requestNumber}`;
@@ -644,6 +868,8 @@ export const purchaseRequestService = {
           targetUserId = existing.requesterId;
           targetLink = `/inventory/purchase-requests?id=${existing.id}`;
         }
+        priority = 'High';
+        actionText = 'View Purchase Request';
       }
 
       await notificationService.createNotification(
@@ -654,7 +880,10 @@ export const purchaseRequestService = {
           link: targetLink,
           userId: targetUserId,
           warehouseId: existing.warehouseId,
-          warehouseName: existing.warehouseName
+          warehouseName: existing.warehouseName,
+          priority,
+          actionText,
+          dedupKey
         },
         finalCompanyId
       );
@@ -686,6 +915,417 @@ export const purchaseRequestService = {
       companyId,
       user
     );
+  },
+
+  /**
+   * Approves a purchase request and automatically generates the linked purchase order.
+   *
+   * 1. Validates selected supplier (mandatory, active from Supplier Master).
+   * 2. Validates approved items (at least 1 item with approvedQty > 0).
+   * 3. Preserves original Warehouse Manager request items and requestedQty for audit.
+   * 4. Supports custom-added items from Product Master with clear distinction.
+   * 5. Creates purchase order staging record in public.purchases and public.purchase_items.
+   * 6. Updates purchase request status to 'Ordered' and links supplier & PO reference.
+   * 7. Creates audit log in purchase_request_history.
+   * 8. Dispatches persistent in-app notification to the submitting Warehouse Manager
+   *    and/or authorized warehouse managers:
+   *    "Purchase Request ${requestNumber} has been approved. Supplier: ${supplierName}. Approved items: ${approvedSummary}. Warehouse: ${warehouseName}."
+   * 9. Prevents duplicate purchase orders or notifications on retries / double-clicks.
+   * 10. Does NOT increase inventory stock (inventory only updates on physical receiving).
+   */
+  async approvePurchaseRequestWithOrder(
+    params: {
+      requestId: string;
+      supplierId: string;
+      supplierName?: string;
+      supplierGstin?: string;
+      destinationWarehouseId?: string;
+      notes?: string;
+      expectedDelivery?: string;
+      approvedItems: Array<{
+        id?: string;
+        productId: string;
+        productName: string;
+        sku?: string;
+        unit: string;
+        requestedQty: number;
+        approvedQty: number;
+        rate?: number;
+        taxRate?: number;
+        isCustom?: boolean;
+        adjustmentReason?: string;
+      }>;
+    },
+    companyId?: string,
+    user?: { id: string; name: string; role?: string }
+  ): Promise<{
+    request: PurchaseRequest;
+    purchaseOrderId: string;
+    purchaseOrderNumber: string;
+  }> {
+    await assertCallerPermission('purchases', 'approve');
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const existing = await this.getPurchaseRequestById(params.requestId, finalCompanyId);
+    if (!existing) {
+      throw new Error(`Purchase request #${params.requestId} not found.`);
+    }
+
+    // 1. Idempotency Guard: Prevent duplicate POs if already generated
+    if (existing.purchaseOrderId && existing.purchaseOrderNumber && existing.status === 'Ordered') {
+      return {
+        request: existing,
+        purchaseOrderId: existing.purchaseOrderId,
+        purchaseOrderNumber: existing.purchaseOrderNumber
+      };
+    }
+
+    // 2. Validate mandatory supplier
+    if (!params.supplierId || !params.supplierId.trim()) {
+      throw new Error('Please select a supplier for this purchase order.');
+    }
+
+    let supplierName = params.supplierName?.trim();
+    let supplierGstin = params.supplierGstin?.trim();
+    if (!supplierName) {
+      try {
+        const { data: supp } = await supabase
+          .from('suppliers')
+          .select('id, name, company, gstin')
+          .eq('id', params.supplierId)
+          .maybeSingle();
+        if (supp) {
+          supplierName = supp.company || supp.name;
+          supplierGstin = supp.gstin || supplierGstin;
+        }
+      } catch {}
+    }
+    if (!supplierName) {
+      supplierName = 'Selected Supplier';
+    }
+
+    // 3. Validate approved items (at least 1 item with approvedQty > 0)
+    const validApprovedItems = (params.approvedItems || []).filter(it => Number(it.approvedQty) > 0);
+    if (validApprovedItems.length === 0) {
+      throw new Error('Please select at least one item with an approved quantity greater than 0 before approval.');
+    }
+
+    const nowIso = new Date().toISOString();
+    const today = nowIso.split('T')[0];
+    const reviewerId = user?.id || '00000000-0000-0000-0000-000000000000';
+    const reviewerName = user?.name || 'Purchase Manager';
+    const reviewerRole = user?.role || 'Purchase Manager';
+
+    // 4. Reconcile original items & custom items
+    // Maps for fast match
+    const approvedMapById = new Map<string, typeof params.approvedItems[0]>();
+    const approvedMapByProductId = new Map<string, typeof params.approvedItems[0]>();
+    for (const ap of params.approvedItems) {
+      if (ap.id) approvedMapById.set(ap.id, ap);
+      if (ap.productId) approvedMapByProductId.set(ap.productId, ap);
+    }
+
+    const updatedItems: PurchaseRequestItem[] = [];
+
+    // 4a. Process all original items: preserve original requestedQty, update approvedQty
+    for (const orig of (existing.items || [])) {
+      const match = approvedMapById.get(orig.id) || approvedMapByProductId.get(orig.productId);
+      if (match && Number(match.approvedQty) > 0) {
+        const appQty = Number(match.approvedQty);
+        updatedItems.push({
+          ...orig,
+          approvedQty: appQty,
+          remainingQty: Math.max(0, appQty - Number(orig.receivedQty || 0)),
+          adjustmentReason: match.adjustmentReason || (appQty !== orig.requestedQty ? `Quantity adjusted from ${orig.requestedQty} to ${appQty}` : orig.adjustmentReason),
+          isCustom: false
+        });
+      } else {
+        // Deselected item by Purchase Manager
+        updatedItems.push({
+          ...orig,
+          approvedQty: 0,
+          remainingQty: 0,
+          adjustmentReason: 'Deselected by Purchase Manager during approval',
+          isCustom: false
+        });
+      }
+    }
+
+    // 4b. Process custom added items
+    const customItemsList = params.approvedItems.filter(it => it.isCustom && Number(it.approvedQty) > 0);
+    for (let i = 0; i < customItemsList.length; i++) {
+      const cItem = customItemsList[i];
+      const customItemId = cItem.id || `custom-${existing.id}-${i + 1}`;
+      const appQty = Number(cItem.approvedQty);
+      updatedItems.push({
+        id: customItemId,
+        requestId: existing.id,
+        productId: cItem.productId,
+        productName: cItem.productName,
+        sku: cItem.sku,
+        currentStock: 0,
+        warningLimit: null,
+        requestedQty: 0, // Preserved as 0 for original audit
+        approvedQty: appQty,
+        receivedQty: 0,
+        remainingQty: appQty,
+        receivingStatus: 'Not Received',
+        unit: cItem.unit || 'Piece',
+        estimatedCost: Number(cItem.rate || 0),
+        adjustmentReason: cItem.adjustmentReason || 'Custom item added by Purchase Manager during approval',
+        isCustom: true,
+        createdAt: nowIso
+      });
+    }
+
+    // 5. Generate Purchase Order
+    const orderNumber = `PO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const purchaseOrderId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : 'po-' + Date.now();
+
+    const poItems = validApprovedItems.map(it => {
+      const rate = Number(it.rate || 100);
+      const taxRate = Number(it.taxRate || 18);
+      const qty = Number(it.approvedQty);
+      const sub = qty * rate;
+      const taxAmt = sub * (taxRate / 100);
+      const total = sub + taxAmt;
+      return {
+        order_id: purchaseOrderId,
+        purchase_id: purchaseOrderId,
+        product_id: it.productId,
+        product_name: it.productName,
+        qty,
+        unit: it.unit || 'Piece',
+        rate,
+        tax_rate: taxRate,
+        tax_amt: taxAmt,
+        total
+      };
+    });
+
+    const subtotal = poItems.reduce((sum, it) => sum + (it.qty * it.rate), 0);
+    const taxTotal = poItems.reduce((sum, it) => sum + (it.tax_amt || 0), 0);
+    const grandTotal = subtotal + taxTotal;
+
+    // Save PO staging record to public.purchases and public.purchase_items
+    try {
+      await supabase.from('purchases').insert({
+        id: purchaseOrderId,
+        company_id: finalCompanyId,
+        invoice_number: orderNumber,
+        doc_type: 'purchase_order',
+        date: today,
+        due_date: params.expectedDelivery || today,
+        warehouse_id: params.destinationWarehouseId || existing.warehouseId,
+        supplier_id: params.supplierId,
+        supplier_name: supplierName,
+        supplier_gstin: supplierGstin || null,
+        subtotal,
+        tax_total: taxTotal,
+        grand_total: grandTotal,
+        payment_status: 'Unpaid',
+        notes: params.notes || `Generated from Purchase Request ${existing.requestNumber}`
+      });
+
+      const purchaseItemsPayload = poItems.map(it => ({
+        purchase_id: purchaseOrderId,
+        product_id: it.product_id,
+        product_name: it.product_name,
+        qty: it.qty,
+        unit: it.unit,
+        rate: it.rate,
+        tax_rate: it.tax_rate,
+        tax_amt: it.tax_amt,
+        total: it.total
+      }));
+      await supabase.from('purchase_items').insert(purchaseItemsPayload);
+    } catch {}
+
+    // Fallback sync to purchase_orders table if present
+    if (!isTableMarkedMissing('purchase_orders')) {
+      try {
+        await supabase.from('purchase_orders').insert({
+          id: purchaseOrderId,
+          company_id: finalCompanyId,
+          order_number: orderNumber,
+          date: today,
+          expected_delivery: params.expectedDelivery || null,
+          supplier_id: params.supplierId,
+          supplier_name: supplierName,
+          subtotal,
+          tax_total: taxTotal,
+          grand_total: grandTotal,
+          status: 'Active',
+          notes: params.notes || `Generated from Purchase Request ${existing.requestNumber}`
+        });
+      } catch (e: any) {
+        if (isTableNotFoundError(e)) {
+          markTableMissing('purchase_orders');
+        }
+      }
+    }
+
+    // 6. Update Purchase Request state and audit history
+    const approvalComment = params.notes
+      ? `Purchase request approved with PO ${orderNumber} (Supplier: ${supplierName}). Notes: ${params.notes}`
+      : `Purchase request approved with PO ${orderNumber} (Supplier: ${supplierName})`;
+
+    const newHistoryEntry: PurchaseRequestHistory = {
+      id: `${params.requestId}-hist-${(existing.history?.length || 0) + 1}`,
+      requestId: params.requestId,
+      statusFrom: existing.status,
+      statusTo: 'Ordered',
+      userId: reviewerId,
+      userName: reviewerName,
+      role: reviewerRole,
+      comments: approvalComment,
+      createdAt: nowIso
+    };
+
+    const updatedRequest: PurchaseRequest = {
+      ...existing,
+      status: 'Ordered',
+      purchaseOrderId,
+      purchaseOrderNumber: orderNumber,
+      supplierId: params.supplierId,
+      supplierName,
+      supplierGstin,
+      reviewerId,
+      reviewerName,
+      notes: params.notes || existing.notes,
+      items: updatedItems,
+      history: [...(existing.history || []), newHistoryEntry],
+      updatedAt: nowIso
+    };
+
+    // Update in Supabase purchase_requests if present
+    if (!isTableMarkedMissing('purchase_requests')) {
+      try {
+        await supabase
+          .from('purchase_requests')
+          .update({
+            status: 'Ordered',
+            purchase_order_id: purchaseOrderId,
+            purchase_order_number: orderNumber,
+            supplier_id: params.supplierId,
+            supplier_name: supplierName,
+            supplier_gstin: supplierGstin || null,
+            reviewer_id: reviewerId,
+            reviewer_name: reviewerName,
+            updated_at: nowIso
+          })
+          .eq('id', params.requestId);
+
+        for (const it of updatedItems) {
+          if (!it.isCustom) {
+            await supabase
+              .from('purchase_request_items')
+              .update({
+                approved_qty: it.approvedQty,
+                adjustment_reason: it.adjustmentReason || null
+              })
+              .eq('id', it.id);
+          } else {
+            await supabase
+              .from('purchase_request_items')
+              .insert({
+                request_id: existing.id,
+                product_id: it.productId,
+                product_name: it.productName,
+                sku: it.sku || null,
+                requested_qty: 0,
+                approved_qty: it.approvedQty,
+                unit: it.unit,
+                estimated_cost: it.estimatedCost || 0,
+                adjustment_reason: it.adjustmentReason
+              });
+          }
+        }
+
+        await supabase
+          .from('purchase_request_history')
+          .insert({
+            request_id: params.requestId,
+            status_from: existing.status,
+            status_to: 'Ordered',
+            user_id: reviewerId,
+            user_name: reviewerName,
+            role: reviewerRole,
+            comments: newHistoryEntry.comments
+          });
+      } catch (e: any) {
+        if (isTableNotFoundError(e)) {
+          markTableMissing('purchase_requests');
+        }
+      }
+    }
+
+    // 7. Update local storage cache
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const list: PurchaseRequest[] = JSON.parse(raw);
+          const index = list.findIndex(r => r.id === params.requestId);
+          if (index !== -1) list[index] = updatedRequest;
+          else list.unshift(updatedRequest);
+          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(list));
+        }
+      } catch {}
+    }
+
+    // 8. Create persistent in-app notification for Warehouse Manager
+    try {
+      const approvedItemsSummary = validApprovedItems
+        .map(it => `${it.productName}${it.isCustom ? ' (Custom)' : ''} — ${it.approvedQty} ${it.unit || 'Piece'}`)
+        .join(', ');
+
+      const warehouseName = existing.warehouseName || 'Main Central Warehouse';
+      const notifMessage = `Purchase Request ${existing.requestNumber} has been approved. Supplier: ${supplierName}. Approved items: ${approvedItemsSummary || 'None'}. Warehouse: ${warehouseName}.`;
+
+      // Identify target recipients: submitting Warehouse Manager, plus warehouse manager if assigned
+      const targetUserIds = new Set<string>();
+      if (existing.requesterId) targetUserIds.add(existing.requesterId);
+
+      try {
+        const { data: wh } = await supabase
+          .from('warehouses')
+          .select('manager_id')
+          .eq('id', existing.warehouseId)
+          .maybeSingle();
+        if (wh?.manager_id) targetUserIds.add(wh.manager_id);
+      } catch {}
+
+      const recipients = targetUserIds.size > 0 ? Array.from(targetUserIds) : [existing.requesterId || null];
+
+      for (const targetUserId of recipients) {
+        await notificationService.createNotification(
+          {
+            title: `Purchase Request Approved: ${existing.requestNumber}`,
+            message: notifMessage,
+            type: 'purchase_request',
+            link: `/inventory/purchase-requests?id=${existing.id}`,
+            userId: targetUserId,
+            warehouseId: existing.warehouseId,
+            warehouseName: existing.warehouseName,
+            priority: 'Normal',
+            actionText: 'View Purchase Request',
+            dedupKey: `pr_approved_${existing.id}_${targetUserId || 'all'}`
+          },
+          finalCompanyId
+        );
+      }
+    } catch (e) {
+      console.warn('Failed to send approval notification to Warehouse Manager:', e);
+    }
+
+    return {
+      request: updatedRequest,
+      purchaseOrderId,
+      purchaseOrderNumber: orderNumber
+    };
   },
 
   /**
@@ -725,8 +1365,13 @@ export const purchaseRequestService = {
       throw new Error(`Purchase request must be in "Approved" status before creating a Purchase Order (Current: ${existing.status}).`);
     }
 
-    if (existing.purchaseOrderId) {
-      throw new Error(`A Purchase Order (${existing.purchaseOrderNumber}) has already been generated for request #${existing.requestNumber}.`);
+    // Idempotency: Prevent duplicate POs if already generated
+    if (existing.purchaseOrderId && existing.purchaseOrderNumber) {
+      return {
+        purchaseOrderId: existing.purchaseOrderId,
+        purchaseOrderNumber: existing.purchaseOrderNumber,
+        request: existing
+      };
     }
 
     const orderNumber = `PO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -752,7 +1397,7 @@ export const purchaseRequestService = {
           subtotal,
           tax_total: taxTotal,
           grand_total: grandTotal,
-          status: 'Ordered',
+          status: 'Active',
           notes: params.notes || `Generated from Purchase Request ${existing.requestNumber}`
         });
 
@@ -836,6 +1481,9 @@ export const purchaseRequestService = {
       status: 'Ordered',
       purchaseOrderId,
       purchaseOrderNumber: orderNumber,
+      supplierId: params.supplierId,
+      supplierName: params.supplierName,
+      supplierGstin: params.supplierGstin,
       updatedAt: nowIso,
       history: [...(existing.history || []), newHistoryEntry]
     };
@@ -926,9 +1574,12 @@ export const purchaseRequestService = {
         itemId: string;
         productId: string;
         receivedQty: number;
+        damagedQty?: number;
+        acceptedQty?: number;
       }>;
       receivingWarehouseId: string;
       invoiceNumber?: string;
+      notes?: string;
     },
     companyId?: string,
     user?: { id: string; name: string; role?: string }
@@ -941,8 +1592,12 @@ export const purchaseRequestService = {
       throw new Error(`Purchase request #${params.requestId} not found.`);
     }
 
-    if (existing.status !== 'Ordered' && existing.status !== 'Partially Received') {
-      throw new Error(`Goods receipt can only be recorded for requests in "Ordered" or "Partially Received" status (Current: ${existing.status}).`);
+    if (existing.status === 'Rejected' || existing.status === 'Cancelled') {
+      throw new Error(`Goods receipt cannot be recorded for ${existing.status.toLowerCase()} requests.`);
+    }
+
+    if (existing.status === 'Completed') {
+      throw new Error(`Goods receipt cannot be recorded because this order has already been fully received and completed.`);
     }
 
     const nowIso = new Date().toISOString();
@@ -951,13 +1606,36 @@ export const purchaseRequestService = {
     let anyReceived = false;
 
     // 1. Calculate updated item received quantities
-    const updatedItems = existing.items.map(it => {
+    let sourceItems = existing.items && existing.items.length > 0 ? [...existing.items] : [];
+    if (sourceItems.length === 0 && params.receivedItems.length > 0) {
+      sourceItems = params.receivedItems.map((r, idx) => ({
+        id: r.itemId || `item-${idx}`,
+        requestId: existing.id,
+        productId: r.productId,
+        productName: 'Product',
+        currentStock: 0,
+        requestedQty: Number(r.receivedQty) || 1,
+        approvedQty: Number(r.receivedQty) || 1,
+        receivedQty: 0,
+        unit: 'Piece',
+        createdAt: nowIso
+      }));
+    }
+
+    const updatedItems = sourceItems.map(it => {
       const match = params.receivedItems.find(r => r.itemId === it.id || r.productId === it.productId);
-      const incomingQty = match ? Number(match.receivedQty) : 0;
+      const incomingQty = match ? Math.max(0, Number(match.receivedQty) || 0) : 0;
       if (incomingQty > 0) anyReceived = true;
 
-      const newReceivedTotal = Number(it.receivedQty || 0) + incomingQty;
-      const targetQty = it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty;
+      const currentReceived = Number(it.receivedQty || 0);
+      const targetQty = it.approvedQty !== null && it.approvedQty !== undefined && it.approvedQty > 0 ? it.approvedQty : (it.requestedQty || incomingQty);
+      const maxPending = Math.max(0, targetQty - currentReceived);
+
+      if (maxPending > 0 && incomingQty > maxPending) {
+        throw new Error(`Received quantity for "${it.productName || it.productId}" (${incomingQty}) exceeds outstanding pending quantity (${maxPending}). Over-receipt is not permitted.`);
+      }
+
+      const newReceivedTotal = currentReceived + incomingQty;
 
       if (newReceivedTotal < targetQty) {
         allFulfilled = false;
@@ -969,6 +1647,26 @@ export const purchaseRequestService = {
       };
     });
 
+    // Also include any incoming items that weren't in sourceItems
+    for (const recv of params.receivedItems) {
+      if (!sourceItems.some(it => it.id === recv.itemId || it.productId === recv.productId)) {
+        const incomingQty = Number(recv.receivedQty) || 0;
+        if (incomingQty > 0) anyReceived = true;
+        updatedItems.push({
+          id: recv.itemId || `item-${updatedItems.length}`,
+          requestId: existing.id,
+          productId: recv.productId,
+          productName: 'Product',
+          currentStock: 0,
+          requestedQty: incomingQty,
+          approvedQty: incomingQty,
+          receivedQty: incomingQty,
+          unit: 'Piece',
+          createdAt: nowIso
+        });
+      }
+    }
+
     if (!anyReceived) {
       throw new Error('Please enter at least one positive received quantity to record inward goods.');
     }
@@ -976,14 +1674,19 @@ export const purchaseRequestService = {
     const nextStatus: PurchaseRequestStatus = allFulfilled ? 'Completed' : 'Partially Received';
 
     // 2. Safely increment stock in products and log stock_transactions (prevents double increments)
+    // ONLY accepted quantity is added to stock; damaged or rejected quantities are excluded from stock
     for (const recv of params.receivedItems) {
-      if (recv.receivedQty > 0) {
+      const arrivedQty = Number(recv.receivedQty) || 0;
+      const damagedQty = Math.max(0, Number(recv.damagedQty) || 0);
+      const acceptedQty = recv.acceptedQty !== undefined ? Number(recv.acceptedQty) : Math.max(0, arrivedQty - damagedQty);
+
+      if (acceptedQty > 0) {
         const item = existing.items.find(i => i.id === recv.itemId || i.productId === recv.productId);
         const prodName = item?.productName || 'Received Product';
         const unit = item?.unit || 'Piece';
 
         try {
-          // Increment stock in public.products
+          // Increment stock in public.products only for accepted quantity
           const { data: prodData } = await supabase
             .from('products')
             .select('current_stock')
@@ -993,7 +1696,7 @@ export const purchaseRequestService = {
           if (prodData) {
             await supabase
               .from('products')
-              .update({ current_stock: Number(prodData.current_stock || 0) + recv.receivedQty })
+              .update({ current_stock: Number(prodData.current_stock || 0) + acceptedQty })
               .eq('id', recv.productId);
           }
 
@@ -1005,9 +1708,9 @@ export const purchaseRequestService = {
             type: 'Purchase',
             product_id: recv.productId,
             product_name: prodName,
-            qty: recv.receivedQty,
+            qty: acceptedQty,
             unit,
-            reference_type: 'Purchase Request Receipt',
+            reference_type: 'Goods Receipt Note (GRN)',
             reference_id: existing.id,
             reference_number: existing.requestNumber
           });
@@ -1019,10 +1722,16 @@ export const purchaseRequestService = {
 
     // 3. Prepare updated request object
     const receiptSummary = params.receivedItems
-      .filter(r => r.receivedQty > 0)
+      .filter(r => (Number(r.receivedQty) || 0) > 0)
       .map(r => {
         const it = existing.items.find(i => i.id === r.itemId || i.productId === r.productId);
-        return `${it?.productName || 'Product'}: +${r.receivedQty} ${it?.unit || 'Pcs'}`;
+        const arrived = Number(r.receivedQty) || 0;
+        const dmg = Math.max(0, Number(r.damagedQty) || 0);
+        const accepted = r.acceptedQty !== undefined ? Number(r.acceptedQty) : Math.max(0, arrived - dmg);
+        if (dmg > 0) {
+          return `${it?.productName || 'Product'}: +${accepted} accepted (${dmg} damaged/rejected)`;
+        }
+        return `${it?.productName || 'Product'}: +${accepted} ${it?.unit || 'Pcs'}`;
       })
       .join(', ');
 
@@ -1034,7 +1743,9 @@ export const purchaseRequestService = {
       userId: user?.id || '00000000-0000-0000-0000-000000000000',
       userName: user?.name || 'Warehouse Staff',
       role: user?.role || 'Warehouse Manager',
-      comments: `Goods receipt recorded (${receiptSummary}). Status: ${nextStatus}.`,
+      comments: params.notes
+        ? `Goods receipt recorded (${receiptSummary}). Notes: ${params.notes}. Status: ${nextStatus}.`
+        : `Goods receipt recorded (${receiptSummary}). Status: ${nextStatus}.`,
       createdAt: nowIso
     };
 
@@ -1080,12 +1791,58 @@ export const purchaseRequestService = {
               role: user?.role || 'Warehouse Manager',
               comments: newHistoryEntry.comments
             });
+
+          // Sync purchase_orders table status if order exists (Delivered when complete, Active if partial)
+          if (!isTableMarkedMissing('purchase_orders') && (existing.purchaseOrderId || existing.purchaseOrderNumber)) {
+            try {
+              const poStatus = nextStatus === 'Completed' ? 'Received' : 'Ordered';
+              if (existing.purchaseOrderId) {
+                await supabase.from('purchase_orders').update({ status: poStatus }).eq('id', existing.purchaseOrderId);
+              } else if (existing.purchaseOrderNumber) {
+                await supabase.from('purchase_orders').update({ status: poStatus }).eq('order_number', existing.purchaseOrderNumber);
+              }
+            } catch (poErr) {
+              if (isTableNotFoundError(poErr)) {
+                markTableMissing('purchase_orders');
+              }
+            }
+          }
         }
       } catch (e: any) {
         if (isTableNotFoundError(e)) {
           markTableMissing('purchase_requests');
         }
       }
+    }
+
+    // Also sync status, updated items, and notes to public.purchases table if a PO ID exists
+    const poId = existing.purchaseOrderId || existing.id;
+    if (poId) {
+      try {
+        const poItemsPayload = updatedItems.map(it => ({
+          id: it.id,
+          product_id: it.productId,
+          productId: it.productId,
+          product_name: it.productName,
+          productName: it.productName,
+          sku: it.sku,
+          unit: it.unit,
+          qty: it.approvedQty || it.requestedQty,
+          ordered_qty: it.approvedQty || it.requestedQty,
+          received_qty: it.receivedQty,
+          receivedQty: it.receivedQty,
+          rate: it.estimatedCost || 0
+        }));
+
+        await supabase
+          .from('purchases')
+          .update({
+            updated_at: nowIso,
+            items: poItemsPayload,
+            notes: existing.notes ? `${existing.notes} | GRN: ${receiptSummary}` : `GRN: ${receiptSummary}`
+          })
+          .eq('id', poId);
+      } catch {}
     }
 
     // 5. Update local storage cache
@@ -1095,9 +1852,15 @@ export const purchaseRequestService = {
         const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
         if (raw) {
           const list: PurchaseRequest[] = JSON.parse(raw);
-          const index = list.findIndex(r => r.id === params.requestId);
-          if (index !== -1) list[index] = updatedRequest;
+          const index = list.findIndex(r => r.id === params.requestId || r.purchaseOrderId === params.requestId || r.id === existing.id);
+          if (index !== -1) {
+            list[index] = updatedRequest;
+          } else {
+            list.unshift(updatedRequest);
+          }
           storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(list));
+        } else {
+          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify([updatedRequest]));
         }
       } catch {}
     }
@@ -1124,7 +1887,7 @@ export const purchaseRequestService = {
             .select('id, status')
             .eq('company_id', finalCompanyId)
             .neq('id', existing.id)
-            .in('status', ['Ordered', 'Partially Received']);
+            .in('status', ['Ordered', 'Active', 'Partially Received']);
 
           if (!otherActive || otherActive.length === 0) {
             await supabase
@@ -1152,5 +1915,172 @@ export const purchaseRequestService = {
     } catch (e) {}
 
     return updatedRequest;
+  },
+
+  /**
+   * Updates an existing purchase request's details (reason, priority, warehouse, items, date)
+   */
+  async updatePurchaseRequest(
+    requestId: string,
+    input: Partial<CreatePurchaseRequestInput>,
+    companyId?: string,
+    user?: { id: string; name: string; role?: string }
+  ): Promise<PurchaseRequest> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const existing = await this.getPurchaseRequestById(requestId, finalCompanyId);
+    if (!existing) {
+      throw new Error(`Purchase request #${requestId} not found.`);
+    }
+
+    const updatedRequest: PurchaseRequest = {
+      ...existing,
+      warehouseId: input.warehouseId || existing.warehouseId,
+      warehouseName: input.warehouseName || existing.warehouseName,
+      priority: input.priority || existing.priority,
+      reason: input.reason !== undefined ? input.reason : existing.reason,
+      requestedDeliveryDate: input.requestedDeliveryDate !== undefined ? input.requestedDeliveryDate : existing.requestedDeliveryDate,
+      notes: input.notes !== undefined ? input.notes : existing.notes,
+      updatedAt: new Date().toISOString(),
+      items: input.items
+        ? input.items.map((it, idx) => ({
+            id: existing.items[idx]?.id || `${requestId}-item-${idx + 1}`,
+            requestId,
+            productId: it.productId,
+            productName: it.productName,
+            sku: it.sku,
+            currentStock: Number(it.currentStock || 0),
+            warningLimit: it.warningLimit,
+            requestedQty: Number(it.requestedQty),
+            approvedQty: null,
+            receivedQty: 0,
+            unit: it.unit || 'Piece',
+            estimatedCost: Number(it.estimatedCost || 0),
+            createdAt: existing.items[idx]?.createdAt || new Date().toISOString()
+          }))
+        : existing.items,
+      history: [
+        ...(existing.history || []),
+        {
+          id: `${requestId}-hist-${(existing.history?.length || 0) + 1}`,
+          requestId,
+          statusFrom: existing.status,
+          statusTo: existing.status,
+          userId: user?.id || '00000000-0000-0000-0000-000000000000',
+          userName: user?.name || 'Warehouse Manager',
+          role: user?.role || 'Warehouse Manager',
+          comments: input.reason ? `Request details updated: ${input.reason}` : 'Purchase request details updated',
+          createdAt: new Date().toISOString()
+        }
+      ]
+    };
+
+    // 1. Update in Supabase if table is available
+    if (!isTableMarkedMissing('purchase_requests')) {
+      try {
+        const { error: prErr } = await supabase
+          .from('purchase_requests')
+          .update({
+            warehouse_id: updatedRequest.warehouseId,
+            warehouse_name: updatedRequest.warehouseName,
+            priority: updatedRequest.priority,
+            reason: updatedRequest.reason,
+            requested_delivery_date: updatedRequest.requestedDeliveryDate || null,
+            notes: updatedRequest.notes,
+            updated_at: updatedRequest.updatedAt
+          })
+          .eq('id', requestId);
+
+        if (prErr) {
+          if (isTableNotFoundError(prErr)) {
+            markTableMissing('purchase_requests');
+          }
+        } else if (input.items && input.items.length > 0) {
+          // Replace line items
+          await supabase.from('purchase_request_items').delete().eq('request_id', requestId);
+          const itemRows = updatedRequest.items.map(it => ({
+            request_id: requestId,
+            product_id: it.productId,
+            product_name: it.productName,
+            sku: it.sku,
+            current_stock: it.currentStock,
+            warning_limit: it.warningLimit,
+            requested_qty: it.requestedQty,
+            unit: it.unit,
+            estimated_cost: it.estimatedCost
+          }));
+          await supabase.from('purchase_request_items').insert(itemRows);
+        }
+      } catch (e: any) {
+        if (isTableNotFoundError(e)) {
+          markTableMissing('purchase_requests');
+        }
+      }
+    }
+
+    // 2. Update local storage cache
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const list: PurchaseRequest[] = JSON.parse(raw);
+          const index = list.findIndex(r => r.id === requestId);
+          if (index !== -1) {
+            list[index] = updatedRequest;
+          } else {
+            list.unshift(updatedRequest);
+          }
+          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(list));
+        }
+      } catch {}
+    }
+
+    return updatedRequest;
+  },
+
+  /**
+   * Deletes a purchase request and its line items
+   */
+  async deletePurchaseRequest(
+    requestId: string,
+    companyId?: string,
+    userRole?: string
+  ): Promise<boolean> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+
+    // 1. Delete from Supabase if table exists
+    if (!isTableMarkedMissing('purchase_requests')) {
+      try {
+        // Delete child items first to satisfy foreign key constraints
+        try {
+          await supabase.from('purchase_request_items').delete().eq('request_id', requestId);
+        } catch {}
+
+        const { error } = await supabase.from('purchase_requests').delete().eq('id', requestId);
+        if (error && isTableNotFoundError(error)) {
+          markTableMissing('purchase_requests');
+        }
+      } catch (e: any) {
+        if (isTableNotFoundError(e)) {
+          markTableMissing('purchase_requests');
+        }
+      }
+    }
+
+    // 2. Delete from local storage cache
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const list: PurchaseRequest[] = JSON.parse(raw);
+          const filtered = list.filter(r => r.id !== requestId);
+          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(filtered));
+        }
+      } catch {}
+    }
+
+    return true;
   }
 };
+

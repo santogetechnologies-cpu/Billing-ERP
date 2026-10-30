@@ -13,6 +13,12 @@ import {
 import { notificationService } from './notificationService';
 import { userService } from './userService';
 import { getAppStorage } from '../utils/storageUtils';
+import {
+  isTableMarkedMissing,
+  markTableMissing,
+  isTableNotFoundError,
+  markTableAvailable
+} from '../utils/schemaDetector';
 
 const SUPPORT_CASES_STORAGE_KEY = (cId: string) => `universal_billing_support_cases_${cId}`;
 
@@ -48,14 +54,18 @@ export const customerSupportService = {
         u => u.role === 'Salesperson' && u.accountStatus === 'Enabled'
       );
 
-      if (salespersons.length === 0) {
-        return null;
+      // 1. Explicit ID if provided (strictly blocking non-sales roles like Cashier, Warehouse Manager, etc.)
+      if (explicitSalespersonId) {
+        const isForbiddenRole = users.some(
+          u => u.id === explicitSalespersonId && u.role !== 'Salesperson'
+        );
+        if (!isForbiddenRole) {
+          return explicitSalespersonId;
+        }
       }
 
-      // 1. Explicit ID if it is a valid Salesperson
-      if (explicitSalespersonId) {
-        const found = salespersons.find(sp => sp.id === explicitSalespersonId);
-        if (found) return found.id;
+      if (salespersons.length === 0) {
+        return null;
       }
 
       // 2. Customer's assigned Sales Person if set
@@ -115,49 +125,58 @@ export const customerSupportService = {
 
     let cases: CustomerSupportCase[] = [];
 
-    try {
-      let query = supabase
-        .from('customer_support_cases')
-        .select('*')
-        .eq('company_id', finalCompanyId)
-        .order('created_at', { ascending: false });
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        let query = supabase
+          .from('customer_support_cases')
+          .select('*')
+          .eq('company_id', finalCompanyId)
+          .order('created_at', { ascending: false });
 
-      if (userRole === 'Salesperson' && currentUserId) {
-        // Salesperson sees their assigned cases or unassigned queue
-        query = query.or(`assigned_salesperson_id.eq.${currentUserId},assigned_salesperson_id.is.null`);
+        if (userRole === 'Salesperson' && currentUserId) {
+          // Salesperson sees their assigned cases or unassigned queue
+          query = query.or(`assigned_salesperson_id.eq.${currentUserId},assigned_salesperson_id.is.null`);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          if (isTableNotFoundError(error)) {
+            markTableMissing('customer_support_cases');
+          }
+        } else if (data) {
+          markTableAvailable('customer_support_cases');
+          if (data.length > 0) {
+            cases = data.map((d: any) => ({
+              id: d.id,
+              companyId: d.company_id,
+              caseNumber: d.case_number,
+              customerId: d.customer_id,
+              customerName: d.customer_name,
+              customerPhone: d.customer_phone,
+              category: d.category,
+              priority: d.priority || 'Normal',
+              status: d.status || 'Open',
+              title: d.title,
+              description: d.description,
+              productId: d.product_id,
+              productName: d.product_name,
+              invoiceId: d.invoice_id,
+              invoiceNumber: d.invoice_number,
+              assignedSalespersonId: d.assigned_salesperson_id,
+              assignedSalespersonName: d.assigned_salesperson_name,
+              followupDue: d.followup_due,
+              resolutionNotes: d.resolution_notes,
+              notes: Array.isArray(d.notes) ? d.notes : [],
+              isEscalated: Boolean(d.is_escalated),
+              createdAt: d.created_at,
+              updatedAt: d.updated_at
+            }));
+          }
+        }
+      } catch (e) {
+        console.warn('Supabase get support cases query warning:', e);
       }
-
-      const { data, error } = await query;
-
-      if (!error && data && data.length > 0) {
-        cases = data.map((d: any) => ({
-          id: d.id,
-          companyId: d.company_id,
-          caseNumber: d.case_number,
-          customerId: d.customer_id,
-          customerName: d.customer_name,
-          customerPhone: d.customer_phone,
-          category: d.category,
-          priority: d.priority || 'Normal',
-          status: d.status || 'Open',
-          title: d.title,
-          description: d.description,
-          productId: d.product_id,
-          productName: d.product_name,
-          invoiceId: d.invoice_id,
-          invoiceNumber: d.invoice_number,
-          assignedSalespersonId: d.assigned_salesperson_id,
-          assignedSalespersonName: d.assigned_salesperson_name,
-          followupDue: d.followup_due,
-          resolutionNotes: d.resolution_notes,
-          notes: Array.isArray(d.notes) ? d.notes : [],
-          isEscalated: Boolean(d.is_escalated),
-          createdAt: d.created_at,
-          updatedAt: d.updated_at
-        }));
-      }
-    } catch (e) {
-      console.warn('Supabase get support cases query warning:', e);
     }
 
     // Fall back to local storage cache if Supabase returned empty
@@ -213,11 +232,15 @@ export const customerSupportService = {
       } catch {}
     }
 
-    // High Priority enforcement for Complaints (Requirement 1)
-    const priority: CustomerSupportPriority =
-      payload.category === 'customer_complaint'
-        ? 'High'
-        : payload.priority || 'Normal';
+    // High Priority enforcement for Complaints, Damage/Defects, and Return Requests (Requirements 1, 2, 4)
+    const isHighByDefault =
+      payload.category === 'customer_complaint' ||
+      payload.category === 'customer_product_damage' ||
+      payload.category === 'customer_return_request';
+
+    const priority: CustomerSupportPriority = isHighByDefault
+      ? 'High'
+      : payload.priority || 'Normal';
 
     const caseRecord: CustomerSupportCase = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `case_${Date.now()}`,
@@ -243,37 +266,41 @@ export const customerSupportService = {
       updatedAt: nowIso
     };
 
-    // 2. Persist to Supabase
-    try {
-      const { data, error } = await supabase
-        .from('customer_support_cases')
-        .insert({
-          id: caseRecord.id,
-          company_id: finalCompanyId,
-          case_number: caseRecord.caseNumber,
-          customer_id: caseRecord.customerId,
-          category: caseRecord.category,
-          priority: caseRecord.priority,
-          status: caseRecord.status,
-          title: caseRecord.title,
-          description: caseRecord.description,
-          product_id: caseRecord.productId,
-          invoice_id: caseRecord.invoiceId,
-          assigned_salesperson_id: caseRecord.assignedSalespersonId,
-          followup_due: caseRecord.followupDue,
-          is_escalated: caseRecord.isEscalated,
-          created_by: createdByUserId || null,
-          created_at: nowIso,
-          updated_at: nowIso
-        })
-        .select()
-        .single();
+    // 2. Persist to Supabase if table is available
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data, error } = await supabase
+          .from('customer_support_cases')
+          .insert({
+            id: caseRecord.id,
+            company_id: finalCompanyId,
+            case_number: caseRecord.caseNumber,
+            customer_id: caseRecord.customerId,
+            category: caseRecord.category,
+            priority: caseRecord.priority,
+            status: caseRecord.status,
+            title: caseRecord.title,
+            description: caseRecord.description,
+            product_id: caseRecord.productId,
+            invoice_id: caseRecord.invoiceId,
+            assigned_salesperson_id: caseRecord.assignedSalespersonId,
+            followup_due: caseRecord.followupDue,
+            is_escalated: caseRecord.isEscalated,
+            created_by: createdByUserId || null,
+            created_at: nowIso,
+            updated_at: nowIso
+          })
+          .select()
+          .single();
 
-      if (!error && data?.id) {
-        caseRecord.id = data.id;
+        if (error && isTableNotFoundError(error)) {
+          markTableMissing('customer_support_cases');
+        } else if (!error && data?.id) {
+          caseRecord.id = data.id;
+        }
+      } catch (e) {
+        console.warn('Supabase support case insert note:', e);
       }
-    } catch (e) {
-      console.warn('Supabase support case insert note:', e);
     }
 
     // 3. Persist to localStorage cache
@@ -297,12 +324,12 @@ export const customerSupportService = {
 
   /**
    * Dispatches the required notification format according to the 6 Master Prompt categories:
-   * 1. Customer Complaints — HIGH PRIORITY (Title: "Customer Complaint — High Priority", Action: "View Complaint")
-   * 2. Product Damage & Defects (Title: "Product Damage Reported", Action: "Review Issue")
-   * 3. Customer Support Requests (Title: "New Customer Support Request", Action: "Respond to Customer")
-   * 4. Return & Replacement Requests (Title: "Return / Replacement Request", Action: "Review Request")
-   * 5. Pending Customer Follow-ups (Title: "Customer Follow-up Due", Action: "Continue Follow-up")
-   * 6. Customer Updates (Title: "Customer Update", Action: "View Customer")
+   * 1. Customer Complaints — High Priority (Title: "Customer Complaint", Action: "View Complaint")
+   * 2. Product Damage & Defects — High Priority (Title: "Product Damage Report", Action: "View Case")
+   * 3. Customer Support Requests — Normal Priority (Title: "New Customer Support Request", Action: "View Support Request")
+   * 4. Return & Replacement Requests — High Priority (Title: "Return / Replacement Request", Action: "Review Request")
+   * 5. Pending Customer Follow-ups (Title: "Customer Follow-up Required", Action: "View Case")
+   * 6. Customer Updates (Title: "Customer Assigned", Action: "View Customer")
    */
   async dispatchCaseNotification(
     caseRecord: CustomerSupportCase,
@@ -314,28 +341,55 @@ export const customerSupportService = {
 
     switch (caseRecord.category) {
       case 'customer_complaint':
-        title = 'Customer Complaint — High Priority';
+        title = 'Customer Complaint';
+        if (caseRecord.productName) {
+          message = `Customer ${caseRecord.customerName || 'Customer'} reported an issue with ${caseRecord.productName}.`;
+        } else {
+          message = `Customer ${caseRecord.customerName || 'Customer'} reported an issue: ${caseRecord.description || caseRecord.title}`;
+        }
         actionText = 'View Complaint';
         break;
+
       case 'customer_product_damage':
-        title = 'Product Damage Reported';
-        actionText = 'Review Issue';
+        title = 'Product Damage Report';
+        if (caseRecord.productName) {
+          message = `${caseRecord.customerName || 'Customer'} reported damage to ${caseRecord.productName}.`;
+        } else {
+          message = `${caseRecord.customerName || 'Customer'} reported damage: ${caseRecord.description || caseRecord.title}`;
+        }
+        actionText = 'View Case';
         break;
+
       case 'customer_support_request':
         title = 'New Customer Support Request';
-        actionText = 'Respond to Customer';
+        const requestType = caseRecord.title || 'Product Assistance';
+        message = `${caseRecord.customerName || 'Customer'} needs assistance with ${requestType}.`;
+        actionText = 'View Support Request';
         break;
+
       case 'customer_return_request':
         title = 'Return / Replacement Request';
+        if (caseRecord.productName) {
+          message = `${caseRecord.customerName || 'Customer'} requested a return or replacement for ${caseRecord.productName}.`;
+        } else {
+          message = `${caseRecord.customerName || 'Customer'} requested a return or replacement: ${caseRecord.description || caseRecord.title}`;
+        }
         actionText = 'Review Request';
         break;
+
       case 'customer_followup':
-        title = 'Customer Follow-up Due';
-        actionText = 'Continue Follow-up';
+        title = 'Customer Follow-up Required';
+        const caseRef = caseRecord.caseNumber ? `#${caseRecord.caseNumber}` : caseRecord.title;
+        message = `Follow up with ${caseRecord.customerName || 'Customer'} regarding ${caseRef}.`;
+        actionText = 'View Case';
         break;
+
       case 'customer_update':
-        title = 'Customer Update';
-        actionText = 'View Customer';
+        title = 'Customer Assigned';
+        message = caseRecord.caseNumber
+          ? `Customer support case #${caseRecord.caseNumber} for ${caseRecord.customerName || 'Customer'} has been assigned to you.`
+          : `Customer ${caseRecord.customerName || 'Customer'} has been assigned to you.`;
+        actionText = caseRecord.caseNumber ? 'View Case' : 'View Customer';
         break;
     }
 
@@ -386,44 +440,50 @@ export const customerSupportService = {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const nowIso = new Date().toISOString();
 
-    try {
-      const { data, error } = await supabase
-        .from('customer_support_cases')
-        .update({
-          status,
-          resolution_notes: resolutionNotes || null,
-          updated_at: nowIso
-        })
-        .eq('id', caseId)
-        .eq('company_id', finalCompanyId)
-        .select()
-        .single();
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data, error } = await supabase
+          .from('customer_support_cases')
+          .update({
+            status,
+            resolution_notes: resolutionNotes || null,
+            updated_at: nowIso
+          })
+          .eq('id', caseId)
+          .eq('company_id', finalCompanyId)
+          .select()
+          .single();
 
-      if (!error && data) {
-        // Sync local cache
-        const storage = getAppStorage();
-        if (storage) {
-          const raw = storage.getItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId));
-          if (raw) {
-            const list: CustomerSupportCase[] = JSON.parse(raw);
-            const updated = list.map(c =>
-              c.id === caseId
-                ? { ...c, status, resolutionNotes: resolutionNotes || c.resolutionNotes, updatedAt: nowIso }
-                : c
-            );
-            storage.setItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+        if (error) {
+          if (isTableNotFoundError(error)) {
+            markTableMissing('customer_support_cases');
           }
-        }
+        } else if (data) {
+          // Sync local cache
+          const storage = getAppStorage();
+          if (storage) {
+            const raw = storage.getItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId));
+            if (raw) {
+              const list: CustomerSupportCase[] = JSON.parse(raw);
+              const updated = list.map(c =>
+                c.id === caseId
+                  ? { ...c, status, resolutionNotes: resolutionNotes || c.resolutionNotes, updatedAt: nowIso }
+                  : c
+              );
+              storage.setItem(SUPPORT_CASES_STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+            }
+          }
 
-        // When a case is resolved or closed, stop follow-up reminders (Requirement 5 & 10)
-        if (status === 'Resolved' || status === 'Closed') {
-          await this.stopFollowupReminders(caseId, finalCompanyId);
-        }
+          // When a case is resolved or closed, stop follow-up reminders (Requirement 5 & 10)
+          if (status === 'Resolved' || status === 'Closed') {
+            await this.stopFollowupReminders(caseId, finalCompanyId);
+          }
 
-        return data as CustomerSupportCase;
+          return data as CustomerSupportCase;
+        }
+      } catch (e) {
+        console.warn('Supabase update support case note:', e);
       }
-    } catch (e) {
-      console.warn('Supabase update support case note:', e);
     }
 
     // Local storage update fallback
@@ -472,21 +532,31 @@ export const customerSupportService = {
     };
 
     // Update in Supabase & local cache
-    try {
-      const { data: existing } = await supabase
-        .from('customer_support_cases')
-        .select('notes')
-        .eq('id', caseId)
-        .single();
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data: existing, error: selError } = await supabase
+          .from('customer_support_cases')
+          .select('notes')
+          .eq('id', caseId)
+          .single();
 
-      const existingNotes = Array.isArray(existing?.notes) ? existing.notes : [];
-      const updatedNotes = [...existingNotes, note];
+        if (selError && isTableNotFoundError(selError)) {
+          markTableMissing('customer_support_cases');
+        } else {
+          const existingNotes = Array.isArray(existing?.notes) ? existing.notes : [];
+          const updatedNotes = [...existingNotes, note];
 
-      await supabase
-        .from('customer_support_cases')
-        .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
-        .eq('id', caseId);
-    } catch {}
+          const { error: updError } = await supabase
+            .from('customer_support_cases')
+            .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
+            .eq('id', caseId);
+
+          if (updError && isTableNotFoundError(updError)) {
+            markTableMissing('customer_support_cases');
+          }
+        }
+      } catch {}
+    }
 
     const storage = getAppStorage();
     if (storage) {
@@ -527,12 +597,18 @@ export const customerSupportService = {
 
   /**
    * Scans for pending/overdue customer follow-ups and dispatches targeted reminders (Category 5).
+   * Requirement 5:
+   * Title: Customer Follow-up Required
+   * Message: Follow up with [Customer Name] regarding [Case Reference].
+   * Priority: High when overdue; otherwise Normal.
+   * Action: View Case
    * Prevents spam duplicates via stable dedupKey.
    */
   async checkPendingFollowups(
     companyId: string,
     cases: CustomerSupportCase[],
-    customers: Customer[]
+    customers: Customer[],
+    existingNotifications: NotificationItem[] = []
   ): Promise<NotificationItem[]> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const notificationsGenerated: NotificationItem[] = [];
@@ -546,26 +622,38 @@ export const customerSupportService = {
 
       const due = new Date(c.followupDue);
       if (due.getTime() <= now.getTime()) {
+        const dedupKey = `followup_${c.id}_${due.toISOString().split('T')[0]}`;
+        const alreadyExists = existingNotifications.some(
+          n =>
+            n.dedupKey === dedupKey ||
+            (n.type === 'customer_followup' && n.caseId === c.id)
+        );
+        if (alreadyExists) continue;
+
         const cust = customerMap.get(c.customerId);
         const repId = c.assignedSalespersonId || cust?.assignedSalespersonId || null;
 
+        const isOverdue = due.getTime() < now.getTime();
+        const priority: CustomerSupportPriority = isOverdue ? 'High' : 'Normal';
+        const caseRef = c.caseNumber ? `#${c.caseNumber}` : c.title;
+
         const notif = await notificationService.createNotification(
           {
-            title: `Follow-up Due: ${cust?.name || 'Customer'}`,
-            message: `Follow-up scheduled for case #${c.caseNumber} ("${c.title}") is now due.`,
+            title: 'Customer Follow-up Required',
+            message: `Follow up with ${cust?.name || c.customerName || 'Customer'} regarding ${caseRef}.`,
             type: 'customer_followup',
-            priority: 'Normal',
+            priority,
             category: 'customer_followup',
             userId: repId,
             customerId: c.customerId,
-            customerName: cust?.name,
+            customerName: cust?.name || c.customerName,
             caseId: c.id,
             caseNumber: c.caseNumber,
             caseStatus: c.status,
             followupDue: c.followupDue,
             link: `/customers/${c.customerId}?caseId=${c.id}`,
-            actionText: 'Continue Follow-up',
-            dedupKey: `followup_${c.id}_${due.toISOString().split('T')[0]}`
+            actionText: 'View Case',
+            dedupKey
           },
           finalCompanyId
         );
@@ -575,6 +663,41 @@ export const customerSupportService = {
     }
 
     return notificationsGenerated;
+  },
+
+  /**
+   * Dispatches a "Customer Assigned" notification when a customer is assigned or reassigned to a Sales Person.
+   * Requirement 6:
+   * Title: Customer Assigned
+   * Message: Customer [Customer Name] has been assigned to you.
+   * Priority: Normal
+   * Action: View Customer
+   */
+  async notifyCustomerAssigned(
+    customer: { id: string; name: string },
+    salespersonId: string,
+    companyId?: string,
+    isReassigned: boolean = false
+  ): Promise<NotificationItem | null> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const dedupKey = `cust_assigned_${customer.id}_${salespersonId}`;
+
+    return await notificationService.createNotification(
+      {
+        title: 'Customer Assigned',
+        message: `Customer ${customer.name} has been assigned to you.`,
+        type: 'customer_update',
+        priority: 'Normal',
+        category: 'customer_update',
+        userId: salespersonId,
+        customerId: customer.id,
+        customerName: customer.name,
+        link: `/customers/${customer.id}`,
+        actionText: 'View Customer',
+        dedupKey
+      },
+      finalCompanyId
+    );
   },
 
   /**
@@ -601,20 +724,26 @@ export const customerSupportService = {
     let updatedCase: CustomerSupportCase | null = null;
     const nowIso = new Date().toISOString();
 
-    try {
-      const { data } = await supabase
-        .from('customer_support_cases')
-        .update({
-          is_escalated: true,
-          status: 'Pending Cashier / Admin Authorization',
-          updated_at: nowIso
-        })
-        .eq('id', caseId)
-        .select()
-        .single();
+    if (!isTableMarkedMissing('customer_support_cases')) {
+      try {
+        const { data, error } = await supabase
+          .from('customer_support_cases')
+          .update({
+            is_escalated: true,
+            status: 'Pending Cashier / Admin Authorization',
+            updated_at: nowIso
+          })
+          .eq('id', caseId)
+          .select()
+          .single();
 
-      if (data) updatedCase = data as CustomerSupportCase;
-    } catch {}
+        if (error && isTableNotFoundError(error)) {
+          markTableMissing('customer_support_cases');
+        } else if (data) {
+          updatedCase = data as CustomerSupportCase;
+        }
+      } catch {}
+    }
 
     const storage = getAppStorage();
     if (storage) {

@@ -144,17 +144,31 @@ aside *::-webkit-scrollbar:horizontal,
   scrollbar-width: none !important;
 }
 
-/* Print Styles for Invoices and Barcodes */
+/* Print Styles for Invoices, Barcodes and Reports */
 @media print {
   @page {
-    margin: 8mm;
+    margin: 6mm;
     size: auto;
   }
 
-  html, body, #root {
+  /* Universal unconstrained layout for printing: remove fixed screen heights, padding, and overflow scroll clipping */
+  html,
+  body,
+  #root,
+  #root > div,
+  #root > div > div,
+  main {
     height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     overflow: visible !important;
     background: #ffffff !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    float: none !important;
   }
 
   body {
@@ -162,7 +176,21 @@ aside *::-webkit-scrollbar:horizontal,
     color: #000000 !important;
   }
 
-  .no-print {
+  /* Force exact color and vector contrast across all browsers and PDF drivers */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide screen-only chrome globally in print */
+  aside,
+  header,
+  nav,
+  .no-print,
+  .glass-header,
+  .glass-sidebar {
     display: none !important;
   }
 
@@ -256,6 +284,109 @@ aside *::-webkit-scrollbar:horizontal,
   .invoice-avoid-break {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  /* ========================================================================= */
+  /* BARCODE PRINT & PDF EXPORT STYLES */
+  /* ========================================================================= */
+  body.barcode-printing-active aside,
+  body.barcode-printing-active header,
+  body.barcode-printing-active nav,
+  body:has(#barcode-printable-sheet) aside,
+  body:has(#barcode-printable-sheet) header,
+  body:has(#barcode-printable-sheet) nav {
+    display: none !important;
+  }
+
+  body.barcode-printing-active .barcode-screen-only,
+  body:has(#barcode-printable-sheet) .barcode-screen-only {
+    display: none !important;
+  }
+
+  /* Reset barcode parent grid layouts during print */
+  .barcode-grid-parent {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Barcode Printable Sheet Wrapper */
+  #barcode-printable-sheet,
+  .barcode-printable-area {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Flex-based printable sticker sheet for perfect multi-page pagination */
+  .barcode-printable-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    gap: 2.5mm !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    width: 100% !important;
+  }
+
+  .barcode-printable-grid.cols-1 .barcode-label-item {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
+  }
+
+  .barcode-printable-grid.cols-2 .barcode-label-item {
+    width: calc(50% - 1.5mm) !important;
+    max-width: calc(50% - 1.5mm) !important;
+    flex: 0 0 calc(50% - 1.5mm) !important;
+  }
+
+  .barcode-printable-grid.cols-3 .barcode-label-item {
+    width: calc(33.333% - 1.8mm) !important;
+    max-width: calc(33.333% - 1.8mm) !important;
+    flex: 0 0 calc(33.333% - 1.8mm) !important;
+  }
+
+  .barcode-printable-grid.cols-4 .barcode-label-item {
+    width: calc(25% - 2mm) !important;
+    max-width: calc(25% - 2mm) !important;
+    flex: 0 0 calc(25% - 2mm) !important;
+  }
+
+  /* Individual barcode label styling in print */
+  .barcode-label-item {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    border: 1px solid #1e293b !important;
+    border-radius: 3px !important;
+    padding: 2.5mm 2mm !important;
+    margin-bottom: 0 !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+  }
+
+  .barcode-label-item svg {
+    shape-rendering: crispEdges !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  .barcode-label-item rect {
+    shape-rendering: crispEdges !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
   }
 }
 

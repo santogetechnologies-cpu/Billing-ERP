@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -15,11 +15,13 @@ import {
   User,
   Calendar,
   CreditCard,
-  X
+  X,
+  Check
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { SalesInvoice, InvoiceItem, SalesDocType, PaymentMethod, PaymentStatus } from '../../types';
 import { InvoicePrintModal } from '../../components/invoice/InvoicePrintModal';
 
@@ -104,6 +106,27 @@ export const NewInvoicePage: React.FC = () => {
   const [createdInvoice, setCreatedInvoice] = useState<SalesInvoice | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  const isSavingRef = useRef(false);
+
+  // Return to billing with a clean form ready for the next bill
+  const handleStartNewBill = () => {
+    setCreatedInvoice(null);
+    setSaveSuccessMessage(null);
+    setStockWarningMessage(null);
+    setItems([]);
+    setPaidAmount('');
+    setNotes('');
+    let maxSeq = 1000;
+    salesInvoices.forEach(s => {
+      const match = (s.invoiceNumber || '').match(/INV-.*?(\d+)$/);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeq) maxSeq = num;
+      }
+    });
+    setInvoiceNumber(`INV-${(company.financialYear || '2026-2027').split('-')[0]}-${maxSeq + 1}`);
+  };
 
   // Active Customer Details & Credit Check
   const activeCustomer = useMemo(() => {
@@ -374,8 +397,16 @@ export const NewInvoicePage: React.FC = () => {
       }
     }
 
-    if (isSubmitting) return;
+    // Requirement 7: If the invoice has already been saved, printing it again must reuse the same saved invoice ID and invoice number. Never create another invoice or deduct stock again.
+    if (createdInvoice && createdInvoice.id) {
+      setIsPrintModalOpen(true);
+      return;
+    }
 
+    // Requirement 8: Prevent duplicate save operations from repeated clicks, print callbacks or page refreshes.
+    if (isSavingRef.current || isSubmitting) return;
+
+    isSavingRef.current = true;
     setIsSubmitting(true);
     try {
       const numPaid = Number(paidAmount) || 0;
@@ -414,13 +445,20 @@ export const NewInvoicePage: React.FC = () => {
       });
 
       setStockWarningMessage(null);
+      // Requirement 9: Show a clear success message such as "Invoice saved successfully" after the database confirms the save.
+      setSaveSuccessMessage(`Invoice saved successfully (${newInvoice.invoiceNumber})`);
       setCreatedInvoice(newInvoice);
+      // Requirement 2: After successful saving, open or remain on a dedicated Saved Invoice Preview screen instead of automatically navigating back to the billing page.
       setIsPrintModalOpen(true);
     } catch (err: any) {
+      // Requirement 10: If saving fails, show an error and do not display a false success message.
       const errMsg = err?.message || 'Failed to create invoice';
       setStockWarningMessage(errMsg);
+      setSaveSuccessMessage(null);
+      setCreatedInvoice(null);
       alert(errMsg);
     } finally {
+      isSavingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -451,19 +489,24 @@ export const NewInvoicePage: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/sales')}
-            className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="submit"
-            disabled={isSubmitting || items.length === 0}
-            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isSubmitting || (!createdInvoice && items.length === 0)}
+            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSubmitting ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
                 <span>Generating...</span>
+              </>
+            ) : createdInvoice ? (
+              <>
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Bill</span>
               </>
             ) : (
               <>
@@ -474,6 +517,43 @@ export const NewInvoicePage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Save Success Banner */}
+      {createdInvoice && (
+        <div
+          id="invoice-page-saved-banner"
+          className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-emerald-800 shadow-2xs animate-fadeIn"
+        >
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Check className="w-4 h-4 stroke-[2.5]" />
+            </span>
+            <div>
+              <p className="font-bold text-sm text-emerald-950">Invoice saved successfully</p>
+              <p className="text-xs text-emerald-700">
+                Invoice #{createdInvoice.invoiceNumber} recorded in database &bull; Stock balance deducted &bull; Ledgers posted
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsPrintModalOpen(true)}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>View / Print Bill</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleStartNewBill}
+              className="px-3.5 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 rounded-lg text-xs font-semibold cursor-pointer"
+            >
+              Start New Bill
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Credit Limit Alert Banner */}
       {isCreditExceeded && (
@@ -719,11 +799,17 @@ export const NewInvoicePage: React.FC = () => {
                           isOutOfStock ? 'bg-rose-50 border-rose-300 text-rose-900 focus:ring-rose-500' : 'bg-slate-50 border-slate-200 focus:ring-blue-500'
                         }`}
                       >
-                        {products.map(p => {
+                        {sortProductsAZ(products).map(p => {
                           const pStock = getWarehouseStock(warehouseId, p.id);
+                          const pStatus =
+                            pStock <= 0
+                              ? 'Out of Stock'
+                              : p.reorderLevel !== null && p.reorderLevel !== undefined && pStock <= p.reorderLevel
+                              ? 'Limited'
+                              : 'In Stock';
                           return (
                             <option key={p.id} value={p.id}>
-                              {p.name} (Stock: {pStock} {p.primaryUnit}{pStock <= 0 ? ' - Out of Stock' : ''} | ₹{p.sellingPrice})
+                              {p.name} ({pStatus} - {pStock} {p.primaryUnit} | ₹{p.sellingPrice})
                             </option>
                           );
                         })}
@@ -993,13 +1079,18 @@ export const NewInvoicePage: React.FC = () => {
           <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
             <button
               type="submit"
-              disabled={isSubmitting || items.length === 0}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs flex items-center justify-center gap-2 text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isSubmitting || (!createdInvoice && items.length === 0)}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs flex items-center justify-center gap-2 text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {isSubmitting ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
                   <span>Processing & Generating Invoice...</span>
+                </>
+              ) : createdInvoice ? (
+                <>
+                  <Printer className="w-4 h-4" />
+                  <span>Print Bill (#{createdInvoice.invoiceNumber})</span>
                 </>
               ) : (
                 <>
@@ -1016,9 +1107,13 @@ export const NewInvoicePage: React.FC = () => {
       <InvoicePrintModal
         invoice={createdInvoice}
         isOpen={isPrintModalOpen}
+        showSuccessBanner={true}
+        preventBackdropClose={true}
+        closeButtonLabel="Close / Back to Billing"
         onClose={() => {
           setIsPrintModalOpen(false);
-          navigate('/sales');
+          // Requirement 6: Do not automatically navigate away after saving or printing. Return to the billing page only when the user clicks Close / Back to Billing.
+          handleStartNewBill();
         }}
       />
     </form>

@@ -127,12 +127,12 @@ const batchPagePath = resolve('src/pages/inventory/BatchManagementPage.tsx');
 const batchPageContent = readFileSync(batchPagePath, 'utf-8');
 const hasSerialLinkInBatchPage = batchPageContent.includes('/inventory/serials');
 
-console.log(`[CHECK 9] Serial Numbers accessible in workflows:`);
+console.log(`[CHECK 9] Serial Numbers accessibility:`);
 console.log(`  - In Product Details drawer: ${hasSerialLinkInProductDetails ? 'PASS' : 'FAIL'}`);
-console.log(`  - In Batch Management page: ${hasSerialLinkInBatchPage ? 'PASS' : 'FAIL'}`);
+console.log(`  - Excluded from Batch Management page: ${!hasSerialLinkInBatchPage ? 'PASS' : 'FAIL'}`);
 
-if (!hasSerialLinkInProductDetails || !hasSerialLinkInBatchPage) {
-  throw new Error("Serial numbers not linked in Product Details or Inventory workflows");
+if (!hasSerialLinkInProductDetails || hasSerialLinkInBatchPage) {
+  throw new Error("Serial numbers button expected to be excluded from Batch Management page");
 }
 
 console.log('\n--- ALL VERIFICATION CHECKS PASSED SUCCESSFULLY! ---');

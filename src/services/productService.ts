@@ -3,16 +3,37 @@ import { Product, Batch, SerialNumber, Unit, UnitConversion, ProductDeletionElig
 import { UNIVERSAL_BUILTIN_UNITS, isBuiltInUnit, isCustomUnit, normalizeUnitKey } from '../data/unitsData';
 import { assertCallerPermission } from '../utils/rbac';
 import { calculateBatchStatus } from '../utils/inventoryUtils';
+import { sortProductsAZ } from '../utils/sortUtils';
+
+// In-process mutex queue for sequential batch number allocation
+class BatchMutex {
+  private queue: Promise<void> = Promise.resolve();
+
+  async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    let release: () => void = () => {};
+    const next = new Promise<void>(res => { release = res; });
+    const prev = this.queue;
+    this.queue = next;
+    await prev.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+}
+const batchSeqMutex = new BatchMutex();
 
 export const productService = {
-  // Fetch products with optional search, category, and pagination
+  // Fetch products with optional search, category, and pagination (default A-Z by product name)
   async getProducts(params?: { search?: string; category?: string; page?: number; limit?: number }, companyId?: string): Promise<Product[]> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     let query = supabase
       .from('products')
       .select('*')
       .eq('company_id', finalCompanyId)
-      .order('created_at', { ascending: false });
+      .order('name', { ascending: true })
+      .order('sku', { ascending: true });
 
     if (params?.search) {
       query = query.or(`name.ilike.%${params.search}%,sku.ilike.%${params.search}%,barcode.ilike.%${params.search}%`);
@@ -43,7 +64,8 @@ export const productService = {
           .from('products')
           .select('*')
           .eq('company_id', finalCompanyId)
-          .order('created_at', { ascending: false })
+          .order('name', { ascending: true })
+          .order('sku', { ascending: true })
           .range(from, from + chunkSize - 1);
 
         if (params?.search) {
@@ -91,8 +113,8 @@ export const productService = {
       console.warn('Error fetching product batches map:', e);
     }
 
-    // Map database snake_case to frontend camelCase
-    return rawProducts.map(p => {
+    // Map database snake_case to frontend camelCase and sort A-Z by default
+    const mappedProducts: Product[] = rawProducts.map(p => {
       const primaryBatch = batchesByProduct.get(p.id);
       return {
       id: p.id,
@@ -134,9 +156,15 @@ export const productService = {
       createdAt: p.created_at
     };
     });
+
+    return sortProductsAZ(mappedProducts);
   },
 
   // Create new product atomically
+  async addProduct(p: Omit<Product, 'id' | 'createdAt'>, companyId?: string): Promise<Product> {
+    return this.createProduct(p, companyId);
+  },
+
   async createProduct(p: Omit<Product, 'id' | 'createdAt'>, companyId?: string): Promise<Product> {
     // 0. Strict RBAC Enforcement: Only authorized roles can create products or allocate stock
     await assertCallerPermission('products', 'create');
@@ -239,23 +267,44 @@ export const productService = {
         console.warn('Could not register warehouse stock balance:', sbErr);
       }
 
-      // Link initial batch record to the warehouse
+      // Link initial batch record to the warehouse (idempotent for retries)
       if (p.batchNumber && p.expiryDate) {
         const batchStatus = calculateBatchStatus(p.expiryDate, openingStockQty);
-        const { error: batchErr } = await supabase.from('product_batches').insert({
-          company_id: finalCompanyId,
-          product_id: prodId,
-          warehouse_id: whRec.id,
-          batch_number: p.batchNumber.trim(),
-          expiry_date: p.expiryDate,
-          purchase_date: new Date().toISOString().split('T')[0],
-          cost: effectiveCostPrice,
-          qty: openingStockQty,
-          status: batchStatus
-        });
+        const { data: existingBatch } = await supabase
+          .from('product_batches')
+          .select('id, qty')
+          .eq('company_id', finalCompanyId)
+          .eq('product_id', prodId)
+          .eq('warehouse_id', whRec.id)
+          .eq('batch_number', p.batchNumber.trim())
+          .maybeSingle();
 
-        if (batchErr) {
-          console.warn('Could not register initial batch record:', batchErr);
+        if (existingBatch) {
+          await supabase
+            .from('product_batches')
+            .update({
+              qty: (Number(existingBatch.qty) || 0) + openingStockQty,
+              cost: effectiveCostPrice,
+              expiry_date: p.expiryDate,
+              status: batchStatus
+            })
+            .eq('id', existingBatch.id);
+        } else {
+          const { error: batchErr } = await supabase.from('product_batches').insert({
+            company_id: finalCompanyId,
+            product_id: prodId,
+            warehouse_id: whRec.id,
+            batch_number: p.batchNumber.trim(),
+            expiry_date: p.expiryDate,
+            purchase_date: new Date().toISOString().split('T')[0],
+            cost: effectiveCostPrice,
+            qty: openingStockQty,
+            status: batchStatus
+          });
+
+          if (batchErr) {
+            console.warn('Could not register initial batch record:', batchErr);
+          }
         }
       }
     };
@@ -339,13 +388,13 @@ export const productService = {
         });
       }
 
-      // 4. Unit conversion registration
+      // 4. Unit conversion registration (1 Primary Unit = factor × Secondary Unit)
       if (p.secondaryUnit && p.conversionFactor && p.conversionFactor > 0) {
         await productService.createConversion({
-          fromUnit: p.secondaryUnit,
-          toUnit: p.primaryUnit || 'Piece',
+          fromUnit: p.primaryUnit || 'Piece',
+          toUnit: p.secondaryUnit,
           factor: Number(p.conversionFactor),
-          notes: `1 ${p.secondaryUnit} = ${p.conversionFactor} ${p.primaryUnit || 'Piece'}`
+          notes: `1 ${p.primaryUnit || 'Piece'} = ${p.conversionFactor} ${p.secondaryUnit}`
         }, finalCompanyId);
       }
     } catch (secondaryError: any) {
@@ -692,6 +741,36 @@ export const productService = {
 
     if (error) {
       throw new Error(`Database error deleting product: ${error.message}`);
+    }
+  },
+
+  // Transactional rollback helper: safely remove all related records created for a product during an aborted intake
+  async rollbackProductCreation(id: string, companyId?: string): Promise<void> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    try {
+      await supabase.from('stock_transactions').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('stock_balances').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('product_batches').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('product_barcodes').delete().eq('product_id', id);
+    } catch {
+      // ignore
+    }
+    try {
+      await supabase.from('products').delete().eq('id', id).eq('company_id', finalCompanyId);
+    } catch (err) {
+      console.warn(`Rollback error for product ${id}:`, err);
     }
   },
 
@@ -1085,6 +1164,13 @@ export const productService = {
 
       if (!docErr && docs) {
         docs.forEach(d => {
+          try {
+            const parsed = JSON.parse(d.terms_conditions || '[]');
+            if (Array.isArray(parsed)) {
+              parsed.forEach(addRule);
+              return;
+            }
+          } catch {}
           addRule({
             id: d.id,
             fromUnit: d.title || '',
@@ -1140,32 +1226,32 @@ export const productService = {
       console.warn('Note: unit_conversions direct insert bypassed to document_settings:', e);
     }
 
-    // 2. Persist to document_settings in Supabase (multi-tenant isolated)
+    // 2. Persist to document_settings in Supabase safely using upsert to prevent 409 Conflict
     try {
-      const { data: docData, error: docError } = await supabase
+      const currentConvs = this.getLocalConversions(finalCompanyId);
+      const newConv: UnitConversion = {
+        id: generatedId,
+        fromUnit: conv.fromUnit,
+        toUnit: conv.toUnit,
+        factor: conv.factor,
+        notes: conv.notes
+      };
+      const mergedConvs = [...currentConvs.filter(c => c.id !== generatedId), newConv];
+      await supabase
         .from('document_settings')
-        .insert({
-          company_id: finalCompanyId,
-          doc_type: 'unit_conversion',
-          title: conv.fromUnit,
-          header_text: conv.toUnit,
-          footer_text: String(conv.factor),
-          terms_conditions: conv.notes || `1 ${conv.fromUnit} = ${conv.factor} ${conv.toUnit}`
-        })
-        .select()
-        .single();
+        .upsert(
+          {
+            company_id: finalCompanyId,
+            doc_type: 'unit_conversion',
+            title: 'unit_conversions_registry',
+            header_text: 'UNIT_CONVERSIONS',
+            terms_conditions: JSON.stringify(mergedConvs)
+          },
+          { onConflict: 'company_id,doc_type' }
+        );
 
-      if (!docError && docData) {
-        const result: UnitConversion = {
-          id: docData.id,
-          fromUnit: docData.title || conv.fromUnit,
-          toUnit: docData.header_text || conv.toUnit,
-          factor: Number(docData.footer_text) || conv.factor,
-          notes: docData.terms_conditions || conv.notes
-        };
-        this.saveLocalConversion(result, finalCompanyId);
-        return result;
-      }
+      this.saveLocalConversion(newConv, finalCompanyId);
+      return newConv;
     } catch (docErr) {
       console.warn('Note: document_settings conversion fallback note:', docErr);
     }
@@ -1248,6 +1334,85 @@ export const productService = {
   },
 
   // Batches
+  /**
+   * Generates next sequential batch number in BTH-YYMM-### format.
+   * Resets to 001 every new month.
+   * Atomically tracks and reserves sequence using invoice_sequences and checks product_batches.
+   */
+  async generateNextBatchNumber(companyId?: string, targetDate?: string): Promise<string> {
+    return batchSeqMutex.runExclusive(async () => {
+      const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+      const effectiveDate = targetDate || new Date().toISOString().split('T')[0];
+      const d = new Date(effectiveDate);
+      const yy = String(d.getFullYear()).slice(-2);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yymm = `${yy}${mm}`;
+      const prefix = `BTH-${yymm}-`;
+
+      // 1. Try atomic RPC if available
+      try {
+        const { data: rpcVal, error: rpcErr } = await supabase.rpc('get_next_batch_number', {
+          p_company_id: finalCompanyId,
+          p_date: effectiveDate
+        });
+        if (!rpcErr && rpcVal && typeof rpcVal === 'string' && rpcVal.startsWith(prefix)) {
+          return rpcVal;
+        }
+      } catch {
+        // Fallback to table sequence allocation
+      }
+
+      // 2. Concurrency-safe atomic database sequence lookup & increment using invoice_sequences and product_batches
+      const { data: seqRow } = await supabase
+        .from('invoice_sequences')
+        .select('id, current_sequence')
+        .eq('company_id', finalCompanyId)
+        .eq('doc_type', 'batch')
+        .eq('financial_year', yymm)
+        .maybeSingle();
+
+      const { data: existingBatches } = await supabase
+        .from('product_batches')
+        .select('batch_number')
+        .eq('company_id', finalCompanyId)
+        .ilike('batch_number', `${prefix}%`);
+
+      let maxNum = 0;
+      (existingBatches || []).forEach(b => {
+        const match = (b.batch_number || '').match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      });
+
+      const nextSeq = Math.max(maxNum + 1, seqRow?.current_sequence || 1);
+
+      if (seqRow?.id) {
+        await supabase
+          .from('invoice_sequences')
+          .update({
+            current_sequence: nextSeq + 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', seqRow.id);
+      } else {
+        await supabase
+          .from('invoice_sequences')
+          .insert({
+            company_id: finalCompanyId,
+            doc_type: 'batch',
+            prefix: prefix,
+            starting_number: 1,
+            current_sequence: nextSeq + 1,
+            financial_year: yymm
+          });
+      }
+
+      return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    });
+  },
+
   async getBatches(companyId?: string): Promise<Batch[]> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const { data, error } = await supabase
@@ -1271,7 +1436,8 @@ export const productService = {
       purchaseDate: b.purchase_date,
       cost: Number(b.cost),
       qty: Number(b.qty),
-      status: b.status as any
+      status: b.status as any,
+      warehouseId: b.warehouse_id || undefined
     }));
   },
 
@@ -1283,9 +1449,10 @@ export const productService = {
         company_id: finalCompanyId,
         product_id: batch.productId,
         product_name: batch.productName,
+        warehouse_id: batch.warehouseId || null,
         batch_number: batch.batchNumber,
-        mfg_date: batch.mfgDate,
-        expiry_date: batch.expiryDate,
+        mfg_date: batch.mfgDate && batch.mfgDate.trim() ? batch.mfgDate : null,
+        expiry_date: batch.expiryDate && batch.expiryDate.trim() ? batch.expiryDate : null,
         purchase_date: batch.purchaseDate,
         cost: batch.cost,
         qty: batch.qty,
@@ -1307,8 +1474,30 @@ export const productService = {
       purchaseDate: data.purchase_date,
       cost: Number(data.cost),
       qty: Number(data.qty),
-      status: data.status
+      status: data.status,
+      warehouseId: data.warehouse_id || undefined
     };
+  },
+
+  async updateBatch(batchId: string, updates: Partial<Batch>, companyId?: string): Promise<void> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const dbPayload: any = {};
+    if (updates.batchNumber !== undefined) dbPayload.batch_number = updates.batchNumber;
+    if (updates.expiryDate !== undefined) dbPayload.expiry_date = updates.expiryDate;
+    if (updates.mfgDate !== undefined) dbPayload.mfg_date = updates.mfgDate;
+    if (updates.qty !== undefined) dbPayload.qty = updates.qty;
+    if (updates.status !== undefined) dbPayload.status = updates.status;
+    if (updates.warehouseId !== undefined) dbPayload.warehouse_id = updates.warehouseId;
+
+    const { error } = await supabase
+      .from('product_batches')
+      .update(dbPayload)
+      .eq('id', batchId)
+      .eq('company_id', finalCompanyId);
+
+    if (error) {
+      console.warn('Error updating batch in Supabase:', error.message);
+    }
   },
 
   // Serials
@@ -1373,5 +1562,25 @@ export const productService = {
       warrantyMonths: data.warranty_months,
       warrantyStatus: data.warranty_status
     };
+  },
+
+  async updateSerialNumber(serialId: string, updates: Partial<SerialNumber>, companyId?: string): Promise<void> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const dbPayload: any = {};
+    if (updates.serialNumber !== undefined) dbPayload.serial_number = updates.serialNumber;
+    if (updates.warrantyStatus !== undefined) dbPayload.warranty_status = updates.warrantyStatus;
+    if (updates.customerId !== undefined) dbPayload.customer_id = updates.customerId;
+    if (updates.customerName !== undefined) dbPayload.customer_name = updates.customerName;
+    if (updates.invoiceNumber !== undefined) dbPayload.invoice_number = updates.invoiceNumber;
+
+    const { error } = await supabase
+      .from('product_serial_numbers')
+      .update(dbPayload)
+      .eq('id', serialId)
+      .eq('company_id', finalCompanyId);
+
+    if (error) {
+      console.warn('Error updating serial number in Supabase:', error.message);
+    }
   }
 };

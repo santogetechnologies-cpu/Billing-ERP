@@ -33,6 +33,12 @@ interface AuthContextType {
     message?: string;
     error?: string;
   }>;
+  updateUserProfile: (updates: {
+    full_name?: string;
+    phone?: string;
+    age?: number;
+  }) => Promise<{ success: boolean; error?: string }>;
+  refreshProfile: () => Promise<UserProfile | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -298,6 +304,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res;
   };
 
+  const updateUserProfile = async (updates: {
+    full_name?: string;
+    phone?: string;
+    age?: number;
+  }): Promise<{ success: boolean; error?: string }> => {
+    const currentUid = user?.id || (await authService.getSession())?.user?.id;
+    if (!currentUid) {
+      return { success: false, error: 'No authenticated user found.' };
+    }
+    const res = await authService.updateUserProfile(currentUid, updates);
+    if (res.success) {
+      setProfile(prev => (prev ? {
+        ...prev,
+        ...(updates.full_name !== undefined ? { full_name: updates.full_name } : {}),
+        ...(updates.phone !== undefined ? { phone: updates.phone } : {}),
+        ...(updates.age !== undefined ? { age: updates.age } : {})
+      } : prev));
+      await loadProfile(currentUid);
+    }
+    return res;
+  };
+
+  const refreshProfile = async (): Promise<UserProfile | null> => {
+    const currentUid = user?.id || (await authService.getSession())?.user?.id;
+    if (!currentUid) return null;
+    return loadProfile(currentUid);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -317,7 +351,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         verifyPasswordResetOtp,
         completePasswordReset,
         getActiveOtpState,
-        updateAccountSecurity
+        updateAccountSecurity,
+        updateUserProfile,
+        refreshProfile
       }}
     >
       {children}

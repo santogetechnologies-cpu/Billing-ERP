@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useParams, useLocation } from 'react-router-dom';
 import {
   ClipboardList,
@@ -21,16 +21,22 @@ import {
   Package,
   ExternalLink,
   ChevronRight,
-  ScanBarcode
+  ScanBarcode,
+  Edit2,
+  Trash2,
+  X,
+  AlertCircle,
+  FileText
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
-import { canManageBarcodeOverride } from '../../utils/rbac';
-import { StatCard } from '../../components/common/StatCard';
+import { canManageBarcodeOverride, hasPermission } from '../../utils/rbac';
 import { Modal } from '../../components/common/Modal';
 import { StatusBadge } from '../../components/common/StatusBadge';
+import { ApprovePurchaseRequestModal } from '../../components/purchases/ApprovePurchaseRequestModal';
 import { formatNumber, formatDate } from '../../utils/formatters';
 import { purchaseRequestService } from '../../services/purchaseRequestService';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import {
   PurchaseRequest,
   PurchaseRequestPriority
@@ -40,7 +46,7 @@ const STATUS_TABS = [
   'All',
   'Pending Review',
   'Approved',
-  'Ordered',
+  'Active',
   'Completed',
   'Rejected'
 ] as const;
@@ -65,7 +71,9 @@ export const PurchaseRequestsPage: React.FC = () => {
     suppliers,
     products,
     createPurchaseRequest,
+    updatePurchaseRequest,
     updatePurchaseRequestStatus,
+    deletePurchaseRequest,
     createPurchaseOrderFromRequest,
     recordGoodsReceipt,
     refreshPurchaseRequests
@@ -75,8 +83,9 @@ export const PurchaseRequestsPage: React.FC = () => {
   const isPurchaseManager = profile?.role === 'Purchase Manager' || isExecutive;
   const isWarehouseManager = profile?.role === 'Warehouse Manager';
 
-  // Filters for Main List
+  // Filters for Main List (preserved across views)
   const [statusFilter, setStatusFilter] = useState<string>(() => {
+    if (location.state?.statusFilter) return location.state.statusFilter;
     const raw = searchParams.get('status');
     if (!raw) return 'All';
     const low = raw.toLowerCase();
@@ -85,11 +94,23 @@ export const PurchaseRequestsPage: React.FC = () => {
     }
     return raw;
   });
-  const [warehouseFilter, setWarehouseFilter] = useState<string>('All');
-  const [priorityFilter, setPriorityFilter] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [warehouseFilter, setWarehouseFilter] = useState<string>(
+    location.state?.warehouseFilter || 'All'
+  );
+  const [priorityFilter, setPriorityFilter] = useState<string>(
+    location.state?.priorityFilter || 'All'
+  );
+  const [searchQuery, setSearchQuery] = useState<string>(
+    location.state?.searchQuery || ''
+  );
+  const [currentPage, setCurrentPage] = useState<number>(
+    location.state?.currentPage || 1
+  );
   const pageSize = 10;
+
+  // Delete Confirmation Modal State
+  const [deleteConfirmRequest, setDeleteConfirmRequest] = useState<PurchaseRequest | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Fallback direct request fetcher for direct deep links / page reloads
   const [directFetchedRequest, setDirectFetchedRequest] = useState<PurchaseRequest | null>(null);
@@ -123,10 +144,14 @@ export const PurchaseRequestsPage: React.FC = () => {
   const [receiptQuantities, setReceiptQuantities] = useState<Record<string, number>>({});
   const [receiptWarehouseId, setReceiptWarehouseId] = useState<string>('');
 
-  // New Request Form State (Manual multi-item)
+  // New / Edit Request Form State
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [newReqWarehouseId, setNewReqWarehouseId] = useState<string>('');
   const [newReqPriority, setNewReqPriority] = useState<PurchaseRequestPriority>('Normal');
-  const [newReqReason, setNewReqReason] = useState<string>('');
+  const [newReqReason, setNewReqReason] = useState<string>('Critical inventory replenishment: Items are out of stock');
+  const [newReqReasonError, setNewReqReasonError] = useState<string | null>(null);
+  const newReqReasonInputRef = useRef<HTMLInputElement>(null);
+  const isNewReqReasonEditedRef = useRef<boolean>(false);
   const [newReqDate, setNewReqDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
@@ -192,8 +217,8 @@ export const PurchaseRequestsPage: React.FC = () => {
           ) {
             return false;
           }
-        } else if (statusFilter === 'Ordered') {
-          if (req.status !== 'Ordered' && req.status !== 'Partially Received') {
+        } else if (statusFilter === 'Active' || statusFilter === 'Ordered') {
+          if (req.status !== 'Active' && req.status !== 'Ordered' && req.status !== 'Partially Received') {
             return false;
           }
         } else if (req.status !== statusFilter) {
@@ -215,45 +240,55 @@ export const PurchaseRequestsPage: React.FC = () => {
     });
   }, [purchaseRequests, statusFilter, warehouseFilter, priorityFilter, searchQuery]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
+  // Continuous single-page list
+  const paginatedRequests = filteredRequests;
 
-  // Clamping page if count shrinks
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
 
-  const paginatedRequests = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredRequests.slice(start, start + pageSize);
-  }, [filteredRequests, currentPage, pageSize]);
 
-  // Statistics
-  const pendingCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Pending Approval' || r.status === 'Pending Review').length,
-    [purchaseRequests]
-  );
-  const underReviewCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Under Review' || r.status === 'Clarification Requested').length,
-    [purchaseRequests]
-  );
-  const approvedCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Approved').length,
-    [purchaseRequests]
-  );
-  const orderedOrReceivedCount = useMemo(
-    () => purchaseRequests.filter(r => r.status === 'Ordered' || r.status === 'Partially Received').length,
-    [purchaseRequests]
-  );
-
-  // Navigation Handlers
+  // Navigation Handlers (Preserve active filters and search query)
   const handleViewDetails = (reqId: string) => {
-    navigate(`${baseRoute}/${reqId}`);
+    navigate(`${baseRoute}/${reqId}`, {
+      state: {
+        fromSearch: location.search,
+        statusFilter,
+        warehouseFilter,
+        priorityFilter,
+        searchQuery,
+        currentPage
+      }
+    });
   };
 
   const handleBackToList = () => {
-    navigate(baseRoute);
+    const savedSearch = location.state?.fromSearch || '';
+    navigate(`${baseRoute}${savedSearch}`, {
+      state: {
+        statusFilter,
+        warehouseFilter,
+        priorityFilter,
+        searchQuery,
+        currentPage
+      }
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmRequest) return;
+    setIsDeleting(true);
+    try {
+      await deletePurchaseRequest(deleteConfirmRequest.id);
+      await refreshPurchaseRequests();
+      setFeedbackMsg({
+        type: 'success',
+        text: `Purchase request #${deleteConfirmRequest.requestNumber} was deleted successfully.`
+      });
+      setDeleteConfirmRequest(null);
+      handleBackToList();
+    } catch (err: any) {
+      alert(`Failed to delete purchase request: ${err?.message || 'Error occurred'}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Helper to calculate remaining quantity and receiving status for an item
@@ -278,23 +313,49 @@ export const PurchaseRequestsPage: React.FC = () => {
   };
 
   // Open Approval Modal
+  // Open Approval Modal
   const handleOpenApproveModal = (req: PurchaseRequest) => {
     setActiveRequest(req);
     const initialAdjust: Record<string, { qty: number; reason: string }> = {};
+    const initialRates: Record<string, number> = {};
     req.items.forEach(it => {
+      const prod = products.find(p => p.id === it.productId);
       initialAdjust[it.id] = {
         qty: it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty,
         reason: ''
       };
+      initialRates[it.id] = prod?.purchasePrice || prod?.costPrice || it.estimatedCost || 100;
     });
     setAdjustedQuantities(initialAdjust);
+    setPoItemRates(initialRates);
+    setPoSupplierId(suppliers[0]?.id || '');
+    setPoExpectedDate(req.requestedDeliveryDate || (() => {
+      const d = new Date();
+      d.setDate(d.getDate() + 5);
+      return d.toISOString().split('T')[0];
+    })());
+    setPoNotes(req.reason ? `Replenishment for ${req.warehouseName}: ${req.reason}` : `Generated from PR #${req.requestNumber}`);
     setActionType('APPROVE');
     setFeedbackMsg(null);
   };
 
-  // Submit Approval
+  // Submit Approval & Automatically Create Purchase Order
   const handleSubmitApprove = async () => {
-    if (!activeRequest) return;
+    if (!activeRequest || isSubmitting) return;
+
+    // Idempotency: Prevent duplicate POs if already generated
+    if (activeRequest.purchaseOrderId && activeRequest.purchaseOrderNumber) {
+      alert(`A Purchase Order (#${activeRequest.purchaseOrderNumber}) has already been generated for this request.`);
+      setActionType(null);
+      return;
+    }
+
+    const supplier = suppliers.find(s => s.id === poSupplierId) || suppliers[0];
+    if (!supplier) {
+      alert('Please select a supplier for this Purchase Order.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const adjustedItems = Object.entries(adjustedQuantities).map(([itemId, val]) => ({
@@ -303,11 +364,38 @@ export const PurchaseRequestsPage: React.FC = () => {
         adjustmentReason: val.reason.trim() || undefined
       }));
 
+      // 1. Approve purchase request
       await updatePurchaseRequestStatus({
         requestId: activeRequest.id,
         status: 'Approved',
-        comments: 'Purchase request approved for order creation.',
+        comments: `Purchase request approved by Purchase Manager. Linked PO created with supplier: ${supplier.company || supplier.name}.`,
         adjustedItems
+      });
+
+      // 2. Prepare order line items carrying over approved products, quantities, rates
+      const itemsPayload = activeRequest.items.map(it => {
+        const prod = products.find(p => p.id === it.productId);
+        const qtyVal = adjustedQuantities[it.id]?.qty;
+        const qtyToOrder = qtyVal !== undefined ? qtyVal : (it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty);
+        return {
+          productId: it.productId,
+          productName: it.productName,
+          qty: qtyToOrder,
+          rate: poItemRates[it.id] || prod?.purchasePrice || it.estimatedCost || 100,
+          taxRate: prod?.taxRate || 18,
+          unit: it.unit
+        };
+      });
+
+      // 3. Automatically create linked Purchase Order (transitions request to 'Ordered')
+      const { purchaseOrderNumber } = await createPurchaseOrderFromRequest({
+        requestId: activeRequest.id,
+        supplierId: supplier.id,
+        supplierName: supplier.company || supplier.name,
+        supplierGstin: supplier.gstin,
+        expectedDelivery: poExpectedDate,
+        notes: poNotes,
+        items: itemsPayload
       });
 
       // Refresh data
@@ -317,13 +405,17 @@ export const PurchaseRequestsPage: React.FC = () => {
         if (updated) setDirectFetchedRequest(updated);
       }
 
-      setFeedbackMsg({ type: 'success', text: `Purchase request #${activeRequest.requestNumber} approved successfully.` });
+      setFeedbackMsg({
+        type: 'success',
+        text: `Request #${activeRequest.requestNumber} approved! Purchase Order #${purchaseOrderNumber} created and linked successfully.`
+      });
+
       setTimeout(() => {
         setActionType(null);
         setIsSubmitting(false);
-      }, 1200);
+      }, 1500);
     } catch (err: any) {
-      alert(`Approval error: ${err.message}`);
+      alert(`Approval error: ${err.message || 'Failed to approve request'}`);
       setIsSubmitting(false);
     }
   };
@@ -565,30 +657,52 @@ export const PurchaseRequestsPage: React.FC = () => {
 
   // Open New Manual Request Modal
   const handleOpenNewRequestModal = () => {
+    setEditingRequestId(null);
     setNewReqWarehouseId(warehouses[0]?.id || '');
     setNewReqPriority('Normal');
-    setNewReqReason('');
-    const firstProd = products[0];
-    if (firstProd) {
-      setNewReqItems([
-        {
-          productId: firstProd.id,
-          requestedQty: firstProd.reorderLevel ? Math.max(1, firstProd.reorderLevel * 2) : 10,
-          estimatedCost: firstProd.purchasePrice || 0
-        }
-      ]);
-    } else {
-      setNewReqItems([]);
-    }
+    setNewReqReason('Critical inventory replenishment: Items are out of stock');
+    isNewReqReasonEditedRef.current = false;
+    setNewReqReasonError(null);
+    setNewReqItems([]); // Start with clean empty item list; user explicitly adds items
     setActionType('NEW_REQUEST');
     setFeedbackMsg(null);
   };
 
-  // Submit Manual Multi-Item Request
+  // Open Edit Saved Request Modal
+  const handleOpenEditRequestModal = (req: PurchaseRequest) => {
+    setEditingRequestId(req.id);
+    setNewReqWarehouseId(req.warehouseId);
+    setNewReqPriority(req.priority);
+    // Explicitly preserve the saved replenishment reason
+    setNewReqReason(req.reason || '');
+    isNewReqReasonEditedRef.current = true;
+    setNewReqReasonError(null);
+    if (req.requestedDeliveryDate) {
+      setNewReqDate(req.requestedDeliveryDate);
+    }
+    setNewReqItems(
+      req.items.map(it => ({
+        productId: it.productId,
+        requestedQty: it.requestedQty,
+        estimatedCost: it.estimatedCost || 0
+      }))
+    );
+    setActionType('NEW_REQUEST');
+    setFeedbackMsg(null);
+  };
+
+  // Submit Manual Multi-Item Request (Create or Edit)
   const handleSubmitNewRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newReqItems.length === 0) {
       alert('Please add at least one product item to the request.');
+      return;
+    }
+
+    const trimmedReason = newReqReason.trim();
+    if (!trimmedReason) {
+      setNewReqReasonError('Replenishment Reason is required. Please provide a reason for this purchase request.');
+      newReqReasonInputRef.current?.focus();
       return;
     }
 
@@ -614,24 +728,44 @@ export const PurchaseRequestsPage: React.FC = () => {
         };
       });
 
-      const res = await createPurchaseRequest({
-        warehouseId: wh.id,
-        warehouseName: wh.name,
-        priority: newReqPriority,
-        reason: newReqReason,
-        requestedDeliveryDate: newReqDate,
-        items: itemsPayload
-      });
+      if (editingRequestId) {
+        const res = await updatePurchaseRequest(editingRequestId, {
+          warehouseId: wh.id,
+          warehouseName: wh.name,
+          priority: newReqPriority,
+          reason: trimmedReason,
+          requestedDeliveryDate: newReqDate,
+          items: itemsPayload
+        });
 
-      await refreshPurchaseRequests();
+        await refreshPurchaseRequests();
+        if (targetId) {
+          const updated = await purchaseRequestService.getPurchaseRequestById(targetId);
+          if (updated) setDirectFetchedRequest(updated);
+        }
 
-      setFeedbackMsg({ type: 'success', text: `Purchase request #${res.requestNumber} created successfully!` });
+        setFeedbackMsg({ type: 'success', text: `Purchase request #${res.requestNumber} updated successfully!` });
+      } else {
+        const res = await createPurchaseRequest({
+          warehouseId: wh.id,
+          warehouseName: wh.name,
+          priority: newReqPriority,
+          reason: trimmedReason,
+          requestedDeliveryDate: newReqDate,
+          items: itemsPayload
+        });
+
+        await refreshPurchaseRequests();
+        setFeedbackMsg({ type: 'success', text: `Purchase request #${res.requestNumber} created successfully!` });
+      }
+
       setTimeout(() => {
         setActionType(null);
+        setEditingRequestId(null);
         setIsSubmitting(false);
       }, 1500);
     } catch (err: any) {
-      alert(`Failed to create request: ${err.message}`);
+      alert(`Failed to save request: ${err.message}`);
       setIsSubmitting(false);
     }
   };
@@ -669,9 +803,27 @@ export const PurchaseRequestsPage: React.FC = () => {
       );
     }
 
-    const items = selectedRequest.items || [];
+    const items = sortProductsAZ(selectedRequest.items || []);
     const isUrgent = selectedRequest.priority === 'Urgent';
     const isHigh = selectedRequest.priority === 'High';
+
+    const isEditableStatus = ['Pending Approval', 'Pending Review', 'Clarification Requested', 'Draft'].includes(selectedRequest.status);
+    const canEditRequest =
+      isEditableStatus &&
+      (isExecutive ||
+       isPurchaseManager ||
+       isWarehouseManager ||
+       hasPermission(profile?.role, 'purchases', 'edit') ||
+       hasPermission(profile?.role, 'inventory', 'edit'));
+
+    const isDeletableStatus = !['Ordered', 'Partially Received', 'Received'].includes(selectedRequest.status);
+    const canDeleteRequest =
+      isDeletableStatus &&
+      (isExecutive ||
+       hasPermission(profile?.role, 'purchases', 'delete') ||
+       hasPermission(profile?.role, 'inventory', 'delete') ||
+       (isPurchaseManager && ['Pending Approval', 'Pending Review', 'Clarification Requested', 'Rejected', 'Cancelled', 'Draft'].includes(selectedRequest.status)) ||
+       (isWarehouseManager && ['Pending Approval', 'Pending Review', 'Clarification Requested', 'Draft'].includes(selectedRequest.status)));
 
     return (
       <div className="space-y-6">
@@ -725,37 +877,58 @@ export const PurchaseRequestsPage: React.FC = () => {
             </div>
 
             {/* Quick Action Matrix for Details Page */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Purchase Manager: Pending Approval Actions */}
+            <div className="flex items-center gap-2.5 flex-wrap lg:flex-nowrap lg:justify-end shrink-0">
+              {/* 1. Edit Request */}
+              {canEditRequest && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditRequestModal(selectedRequest)}
+                  className="h-9 px-3.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-2xs shrink-0"
+                  title="Edit this request"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Edit</span>
+                </button>
+              )}
+
+              {/* 2. Delete Request */}
+              {canDeleteRequest && (
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmRequest(selectedRequest)}
+                  className="h-9 px-3.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-2xs shrink-0"
+                  title="Delete this request"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Delete</span>
+                </button>
+              )}
+
+              {/* 3. Reject & 4. Approve Request (Purchase Manager) */}
               {isPurchaseManager && (selectedRequest.status === 'Pending Approval' || selectedRequest.status === 'Pending Review' || selectedRequest.status === 'Under Review' || selectedRequest.status === 'Clarification Requested') && (
                 <>
                   <button
-                    onClick={() => {
-                      setActiveRequest(selectedRequest);
-                      setActionType('CLARIFY');
-                      setFeedbackMsg(null);
-                    }}
-                    className="px-3 py-2 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors cursor-pointer"
-                  >
-                    Request Clarification
-                  </button>
-
-                  <button
+                    type="button"
                     onClick={() => {
                       setActiveRequest(selectedRequest);
                       setActionType('REJECT');
                       setFeedbackMsg(null);
                     }}
-                    className="px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"
+                    className="h-9 px-3.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-2xs shrink-0"
+                    title="Reject this request"
                   >
-                    Reject
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Reject</span>
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => handleOpenApproveModal(selectedRequest)}
-                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+                    className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
+                    title="Approve this request"
                   >
-                    Approve Request
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Approve Request</span>
                   </button>
                 </>
               )}
@@ -763,22 +936,24 @@ export const PurchaseRequestsPage: React.FC = () => {
               {/* Warehouse Manager: Reply to clarification */}
               {isWarehouseManager && selectedRequest.status === 'Clarification Requested' && (
                 <button
+                  type="button"
                   onClick={() => {
                     setActiveRequest(selectedRequest);
                     setActionType('RESPOND_CLARIFY');
                     setFeedbackMsg(null);
                   }}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="h-9 px-4 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
                 >
-                  Reply & Clarify Request
+                  <span>Reply & Clarify Request</span>
                 </button>
               )}
 
               {/* Purchase Manager: Create PO from approved */}
               {isPurchaseManager && selectedRequest.status === 'Approved' && !selectedRequest.purchaseOrderId && (
                 <button
+                  type="button"
                   onClick={() => handleOpenCreatePoModal(selectedRequest)}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="h-9 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
                 >
                   <Truck className="w-3.5 h-3.5" />
                   <span>Generate Purchase Order</span>
@@ -786,13 +961,27 @@ export const PurchaseRequestsPage: React.FC = () => {
               )}
 
               {/* Warehouse / Purchase Manager: Receive Goods (GRN) */}
-              {(selectedRequest.status === 'Ordered' || selectedRequest.status === 'Partially Received') && (
+              {(selectedRequest.status === 'Ordered' || selectedRequest.status === 'Active' || selectedRequest.status === 'Partially Received') && (
                 <button
+                  type="button"
                   onClick={() => handleOpenReceiveGoodsModal(selectedRequest)}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="h-9 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
                 >
                   <Package className="w-3.5 h-3.5" />
                   <span>Confirm Inward Goods (GRN)</span>
+                </button>
+              )}
+
+              {/* Purchase Manager: Record Actual Supplier Bill */}
+              {isPurchaseManager && (selectedRequest.status === 'Ordered' || selectedRequest.status === 'Active' || selectedRequest.status === 'Partially Received' || selectedRequest.status === 'Completed' || selectedRequest.status === 'Delivered' || Boolean(selectedRequest.purchaseOrderId)) && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/purchases/new?poId=${selectedRequest.purchaseOrderId || ''}&requestId=${selectedRequest.id}`)}
+                  className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
+                  title="Record supplier bill and automatically transfer to Accountant"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Record Supplier Bill</span>
                 </button>
               )}
             </div>
@@ -1171,7 +1360,7 @@ export const PurchaseRequestsPage: React.FC = () => {
           </div>
           <div className="min-w-0">
             <h1 className="text-xl font-bold tracking-tight text-slate-900 truncate sm:whitespace-normal">
-              Purchase Requests & Procurement Workflow
+              Purchase Requests & Pending Requests
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
               Warehouse replenishment requests, approval matrix, purchase orders, and goods receiving (GRN)
@@ -1187,14 +1376,6 @@ export const PurchaseRequestsPage: React.FC = () => {
           >
             <Truck className="w-4 h-4 text-blue-600" />
             <span>Active Orders</span>
-          </button>
-
-          <button
-            onClick={() => navigate('/inventory/alerts')}
-            className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200/90 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-          >
-            <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span>Low Stock & Reorder</span>
           </button>
 
           {canManageBarcodeOverride(profile?.role) && (
@@ -1220,46 +1401,6 @@ export const PurchaseRequestsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Pending Review"
-          value={formatNumber(pendingCount)}
-          subtitle="Awaiting purchase manager review"
-          icon={Clock}
-          iconBgColor="bg-amber-50"
-          iconTextColor="text-amber-600"
-          onClick={() => { setStatusFilter('Pending Review'); setCurrentPage(1); }}
-        />
-        <StatCard
-          title="Under Review / Clarification"
-          value={formatNumber(underReviewCount)}
-          subtitle="In procurement evaluation"
-          icon={HelpCircle}
-          iconBgColor="bg-indigo-50"
-          iconTextColor="text-indigo-600"
-          onClick={() => { setStatusFilter('Pending Review'); setCurrentPage(1); }}
-        />
-        <StatCard
-          title="Approved (Ready for PO)"
-          value={formatNumber(approvedCount)}
-          subtitle="Authorized for vendor purchase order"
-          icon={CheckCircle2}
-          iconBgColor="bg-emerald-50"
-          iconTextColor="text-emerald-600"
-          onClick={() => { setStatusFilter('Approved'); setCurrentPage(1); }}
-        />
-        <StatCard
-          title="Ordered & In Transit"
-          value={formatNumber(orderedOrReceivedCount)}
-          subtitle="Active supplier purchase orders"
-          icon={Truck}
-          iconBgColor="bg-blue-50"
-          iconTextColor="text-blue-600"
-          onClick={() => navigate('/purchases/orders')}
-        />
-      </div>
-
       {/* Filters & Search Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3.5">
         {/* Row 1: All Warehouses | All Priorities | Search */}
@@ -1281,27 +1422,12 @@ export const PurchaseRequestsPage: React.FC = () => {
             </select>
           </div>
 
-          {/* Priority Filter */}
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shrink-0">
-            <Filter className="w-3.5 h-3.5 text-slate-500" />
-            <select
-              value={priorityFilter}
-              onChange={e => { setPriorityFilter(e.target.value); setCurrentPage(1); }}
-              className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer pr-1"
-            >
-              <option value="All">All Priorities</option>
-              <option value="Urgent">Urgent</option>
-              <option value="High">High</option>
-              <option value="Normal">Normal</option>
-            </select>
-          </div>
-
           {/* Search */}
           <div className="relative flex-1 min-w-[260px] max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by request #, product name, requester..."
+              placeholder="Search by request #, product name, warehouse..."
               value={searchQuery}
               onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
@@ -1343,19 +1469,18 @@ export const PurchaseRequestsPage: React.FC = () => {
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4 w-[140px] whitespace-nowrap">Request #</th>
-                <th className="py-3 px-4 min-w-[220px]">Product(s)</th>
-                <th className="py-3 px-3.5 w-[110px] whitespace-nowrap">Date</th>
+                <th className="py-3 px-4 min-w-[220px]">Product Name</th>
+                <th className="py-3 px-3.5 w-[120px] whitespace-nowrap">Date</th>
                 <th className="py-3 px-3.5 w-[160px] whitespace-nowrap">Warehouse</th>
                 <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap">Quantity</th>
-                <th className="py-3 px-3 w-[100px] text-center whitespace-nowrap">Priority</th>
                 <th className="py-3 px-3.5 w-[130px] text-center whitespace-nowrap">Status</th>
-                <th className="py-3 px-4 w-[90px] text-right whitespace-nowrap">Actions</th>
+                <th className="py-3 px-4 w-[90px] text-center whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginatedRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <ClipboardList className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-700">No purchase requests found</p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1367,8 +1492,6 @@ export const PurchaseRequestsPage: React.FC = () => {
                 </tr>
               ) : (
                 paginatedRequests.map(req => {
-                  const isUrgent = req.priority === 'Urgent';
-                  const isHigh = req.priority === 'High';
                   const itemsCount = req.items?.length || 0;
                   const firstItem = req.items?.[0];
                   const otherItemsCount = itemsCount - 1;
@@ -1386,7 +1509,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                         <span>#{req.requestNumber}</span>
                       </td>
 
-                      {/* 2. Product(s) */}
+                      {/* 2. Product Name */}
                       <td className="py-3.5 px-4 text-slate-800">
                         {firstItem ? (
                           <div className="min-w-0">
@@ -1413,18 +1536,21 @@ export const PurchaseRequestsPage: React.FC = () => {
 
                       {/* 3. Request Date */}
                       <td className="py-3.5 px-3.5 text-slate-600 font-medium whitespace-nowrap">
-                        {formatDate(req.createdAt)}
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{formatDate(req.createdAt)}</span>
+                        </div>
                       </td>
 
                       {/* 4. Warehouse Name */}
                       <td className="py-3.5 px-3.5 text-slate-800 font-medium">
                         <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[140px]" title={req.warehouseName}>{req.warehouseName}</span>
+                          <span className="truncate max-w-[180px]" title={req.warehouseName}>{req.warehouseName}</span>
                         </div>
                       </td>
 
-                      {/* 6. Quantity */}
+                      {/* 5. Quantity */}
                       <td className="py-3.5 px-3.5 text-right font-mono whitespace-nowrap">
                         {itemsCount === 1 && firstItem ? (
                           <span className="font-bold text-slate-800 text-xs tabular-nums">
@@ -1444,30 +1570,21 @@ export const PurchaseRequestsPage: React.FC = () => {
                         )}
                       </td>
 
-                      {/* 6. Priority */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        <span
-                          className={"inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border " + (isUrgent ? "bg-rose-50 text-rose-700 border-rose-200" : isHigh ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-700 border-slate-200")}
-                        >
-                          {req.priority}
-                        </span>
-                      </td>
-
-                      {/* 7. Request Status */}
+                      {/* 6. Request Status */}
                       <td className="py-3.5 px-3.5 text-center whitespace-nowrap">
                         <StatusBadge status={req.status} size="sm" />
                       </td>
 
-                      {/* 8. Actions */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      {/* 8. Actions (Eye / View Only) */}
+                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div
-                          className="flex items-center justify-end gap-1.5"
+                          className="flex items-center justify-center"
                           onClick={e => e.stopPropagation()}
                         >
                           <button
                             type="button"
                             onClick={() => handleViewDetails(req.id)}
-                            className="p-1.5 text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg transition-colors cursor-pointer flex items-center justify-center shadow-2xs hover:shadow-xs"
+                            className="w-8 h-8 text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg transition-colors cursor-pointer flex items-center justify-center shadow-2xs hover:shadow-xs"
                             title="View Details"
                             aria-label="View Details"
                           >
@@ -1482,43 +1599,6 @@ export const PurchaseRequestsPage: React.FC = () => {
             </tbody>
           </table>
         </div>
-
-        {/* Pagination Footer */}
-        {filteredRequests.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-slate-50/70 border-t border-slate-200">
-            <span className="text-xs text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{(currentPage - 1) * pageSize + 1}</span> to{' ' }
-              <span className="font-semibold text-slate-700">
-                {Math.min(currentPage * pageSize, filteredRequests.length)}
-              </span>{' ' }
-              of <span className="font-semibold text-slate-700">{filteredRequests.length}</span> purchase requests
-            </span>
-
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
-                >
-                  Previous
-                </button>
-                <span className="text-xs font-bold px-2 text-slate-700 font-mono">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  type="button"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
-                >
-                  Next
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Action Modals Rendered below */}
@@ -1533,97 +1613,27 @@ export const PurchaseRequestsPage: React.FC = () => {
     return (
       <>
         {/* ========================================================================= */}
-        {/* 1. APPROVAL MODAL (Optional quantity adjustment)                         */}
+        {/* 1. APPROVAL MODAL (Approve & Automatically Generate Purchase Order)       */}
         {/* ========================================================================= */}
-        <Modal
-          isOpen={actionType === 'APPROVE'}
-          onClose={() => !isSubmitting && setActionType(null)}
-          title="Approve Purchase Request"
-          subtitle={`Authorize replenishment for request #${activeRequest?.requestNumber}`}
-          size="md"
-        >
-          <div className="space-y-4 text-xs py-1">
-            {feedbackMsg && (
-              <div
-                className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
-                  feedbackMsg.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{feedbackMsg.text}</span>
-              </div>
-            )}
-
-            <p className="text-slate-600 leading-relaxed">
-              You are approving this purchase request. You can adjust the approved quantity if needed and provide an adjustment reason.
-            </p>
-
-            {activeRequest?.items.map(it => (
-              <div key={it.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <div className="flex items-center justify-between font-bold text-slate-800">
-                  <span>{it.productName}</span>
-                  <span className="text-slate-500 font-normal">
-                    Requested: {it.requestedQty} {it.unit}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Approved Qty</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={adjustedQuantities[it.id]?.qty || it.requestedQty}
-                      onChange={e => {
-                        const val = Math.max(1, Number(e.target.value));
-                        setAdjustedQuantities(prev => ({
-                          ...prev,
-                          [it.id]: { ...prev[it.id], qty: val }
-                        }));
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Adjustment Reason (If changed)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Budget limitation"
-                      value={adjustedQuantities[it.id]?.reason || ''}
-                      onChange={e => {
-                        const text = e.target.value;
-                        setAdjustedQuantities(prev => ({
-                          ...prev,
-                          [it.id]: { ...prev[it.id], reason: text }
-                        }));
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
-              <button
-                disabled={isSubmitting}
-                onClick={() => setActionType(null)}
-                className="px-4 py-2 text-slate-600 bg-slate-100 rounded-xl font-semibold cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={isSubmitting}
-                onClick={handleSubmitApprove}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
-              >
-                {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                <span>Confirm Approval</span>
-              </button>
-            </div>
-          </div>
-        </Modal>
+        {activeRequest && actionType === 'APPROVE' && (
+          <ApprovePurchaseRequestModal
+            isOpen={actionType === 'APPROVE'}
+            onClose={() => setActionType(null)}
+            request={activeRequest}
+            onApprovalSuccess={async (updated, poNumber) => {
+              setActionType(null);
+              await refreshPurchaseRequests();
+              if (targetId) {
+                const refreshed = await purchaseRequestService.getPurchaseRequestById(targetId);
+                if (refreshed) setDirectFetchedRequest(refreshed);
+              }
+              setFeedbackMsg({
+                type: 'success',
+                text: `Request #${updated.requestNumber} approved! Purchase Order #${poNumber} created and linked successfully.`
+              });
+            }}
+          />
+        )}
 
         {/* ========================================================================= */}
         {/* 2. REJECTION MODAL (Mandatory reason)                                    */}
@@ -1987,9 +1997,14 @@ export const PurchaseRequestsPage: React.FC = () => {
         {/* ========================================================================= */}
         <Modal
           isOpen={actionType === 'NEW_REQUEST'}
-          onClose={() => !isSubmitting && setActionType(null)}
-          title="Create Warehouse Purchase Request"
-          subtitle="Submit replenishment items to the Purchase Manager"
+          onClose={() => {
+            if (!isSubmitting) {
+              setActionType(null);
+              setEditingRequestId(null);
+            }
+          }}
+          title={editingRequestId ? 'Edit Purchase Request' : 'Create Warehouse Purchase Request'}
+          subtitle={editingRequestId ? 'Update replenishment items, quantities, or reason' : 'Submit replenishment items to the Purchase Manager'}
           size="lg"
         >
           <form onSubmit={handleSubmitNewRequest} className="space-y-4 text-xs py-1">
@@ -2057,15 +2072,29 @@ export const PurchaseRequestsPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Reason for Request
+                Replenishment Reason <span className="text-rose-500">*</span>
               </label>
               <input
+                ref={newReqReasonInputRef}
                 type="text"
-                placeholder="e.g. Critical stock shortage or customer project commitments"
+                required
+                placeholder="e.g. Critical inventory replenishment: Items are out of stock"
                 value={newReqReason}
-                onChange={e => setNewReqReason(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                onChange={e => {
+                  isNewReqReasonEditedRef.current = true;
+                  setNewReqReason(e.target.value);
+                  if (newReqReasonError) setNewReqReasonError(null);
+                }}
+                onFocus={e => {
+                  if (!isNewReqReasonEditedRef.current && newReqReason) {
+                    e.currentTarget.select();
+                  }
+                }}
+                className={`w-full px-3 py-2 bg-white border ${newReqReasonError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300'} rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500`}
               />
+              {newReqReasonError && (
+                <p className="text-[11px] text-rose-600 mt-1 font-medium">{newReqReasonError}</p>
+              )}
             </div>
 
             {/* Line Items */}
@@ -2077,11 +2106,12 @@ export const PurchaseRequestsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    const p = products[0];
-                    if (p) {
+                    const existingIds = new Set(newReqItems.map(it => it.productId));
+                    const nextProd = products.find(p => !existingIds.has(p.id)) || products[0];
+                    if (nextProd) {
                       setNewReqItems(prev => [
                         ...prev,
-                        { productId: p.id, requestedQty: 10, estimatedCost: p.purchasePrice || 0 }
+                        { productId: nextProd.id, requestedQty: 10, estimatedCost: nextProd.purchasePrice || 0 }
                       ]);
                     }
                   }}
@@ -2092,7 +2122,12 @@ export const PurchaseRequestsPage: React.FC = () => {
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-56 overflow-y-auto">
+              {newReqItems.length === 0 ? (
+                <div className="p-4 text-center border-2 border-dashed border-slate-200 rounded-xl text-xs text-slate-500">
+                  No items added yet. Click &quot;Add Item&quot; to choose a product.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-56 overflow-y-auto">
                 {newReqItems.map((item, idx) => (
                   <div key={idx} className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                     <div className="flex-1">
@@ -2115,11 +2150,20 @@ export const PurchaseRequestsPage: React.FC = () => {
                         }}
                         className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                       >
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} (Stock: {p.currentStock} {p.primaryUnit || 'Pcs'})
-                          </option>
-                        ))}
+                        {sortProductsAZ(products).map(p => {
+                          const pStock = Number(p.currentStock || 0);
+                          const pStatus =
+                            pStock <= 0
+                              ? 'Out of Stock'
+                              : p.reorderLevel !== null && p.reorderLevel !== undefined && pStock <= p.reorderLevel
+                              ? 'Limited'
+                              : 'In Stock';
+                          return (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({pStatus} - {pStock} {p.primaryUnit || 'Piece'})
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
@@ -2150,7 +2194,8 @@ export const PurchaseRequestsPage: React.FC = () => {
                   </div>
                 ))}
               </div>
-            </div>
+            )}
+          </div>
 
             <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
               <button
@@ -2167,10 +2212,84 @@ export const PurchaseRequestsPage: React.FC = () => {
                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
                 {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                <span>Submit Purchase Request</span>
+                <span>{editingRequestId ? 'Save Changes' : 'Submit Purchase Request'}</span>
               </button>
             </div>
           </form>
+        </Modal>
+
+        {/* ========================================================================= */}
+        {/* DELETE CONFIRMATION MODAL                                                 */}
+        {/* ========================================================================= */}
+        <Modal
+          isOpen={Boolean(deleteConfirmRequest)}
+          onClose={() => !isDeleting && setDeleteConfirmRequest(null)}
+          title="Delete Purchase Request"
+          size="sm"
+        >
+          {deleteConfirmRequest && (
+            <div className="space-y-4 text-xs">
+              <div className="p-3.5 bg-rose-50 rounded-xl border border-rose-200 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-rose-900">
+                    Are you sure you want to permanently delete purchase request #{deleteConfirmRequest.requestNumber}?
+                  </p>
+                  <p className="text-[11px] text-rose-700">
+                    This action will remove the request and its line items. This operation cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-slate-600">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Request:</span>
+                  <span className="font-mono font-bold text-slate-800">#{deleteConfirmRequest.requestNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Warehouse:</span>
+                  <span className="font-medium text-slate-800">{deleteConfirmRequest.warehouseName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Status:</span>
+                  <span className="font-semibold text-slate-800">{deleteConfirmRequest.status}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Line Items:</span>
+                  <span className="font-mono font-bold text-slate-800">{deleteConfirmRequest.items?.length || 0} items</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setDeleteConfirmRequest(null)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmDelete}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Confirm Delete</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
         </Modal>
       </>
     );

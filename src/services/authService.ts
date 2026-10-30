@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { inactivityService, INACTIVITY_STORAGE_KEY } from './inactivityService';
+import { filterSupportedProfilePayload } from '../utils/schemaDetector';
 
 export interface AuthUser {
   id: string;
@@ -25,6 +26,7 @@ export interface UserProfile {
   last_logout_at?: string;
   phone?: string;
   avatar_url?: string;
+  age?: number;
 }
 
 
@@ -643,7 +645,15 @@ export const authService = {
       // 1. Check tab-scoped staff session first for instant local recovery
       const staff = getTabScopedStaffSession();
       if (staff?.profile && staff.profile.id === uid) {
-        return staff.profile;
+        const localCache = typeof window !== 'undefined' ? localStorage.getItem(`universal_billing_profile_${uid}`) : null;
+        let merged = { ...staff.profile };
+        if (localCache) {
+          try {
+            const parsed = JSON.parse(localCache);
+            merged = { ...merged, ...parsed };
+          } catch {}
+        }
+        return merged;
       }
 
       // 2. Check database profiles
@@ -654,14 +664,31 @@ export const authService = {
         .maybeSingle();
 
       if (profile) {
-        return {
+        const localCache = typeof window !== 'undefined' ? localStorage.getItem(`universal_billing_profile_${uid}`) : null;
+        let merged: UserProfile = {
           id: profile.id,
           email: profile.email,
           full_name: profile.full_name || 'ERP User',
           company_id: profile.company_id,
           role: profile.role || 'Admin',
-          status: profile.status
+          status: profile.status,
+          account_status: profile.account_status,
+          presence_status: profile.presence_status,
+          last_login_at: profile.last_login_at || profile.last_login,
+          last_seen_at: profile.last_seen_at,
+          last_activity_at: profile.last_activity_at,
+          last_logout_at: profile.last_logout_at,
+          phone: profile.phone,
+          avatar_url: profile.avatar_url,
+          age: profile.age
         };
+        if (localCache) {
+          try {
+            const parsed = JSON.parse(localCache);
+            merged = { ...merged, ...parsed };
+          } catch {}
+        }
+        return merged;
       }
 
       if (staff?.profile) {
@@ -672,19 +699,119 @@ export const authService = {
       const u = sessionData.session?.user;
       if (u) {
         const metaCompId = u?.user_metadata?.company_id;
-        return {
+        const localCache = typeof window !== 'undefined' ? localStorage.getItem(`universal_billing_profile_${uid}`) : null;
+        let merged: UserProfile = {
           id: uid,
           email: u?.email || '',
           full_name: u?.user_metadata?.full_name || 'ERP User',
           company_id: metaCompId || null,
-          role: u?.user_metadata?.role || 'Owner'
+          role: u?.user_metadata?.role || 'Owner',
+          phone: u?.user_metadata?.phone,
+          status: 'Active',
+          account_status: 'Enabled',
+          presence_status: 'Active',
+          last_login_at: u?.last_sign_in_at
         };
+        if (localCache) {
+          try {
+            const parsed = JSON.parse(localCache);
+            merged = { ...merged, ...parsed };
+          } catch {}
+        }
+        return merged;
       }
 
       return null;
     } catch (err) {
       console.warn('Error fetching user profile:', err);
       return null;
+    }
+  },
+
+  // Update Profile (Personal Settings - Self update)
+  async updateUserProfile(userId: string, updates: { full_name?: string; phone?: string; age?: number }): Promise<{ success: boolean; error?: string }> {
+    try {
+      if (!userId) {
+        return { success: false, error: 'User ID is required.' };
+      }
+
+      // Check current session to ensure user is only updating themselves
+      const session = await this.getSession();
+      const currentUserId = session?.user?.id;
+      if (currentUserId && currentUserId !== userId) {
+        return { success: false, error: 'Unauthorized: You can only update your own profile.' };
+      }
+
+      // 1. Prepare safe database payload (strictly exclude email, role, permissions, etc.)
+      const dbPayload: Record<string, any> = {
+        updated_at: new Date().toISOString()
+      };
+      if (updates.full_name !== undefined) dbPayload.full_name = updates.full_name;
+      if (updates.phone !== undefined) dbPayload.phone = updates.phone;
+      if (updates.age !== undefined) dbPayload.age = updates.age;
+
+      const safePayload = await filterSupportedProfilePayload(dbPayload);
+
+      if (Object.keys(safePayload).length > 0) {
+        const { error: dbError } = await supabase
+          .from('profiles')
+          .update(safePayload)
+          .eq('id', userId);
+
+        if (dbError) {
+          console.warn('Database profile update note:', dbError.message);
+        }
+      }
+
+      // 2. Update tab-scoped staff session if present
+      const staffSession = getTabScopedStaffSession();
+      if (staffSession?.profile && staffSession.profile.id === userId) {
+        const updatedStaffProfile: UserProfile = {
+          ...staffSession.profile,
+          ...(updates.full_name !== undefined ? { full_name: updates.full_name } : {}),
+          ...(updates.phone !== undefined ? { phone: updates.phone } : {}),
+          ...(updates.age !== undefined ? { age: updates.age } : {})
+        };
+        const updatedStaffUser = {
+          ...staffSession.user,
+          user_metadata: {
+            ...staffSession.user.user_metadata,
+            ...(updates.full_name !== undefined ? { full_name: updates.full_name } : {})
+          }
+        };
+        setTabScopedStaffSession({ user: updatedStaffUser, profile: updatedStaffProfile });
+      }
+
+      // 3. Persist profile fields in local storage cache for instant recovery
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const cacheKey = `universal_billing_profile_${userId}`;
+        const existing = JSON.parse(localStorage.getItem(cacheKey) || '{}');
+        localStorage.setItem(cacheKey, JSON.stringify({
+          ...existing,
+          ...updates,
+          updated_at: new Date().toISOString()
+        }));
+      }
+
+      // 4. Update Supabase Auth user metadata if active Supabase session
+      try {
+        const { data: authSession } = await supabase.auth.getSession();
+        if (authSession?.session?.user && authSession.session.user.id === userId) {
+          await supabase.auth.updateUser({
+            data: {
+              ...(updates.full_name !== undefined ? { full_name: updates.full_name } : {}),
+              ...(updates.phone !== undefined ? { phone: updates.phone } : {})
+            }
+          });
+        }
+      } catch (authMetaErr) {
+        console.warn('Supabase auth metadata update note:', authMetaErr);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error updating user profile:', err);
+      return { success: false, error: err.message || 'Failed to update profile' };
     }
   },
 

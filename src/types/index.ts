@@ -248,6 +248,11 @@ export type PurchaseDocType =
   | 'purchase_receipt'
   | 'purchase_return';
 
+export type BillVerificationStatus =
+  | 'Pending Review'
+  | 'Approved for Payment'
+  | 'Correction Requested';
+
 export interface PurchaseInvoice {
   id: string;
   invoiceNumber: string;
@@ -280,6 +285,20 @@ export interface PurchaseInvoice {
   createdAt: string;
   originalPurchaseId?: string;
   referenceNumber?: string;
+  // Accountant workflow & PR/PO links
+  supplierInvoiceNumber?: string;
+  purchaseOrderId?: string;
+  purchaseOrderNumber?: string;
+  purchaseRequestId?: string;
+  purchaseRequestNumber?: string;
+  verificationStatus?: BillVerificationStatus;
+  verifiedBy?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
+  correctionNotes?: string;
+  correctionRequestedAt?: string;
+  hasDiscrepancy?: boolean;
+  discrepancyNotes?: string;
 }
 
 export type ExpenseCategory =
@@ -435,6 +454,8 @@ export interface Batch {
   cost: number;
   qty: number;
   status: 'Active' | 'Expiring Soon' | 'Expired' | 'Low Stock';
+  warehouseId?: string;
+  warehouseName?: string;
 }
 
 export interface SerialNumber {
@@ -747,8 +768,10 @@ export type PurchaseRequestStatus =
   | 'Approved'
   | 'Rejected'
   | 'Ordered'
+  | 'Active'
   | 'Partially Received'
   | 'Completed'
+  | 'Delivered'
   | 'Cancelled';
 
 export type PurchaseRequestPriority = 'Normal' | 'High' | 'Urgent';
@@ -769,6 +792,7 @@ export interface PurchaseRequestItem {
   unit: string;
   estimatedCost?: number;
   adjustmentReason?: string;
+  isCustom?: boolean;
   createdAt?: string;
 }
 
@@ -804,10 +828,124 @@ export interface PurchaseRequest {
   clarificationNotes?: string;
   purchaseOrderId?: string;
   purchaseOrderNumber?: string;
+  supplierId?: string;
+  supplierName?: string;
+  supplierGstin?: string;
   items: PurchaseRequestItem[];
   history?: PurchaseRequestHistory[];
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Supplier-Wise Delivery & Goods Receiving Types
+// ---------------------------------------------------------------------------
+export type SupplierDeliveryStatus = 'Pending' | 'Partially Received' | 'Received / Completed';
+
+export interface SupplierDeliveryPurchaseOrderSummary {
+  orderId: string;
+  orderNumber: string;
+  purchaseRequestId?: string;
+  purchaseOrderId?: string;
+  docType?: string;
+  orderDate?: string;
+  expectedDeliveryDate?: string;
+  deliveryStatus: SupplierDeliveryStatus;
+  orderedQty: number;
+  previouslyReceivedQty: number;
+  pendingQty: number;
+  productsCount: number;
+  totalValue: number;
+  hasSupplierBill: boolean;
+  supplierInvoiceNumber?: string;
+}
+
+export interface SupplierDeliveryProductItem {
+  id: string; // unique row id (e.g. `${orderId}_${itemId}`)
+  orderId: string; // PO ID or PR ID
+  orderNumber: string; // PO Number (e.g. PO-2026-4816)
+  purchaseOrderId?: string;
+  purchaseRequestId?: string;
+  itemId: string; // raw line item id
+  productId: string;
+  productName: string;
+  sku: string;
+  unit: string;
+  orderedQty: number;
+  previouslyReceivedQty: number;
+  pendingQty: number;
+  currentStock: number;
+  rate: number;
+  totalValue: number;
+  requiresBatch: boolean;
+  requiresExpiry: boolean;
+  batchNumber?: string;
+  expiryDate?: string;
+  mfgDate?: string;
+  expectedDeliveryDate?: string;
+  receivingStatus: SupplierDeliveryStatus;
+}
+
+export interface SupplierDeliveryGroup {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  supplierCompany?: string;
+  supplierContact: string;
+  supplierPhone?: string;
+  supplierEmail?: string;
+  supplierGstin?: string;
+  supplierAddress?: string;
+  warehouseId: string;
+  warehouseName: string;
+  purchaseOrders: SupplierDeliveryPurchaseOrderSummary[];
+  purchaseOrderNumbers: string[];
+  purchaseOrderIds: string[];
+  items: SupplierDeliveryProductItem[];
+  purchaseOrdersCount: number;
+  productsPendingCount: number;
+  totalOrderedQuantity: number;
+  totalPreviouslyReceivedQuantity: number;
+  totalOutstandingQuantity: number;
+  totalDeliveryValue: number;
+  expectedDeliveryDate: string;
+  isOverdue: boolean;
+  deliveryStatus: SupplierDeliveryStatus;
+  hasSupplierBill: boolean;
+  supplierInvoiceNumber?: string;
+}
+
+export interface RecordSupplierDeliveryInput {
+  supplierId: string;
+  receivingWarehouseId: string;
+  supplierInvoiceNumber?: string;
+  deliveryRemarks?: string;
+  receivedItems: Array<{
+    itemId: string;
+    orderId: string;
+    purchaseOrderId?: string;
+    purchaseRequestId?: string;
+    productId: string;
+    arrivedQty: number;
+    damagedQty?: number;
+    acceptedQty?: number;
+    batchNumber?: string;
+    expiryDate?: string;
+    mfgDate?: string;
+  }>;
+}
+
+export interface SupplierDeliveryReceiptResult {
+  supplierId: string;
+  updatedOrders: Array<{
+    orderId: string;
+    orderNumber: string;
+    status: string;
+    receivedQty: number;
+    acceptedQty: number;
+  }>;
+  totalAcceptedQty: number;
+  totalDamagedQty: number;
 }
 
 export interface CreatePurchaseRequestInput {
@@ -937,4 +1075,109 @@ export interface BarcodeValidationResult {
   message?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Customer Return Management Types
+// ---------------------------------------------------------------------------
+
+export type CustomerReturnCondition = 'Resalable' | 'Damaged' | 'Defective' | 'Expired';
+export type CustomerReturnStatus = 'Pending Review' | 'Approved' | 'Rejected' | 'Stock Restocked';
+export type CustomerReturnRefundStatus = 'Pending' | 'Refunded' | 'Rejected' | 'No Refund Required';
+
+export interface CustomerReturn {
+  id: string;
+  companyId: string;
+  returnNumber: string;
+  originalInvoiceId: string;
+  originalInvoiceNumber: string;
+  returnDate: string;
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  soldQty: number;
+  returnedQty: number;
+  unit: string;
+  unitPrice: number;
+  refundAmount: number;
+  reason: string;
+  condition: CustomerReturnCondition;
+  warehouseId?: string;
+  warehouseName?: string;
+  returnStatus: CustomerReturnStatus;
+  refundStatus: CustomerReturnRefundStatus;
+  notes?: string;
+  createdBy?: string;
+  createdByName?: string;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  restockedBy?: string;
+  restockedByName?: string;
+  restockedAt?: string;
+  refundedBy?: string;
+  refundedByName?: string;
+  refundedAt?: string;
+  refundMethod?: string;
+  updatedBy?: string;
+  updatedByName?: string;
+  auditTrail?: Array<{
+    date: string;
+    editedBy: string;
+    field: string;
+    oldValue: any;
+    newValue: any;
+  }>;
+  directRestock?: boolean;
+  isDirectReturn?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCustomerReturnInput {
+  originalInvoiceId: string;
+  originalInvoiceNumber: string;
+  returnDate: string;
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  soldQty: number;
+  returnedQty: number;
+  unit: string;
+  unitPrice: number;
+  refundAmount?: number;
+  reason: string;
+  condition: CustomerReturnCondition;
+  warehouseId?: string;
+  warehouseName?: string;
+  notes?: string;
+  createdBy?: string;
+  createdByName?: string;
+  directRestock?: boolean;
+  returnStatus?: CustomerReturnStatus;
+}
+
+export interface UpdateCustomerReturnInput {
+  customerName?: string;
+  customerPhone?: string;
+  reason?: string;
+  condition?: CustomerReturnCondition;
+  returnedQty?: number;
+  warehouseId?: string;
+  warehouseName?: string;
+  notes?: string;
+  refundAmount?: number;
+  updatedBy?: string;
+  updatedByName?: string;
+}
 

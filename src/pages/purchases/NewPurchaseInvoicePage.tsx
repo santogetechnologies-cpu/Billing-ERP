@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Save,
@@ -9,15 +9,34 @@ import {
   Calendar,
   DollarSign,
   Truck,
-  CheckCircle
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { formatCurrency } from '../../utils/formatters';
-import { PurchaseInvoice, PurchaseDocType } from '../../types';
+import { sortProductsAZ } from '../../utils/sortUtils';
+import { PurchaseInvoice, PurchaseDocType, Product } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { isTableMarkedMissing } from '../../utils/schemaDetector';
+import { Modal } from '../../components/common/Modal';
+import { AddSupplierModal } from '../../components/suppliers/AddSupplierModal';
+import { InitialStockPage } from '../products/InitialStockPage';
 
 export const NewPurchaseInvoicePage: React.FC = () => {
   const navigate = useNavigate();
-  const { suppliers, products, warehouses, purchaseInvoices, createPurchaseInvoice } = useERP();
+  const [searchParams] = useSearchParams();
+  const { company, suppliers, products, warehouses, purchaseInvoices, purchaseRequests, createPurchaseInvoice } = useERP();
+
+  const targetPoId = searchParams.get('poId');
+  const targetRequestId = searchParams.get('requestId');
+  const queryDocType = searchParams.get('docType');
+  const initialDocType: PurchaseDocType = queryDocType === 'purchase_order' ? 'purchase_order' : 'purchase_invoice';
+
+  const [availableOrders, setAvailableOrders] = useState<any[]>([]);
+  const [selectedPoId, setSelectedPoId] = useState<string>(targetPoId || '');
+  const [linkedPoNumber, setLinkedPoNumber] = useState<string>('');
+  const [linkedRequestId, setLinkedRequestId] = useState<string>(targetRequestId || '');
+  const [linkedRequestNumber, setLinkedRequestNumber] = useState<string>('');
 
   const nextPurchaseNumber = useMemo(() => {
     let maxSeq = 1000;
@@ -31,16 +50,59 @@ export const NewPurchaseInvoicePage: React.FC = () => {
     return `PUR-2026-${maxSeq + 1}`;
   }, [purchaseInvoices]);
 
-  const [docType, setDocType] = useState<PurchaseDocType>('purchase_invoice');
-  const [invoiceNumber, setInvoiceNumber] = useState(nextPurchaseNumber);
+  const nextPoNumber = useMemo(() => {
+    let maxSeq = 1000;
+    purchaseInvoices.forEach(p => {
+      const match = (p.invoiceNumber || '').match(/PO-.*?(\d+)$/);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeq) maxSeq = num;
+      }
+    });
+    return `PO-2026-${maxSeq + 1}`;
+  }, [purchaseInvoices]);
+
+  const [docType, setDocType] = useState<PurchaseDocType>(initialDocType);
+  const [invoiceNumber, setInvoiceNumber] = useState(() => initialDocType === 'purchase_order' ? nextPoNumber : nextPurchaseNumber);
+
+  useEffect(() => {
+    if (docType === 'purchase_order') {
+      setInvoiceNumber(prev => (prev.startsWith('PUR-') || !prev ? nextPoNumber : prev));
+    } else {
+      setInvoiceNumber(prev => (prev.startsWith('PO-') || !prev ? nextPurchaseNumber : prev));
+    }
+  }, [docType, nextPoNumber, nextPurchaseNumber]);
+  const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
   const [selectedSupplierId, setSelectedSupplierId] = useState(suppliers[0]?.id || '');
+  const [customSupplierName, setCustomSupplierName] = useState('');
   const [warehouse, setWarehouse] = useState(warehouses[0]?.id || '');
   const [freightCharges, setFreightCharges] = useState<string>('');
   const [otherCharges, setOtherCharges] = useState<string>('');
   const [paidAmount, setPaidAmount] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [isAddNewProductModalOpen, setIsAddNewProductModalOpen] = useState(false);
+  const [originalPoItems, setOriginalPoItems] = useState<Record<string, { orderedQty: number; rate: number; productName: string }>>({});
+
+  useEffect(() => {
+    if (!selectedSupplierId && suppliers.length > 0) {
+      setSelectedSupplierId(suppliers[0].id);
+    }
+  }, [suppliers, selectedSupplierId]);
+
+  useEffect(() => {
+    if (!warehouse && warehouses.length > 0) {
+      const defaultWh = warehouses.find(w => w.isDefault && (w.isActive ?? true)) || warehouses[0];
+      setWarehouse(defaultWh?.id || '');
+    }
+  }, [warehouses, warehouse]);
 
   const [items, setItems] = useState<Array<{
     productId: string;
@@ -54,6 +116,144 @@ export const NewPurchaseInvoicePage: React.FC = () => {
 
   const activeSupplier = suppliers.find(s => s.id === selectedSupplierId) || suppliers[0];
 
+  // Load purchase orders to allow linking
+  const fetchPurchaseOrders = useCallback(async () => {
+    const compId = company?.id || '00000000-0000-0000-0000-000000000001';
+    let ordersList: any[] = [];
+
+    if (!isTableMarkedMissing('purchase_orders')) {
+      try {
+        const { data, error } = await supabase
+          .from('purchase_orders')
+          .select('*, purchase_order_items (*)')
+          .eq('company_id', compId)
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          ordersList = data;
+        }
+      } catch {}
+    }
+
+    try {
+      const { data: pData } = await supabase
+        .from('purchases')
+        .select('*')
+        .eq('company_id', compId)
+        .eq('doc_type', 'purchase_order')
+        .order('date', { ascending: false });
+      if (pData) {
+        ordersList = [...ordersList, ...pData];
+      }
+    } catch {}
+
+    // Merge with purchaseRequests that have purchaseOrderId
+    purchaseRequests.forEach(req => {
+      if (req.purchaseOrderId && !ordersList.some(o => o.id === req.purchaseOrderId || o.order_number === req.purchaseOrderNumber)) {
+        ordersList.push({
+          id: req.purchaseOrderId,
+          order_number: req.purchaseOrderNumber || `PO-${req.requestNumber}`,
+          supplier_id: (req as any).supplierId || null,
+          supplier_name: (req as any).supplierName || 'Supplier',
+          linked_request_id: req.id,
+          linked_request_number: req.requestNumber,
+          warehouse_id: req.warehouseId,
+          items: req.items.map(it => ({
+            product_id: it.productId,
+            product_name: it.productName,
+            qty: it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty,
+            rate: it.estimatedCost || 0,
+            unit: it.unit
+          }))
+        });
+      }
+    });
+
+    setAvailableOrders(ordersList);
+
+    const target = targetPoId || targetRequestId;
+    if (target) {
+      const matched = ordersList.find(o => o.id === target || o.order_number === target || o.linked_request_id === target);
+      if (matched) {
+        applyPoDetails(matched);
+      }
+    }
+  }, [company?.id, purchaseRequests, targetPoId, targetRequestId]);
+
+  useEffect(() => {
+    fetchPurchaseOrders();
+  }, [fetchPurchaseOrders]);
+
+  const applyPoDetails = (po: any) => {
+    if (!po) {
+      setSelectedPoId('');
+      setLinkedPoNumber('');
+      setLinkedRequestId('');
+      setLinkedRequestNumber('');
+      setOriginalPoItems({});
+      return;
+    }
+
+    const poId = po.id || '';
+    const poNum = po.order_number || po.invoice_number || `PO-${po.id?.slice(0, 6)}`;
+    setSelectedPoId(poId);
+    setLinkedPoNumber(poNum);
+
+    const linkedReq = purchaseRequests.find(r => r.purchaseOrderId === poId || r.id === po.linked_request_id);
+    const reqId = po.linked_request_id || linkedReq?.id || targetRequestId || '';
+    const reqNum = po.linked_request_number || linkedReq?.requestNumber || '';
+    setLinkedRequestId(reqId);
+    setLinkedRequestNumber(reqNum);
+
+    if (po.supplier_id) {
+      setSelectedSupplierId(po.supplier_id);
+    } else if (po.supplier_name) {
+      const matchSup = suppliers.find(s => s.name?.toLowerCase() === po.supplier_name?.toLowerCase() || s.company?.toLowerCase() === po.supplier_name?.toLowerCase());
+      if (matchSup) {
+        setSelectedSupplierId(matchSup.id);
+      } else {
+        setCustomSupplierName(po.supplier_name);
+      }
+    }
+
+    if (po.warehouse_id) {
+      setWarehouse(po.warehouse_id);
+    }
+
+    const rawItems = po.purchase_order_items || po.items || [];
+    const poItemMap: Record<string, { orderedQty: number; rate: number; productName: string }> = {};
+
+    if (rawItems.length > 0) {
+      const mappedItems = rawItems.map((it: any) => {
+        const prod = products.find(p => p.id === (it.product_id || it.productId));
+        const qty = Number(it.qty || it.ordered_qty || it.requestedQty || 1);
+        const rate = Number(it.rate || it.unit_cost || prod?.costPrice || prod?.purchasePrice || 0);
+        const taxRate = Number(it.tax_rate || it.taxRate || prod?.taxRate || 18);
+        const pId = prod?.id || it.product_id || it.productId;
+        const pName = prod?.name || it.product_name || it.productName || 'Procured Item';
+
+        if (pId) {
+          poItemMap[pId] = {
+            orderedQty: qty,
+            rate,
+            productName: pName
+          };
+        }
+
+        return {
+          productId: pId,
+          productName: pName,
+          qty,
+          unit: it.unit || prod?.primaryUnit || 'Piece',
+          rate,
+          discount: 0,
+          taxRate
+        };
+      });
+      setItems(mappedItems);
+    }
+    setOriginalPoItems(poItemMap);
+  };
+
   // Live calculations
   const calculatedItems = useMemo(() => {
     return items.map(item => {
@@ -66,6 +266,49 @@ export const NewPurchaseInvoicePage: React.FC = () => {
       return { ...item, qty: iQty, rate: iRate, discount: iDisc, taxAmt, total };
     });
   }, [items]);
+
+  // Discrepancy matching against linked PO
+  const discrepancyList = useMemo(() => {
+    if (!linkedPoNumber || Object.keys(originalPoItems).length === 0) return [];
+    const list: Array<{ productId: string; productName: string; type: 'rate' | 'qty' | 'both'; message: string }> = [];
+
+    calculatedItems.forEach(item => {
+      const orig = originalPoItems[item.productId];
+      if (orig) {
+        const itemRate = Number(item.rate) || 0;
+        const itemQty = Number(item.qty) || 0;
+        const isRateDiff = orig.rate > 0 && Math.abs(itemRate - orig.rate) > 0.01;
+        const isQtyDiff = itemQty > orig.orderedQty;
+
+        if (isRateDiff && isQtyDiff) {
+          list.push({
+            productId: item.productId,
+            productName: item.productName,
+            type: 'both',
+            message: `${item.productName}: Invoiced rate (₹${itemRate.toFixed(2)}) differs from PO rate (₹${orig.rate.toFixed(2)}), and Invoiced Qty (${itemQty}) exceeds PO Qty (${orig.orderedQty})`
+          });
+        } else if (isRateDiff) {
+          list.push({
+            productId: item.productId,
+            productName: item.productName,
+            type: 'rate',
+            message: `${item.productName}: Invoiced unit rate (₹${itemRate.toFixed(2)}) differs from agreed PO rate (₹${orig.rate.toFixed(2)})`
+          });
+        } else if (isQtyDiff) {
+          list.push({
+            productId: item.productId,
+            productName: item.productName,
+            type: 'qty',
+            message: `${item.productName}: Invoiced quantity (${itemQty}) exceeds PO ordered quantity (${orig.orderedQty})`
+          });
+        }
+      }
+    });
+    return list;
+  }, [calculatedItems, originalPoItems, linkedPoNumber]);
+
+  const hasDiscrepancy = discrepancyList.length > 0;
+  const discrepancyNotes = discrepancyList.map(d => d.message).join('; ');
 
   const subtotal = calculatedItems.reduce((acc, i) => acc + (Number(i.qty) || 0) * (Number(i.rate) || 0) - (Number(i.discount) || 0), 0);
   const taxTotal = calculatedItems.reduce((acc, i) => acc + i.taxAmt, 0);
@@ -91,6 +334,36 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         taxRate: prod.taxRate || 0
       }
     ]);
+  };
+
+  const handleNewProductCreated = (created: Product | Product[]) => {
+    const prods = Array.isArray(created) ? created : [created];
+    if (prods.length === 0) {
+      setIsAddNewProductModalOpen(false);
+      return;
+    }
+
+    const newRows = prods.map(newProd => {
+      const defaultRate =
+        newProd.purchasePrice !== undefined && newProd.purchasePrice !== null && Number(newProd.purchasePrice) > 0
+          ? newProd.purchasePrice
+          : (newProd.costPrice || 0);
+
+      const defaultQty = Number(newProd.openingStock) > 0 ? Number(newProd.openingStock) : 1;
+
+      return {
+        productId: newProd.id,
+        productName: newProd.name,
+        qty: defaultQty,
+        unit: newProd.primaryUnit || 'Piece',
+        rate: defaultRate,
+        discount: 0,
+        taxRate: Number(newProd.taxRate) || 0
+      };
+    });
+
+    setItems(prev => [...prev, ...newRows]);
+    setIsAddNewProductModalOpen(false);
   };
 
   const removeItemRow = (idx: number) => {
@@ -126,19 +399,38 @@ export const NewPurchaseInvoicePage: React.FC = () => {
 
     if (isSubmitting) return;
 
+    const finalSupplierInv = supplierInvoiceNumber.trim() || invoiceNumber;
+
+    // Prevent duplicate bill submissions
+    const isDuplicate = purchaseInvoices.some(
+      p => p.supplierId === activeSupplier?.id &&
+           ((p.supplierInvoiceNumber && p.supplierInvoiceNumber.trim().toLowerCase() === finalSupplierInv.toLowerCase()) ||
+            (p.invoiceNumber && p.invoiceNumber.trim().toLowerCase() === finalSupplierInv.toLowerCase()))
+    );
+
+    if (isDuplicate) {
+      alert(`Duplicate Submission Prevented: A supplier bill with invoice #${finalSupplierInv} already exists for ${activeSupplier?.company || activeSupplier?.name}.`);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const numPaid = Number(paidAmount) || 0;
       let paymentStatus: PurchaseInvoice['paymentStatus'] = 'Unpaid';
-      if (numPaid >= grandTotal) paymentStatus = 'Paid';
+      if (numPaid >= grandTotal && grandTotal > 0) paymentStatus = 'Paid';
       else if (numPaid > 0) paymentStatus = 'Partially Paid';
+
+      const resolvedSupplierName = activeSupplier?.company || activeSupplier?.name || customSupplierName.trim() || 'Supplier';
+      const resolvedSupplierId = (activeSupplier && activeSupplier.id) ? activeSupplier.id : '';
 
       await createPurchaseInvoice({
         invoiceNumber,
+        supplierInvoiceNumber: finalSupplierInv,
         docType,
         date,
-        supplierId: activeSupplier?.id || '',
-        supplierName: activeSupplier?.company || activeSupplier?.name || 'Supplier',
+        dueDate,
+        supplierId: resolvedSupplierId,
+        supplierName: resolvedSupplierName,
         supplierGstin: activeSupplier?.gstin,
         warehouse,
         items: calculatedItems,
@@ -149,35 +441,49 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         grandTotal,
         paidAmount: numPaid,
         paymentStatus,
-        notes
+        notes,
+        purchaseOrderId: selectedPoId || undefined,
+        purchaseOrderNumber: linkedPoNumber || undefined,
+        purchaseRequestId: linkedRequestId || undefined,
+        purchaseRequestNumber: linkedRequestNumber || undefined,
+        verificationStatus: 'Pending Review',
+        hasDiscrepancy,
+        discrepancyNotes: hasDiscrepancy ? discrepancyNotes : undefined
       });
 
-      navigate('/purchases');
+      if (docType === 'purchase_order') {
+        navigate('/purchases/orders');
+      } else {
+        navigate('/purchases');
+      }
     } catch (err: any) {
-      alert(`Error saving purchase bill: ${err?.message || 'Failed to save bill'}`);
+      alert(`Error saving purchase document: ${err?.message || 'Failed to save document'}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <>
+      <form onSubmit={handleSubmit} className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate('/purchases')}
+            onClick={() => navigate(docType === 'purchase_order' ? '/purchases/orders' : '/purchases')}
             className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Create Supplier Purchase Bill / PO
+              {docType === 'purchase_order' ? 'Create Direct Purchase Order' : 'Create Supplier Purchase Bill'}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Record supplier bill, automatically update on-hand stock and increase accounts payable.
+              {docType === 'purchase_order'
+                ? 'Create a direct purchase order for supplier delivery tracking and destination warehouse receipt.'
+                : 'Record actual supplier invoice against purchase orders and automatically transfer to Accountant for payment review.'}
             </p>
           </div>
         </div>
@@ -185,7 +491,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => navigate('/purchases')}
+            onClick={() => navigate(docType === 'purchase_order' ? '/purchases/orders' : '/purchases')}
             className="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
             Cancel
@@ -203,12 +509,60 @@ export const NewPurchaseInvoicePage: React.FC = () => {
             ) : (
               <>
                 <Save className="w-3.5 h-3.5" />
-                <span>Save Purchase Bill</span>
+                <span>{docType === 'purchase_order' ? 'Save Purchase Order' : 'Save & Transfer to Accountant'}</span>
               </>
             )}
           </button>
         </div>
       </div>
+
+      {/* Linked Purchase Order Banner & Discrepancies */}
+      {linkedPoNumber && (
+        <div className="bg-blue-50/70 border border-blue-200/90 rounded-2xl p-4.5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                <Truck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-900 text-sm">Linked to Purchase Order</span>
+                  <span className="font-mono font-bold text-blue-700 bg-white border border-blue-200 px-2 py-0.5 rounded-lg text-xs">
+                    {linkedPoNumber}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Pre-filled line items, quantities, and agreed vendor pricing from order.
+                </p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">Status</span>
+              <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-white border border-blue-200 px-2.5 py-1 rounded-lg">
+                Active Order
+              </span>
+            </div>
+          </div>
+
+          {hasDiscrepancy && (
+            <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl space-y-1.5 text-xs text-amber-900">
+              <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span>Price / Quantity Discrepancies Flagged Against Purchase Order</span>
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-[11px] text-amber-800/90 pl-1">
+                {discrepancyList.map((d, i) => (
+                  <li key={i}>{d.message}</li>
+                ))}
+              </ul>
+              <p className="text-[10px] text-amber-700 font-medium pt-1 border-t border-amber-200/70">
+                Notice: Discrepancies will be prominently reported to the Accountant in their review queue before payment disbursement.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Supplier & Bill Details */}
       <div className="bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-4 text-xs">
@@ -217,29 +571,91 @@ export const NewPurchaseInvoicePage: React.FC = () => {
           Supplier Procurement Information
         </h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="sm:col-span-2">
-            <label className="block font-medium text-slate-700 mb-1">Select Supplier</label>
-            <select
-              value={selectedSupplierId}
-              onChange={e => setSelectedSupplierId(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold"
-            >
-              {suppliers.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.company} ({s.name}) — Payable: {formatCurrency(s.currentOutstanding)}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-medium text-slate-700">
+                Select Supplier {suppliers.length === 0 && <span className="text-slate-400 font-normal">(No saved suppliers)</span>}
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsAddSupplierModalOpen(true)}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/80 px-2 py-0.5 rounded-md transition-colors cursor-pointer border border-blue-200/60 shrink-0"
+                title="Register and link a new supplier"
+              >
+                <Plus className="w-3 h-3 shrink-0 text-blue-600" />
+                <span>Add Supplier</span>
+              </button>
+            </div>
+            {suppliers.length > 0 ? (
+              <select
+                value={selectedSupplierId}
+                onChange={e => {
+                  setSelectedSupplierId(e.target.value);
+                  const found = suppliers.find(s => s.id === e.target.value);
+                  if (found) setCustomSupplierName(found.company || found.name);
+                }}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold cursor-pointer"
+              >
+                {suppliers.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.company} ({s.name}) — Payable: {formatCurrency(s.currentOutstanding)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={customSupplierName}
+                onChange={e => setCustomSupplierName(e.target.value)}
+                placeholder="Enter supplier name (e.g. supplier2)..."
+                required
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            )}
           </div>
 
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Purchase Bill #</label>
+            <label className="block font-medium text-slate-700 mb-1">
+              Supplier Invoice # <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={supplierInvoiceNumber}
+              onChange={e => setSupplierInvoiceNumber(e.target.value)}
+              placeholder="e.g. INV-2026-8812"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </div>
+
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Bill Reference #</label>
             <input
               type="text"
               value={invoiceNumber}
               onChange={e => setInvoiceNumber(e.target.value)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold"
+            />
+          </div>
+
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Bill Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Payment Due Date</label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
             />
           </div>
 
@@ -258,17 +674,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Bill Date</label>
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
-            />
-          </div>
-
-          <div>
-            <label className="block font-medium text-slate-700 mb-1">Receiving Warehouse</label>
+            <label className="block font-medium text-slate-700 mb-1">{docType === 'purchase_order' ? 'Destination Warehouse' : 'Receiving Warehouse'}</label>
             <select
               value={warehouse}
               onChange={e => setWarehouse(e.target.value)}
@@ -306,7 +712,14 @@ export const NewPurchaseInvoicePage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {calculatedItems.map((item, idx) => (
+              {calculatedItems.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-6 text-center text-slate-400">
+                    No inward items added yet. Click &quot;Add Product Item&quot; or &quot;Add New Product&quot; to begin.
+                  </td>
+                </tr>
+              ) : (
+                calculatedItems.map((item, idx) => (
                 <tr key={idx} className="hover:bg-slate-50/50">
                   <td className="py-2 px-2 text-center text-slate-400 font-mono">{idx + 1}</td>
                   <td className="py-2 px-2">
@@ -315,7 +728,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
                       onChange={e => updateItem(idx, 'productId', e.target.value)}
                       className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded font-semibold text-slate-900"
                     >
-                      {products.map(p => (
+                      {sortProductsAZ(products).map(p => (
                         <option key={p.id} value={p.id}>
                           {p.name} (Stock: {p.currentStock} {p.primaryUnit})
                         </option>
@@ -389,25 +802,35 @@ export const NewPurchaseInvoicePage: React.FC = () => {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
 
-        <button
-          type="button"
-          onClick={addItemRow}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add Product Item
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={addItemRow}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Product Item
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsAddNewProductModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
+          >
+            <Plus className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Add New Product</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary and Settlement */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-3 text-xs">
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Freight Charges (₹)</label>
+            <label className="block font-medium text-slate-700 mb-1">Delivery Charges (₹)</label>
             <input
               type="number"
               step="any"
@@ -516,5 +939,36 @@ export const NewPurchaseInvoicePage: React.FC = () => {
         </div>
       </div>
     </form>
-  );
+
+    {/* Quick Add Supplier Modal */}
+    <AddSupplierModal
+      isOpen={isAddSupplierModalOpen}
+      onClose={() => setIsAddSupplierModalOpen(false)}
+      onSuccess={newSupplier => {
+        setSelectedSupplierId(newSupplier.id);
+        setCustomSupplierName(newSupplier.company || newSupplier.name);
+        setIsAddSupplierModalOpen(false);
+      }}
+    />
+
+    {/* Initial Stock & Product Intake Modal */}
+    {isAddNewProductModalOpen && (
+      <Modal
+        isOpen={isAddNewProductModalOpen}
+        onClose={() => setIsAddNewProductModalOpen(false)}
+        title="Initial Stock & Product Intake"
+        subtitle="Register new products with opening stock details and serial tracking in your warehouse locations"
+        size="2xl"
+      >
+        <div className="max-h-[80vh] overflow-y-auto px-1 py-1">
+          <InitialStockPage
+            isEmbedded={true}
+            onSuccess={handleNewProductCreated}
+            onCancel={() => setIsAddNewProductModalOpen(false)}
+          />
+        </div>
+      </Modal>
+    )}
+  </>
+);
 };

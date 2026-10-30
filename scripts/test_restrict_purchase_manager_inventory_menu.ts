@@ -172,9 +172,9 @@ test('ProtectedRoute.tsx enforces central canAccessRoute check', () => {
 // -----------------------------------------------------------------------------
 // 3. Purchase Requests under Purchases Remains Completely Intact
 // -----------------------------------------------------------------------------
-console.log('\n--- 3. Purchase Requests under Purchases Preserved ---');
+console.log('\n--- 3. Purchase Requests under Purchases Removed for Purchase Manager ---');
 
-test('Purchase Manager retains authorized Purchase Requests page under Purchases', () => {
+test('Purchase Requests submenu is removed from Purchases for Purchase Manager', () => {
   assert.strictEqual(
     canRoleAccessNavItem('Purchase Manager', 'Purchases'),
     true,
@@ -182,20 +182,14 @@ test('Purchase Manager retains authorized Purchase Requests page under Purchases
   );
   assert.strictEqual(
     canRoleAccessSubItem('Purchase Manager', 'Purchases', 'Purchase Requests', '/purchases/requests'),
-    true,
-    'Purchase Requests under Purchases must remain accessible to Purchase Manager'
-  );
-  assert.strictEqual(
-    canAccessRoute('Purchase Manager', '/purchases/requests'),
-    true,
-    'Route /purchases/requests must remain accessible to Purchase Manager'
+    false,
+    'Purchase Requests under Purchases must NOT appear for Purchase Manager'
   );
 });
 
-test('All other authorized Purchases submenus remain intact for Purchase Manager', () => {
+test('Authorized Purchases submenus remain intact for Purchase Manager', () => {
   const expectedPurchasesSubmenus = [
     { name: 'Purchase Invoices', path: '/purchases' },
-    { name: 'Purchase Requests', path: '/purchases/requests' },
     { name: 'Purchase Orders', path: '/purchases/orders' },
     { name: 'New Purchase Bill', path: '/purchases/new' },
     { name: 'Purchase Returns', path: '/purchases/returns' }

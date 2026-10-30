@@ -31,6 +31,7 @@ import { useAuth } from '../../context/AuthContext';
 import { barcodeOverrideService } from '../../services/barcodeOverrideService';
 import { canManageBarcodeOverride } from '../../utils/rbac';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { Modal } from '../../components/common/Modal';
 import {
   Product,
@@ -113,19 +114,18 @@ export const BarcodeOverridePage: React.FC = () => {
     return products.find(p => p.id === selectedProductId) || null;
   }, [products, selectedProductId]);
 
-  // Filtered catalog products for dropdown/search
+  // Filtered catalog products for dropdown/search (sorted A-Z)
   const matchedProducts = useMemo(() => {
-    if (!productSearchQuery.trim()) return products.slice(0, 10);
-    const q = productSearchQuery.toLowerCase();
-    return products
-      .filter(
-        p =>
-          p.name.toLowerCase().includes(q) ||
-          p.sku.toLowerCase().includes(q) ||
-          (p.barcode && p.barcode.toLowerCase().includes(q)) ||
-          (p.category && p.category.toLowerCase().includes(q))
-      )
-      .slice(0, 15);
+    const list = !productSearchQuery.trim()
+      ? products
+      : products.filter(
+          p =>
+            p.name.toLowerCase().includes(productSearchQuery.toLowerCase().trim()) ||
+            p.sku.toLowerCase().includes(productSearchQuery.toLowerCase().trim()) ||
+            (p.barcode && p.barcode.toLowerCase().includes(productSearchQuery.toLowerCase().trim())) ||
+            (p.category && p.category.toLowerCase().includes(productSearchQuery.toLowerCase().trim()))
+        );
+    return sortProductsAZ(list);
   }, [products, productSearchQuery]);
 
   // When selected product changes, pre-populate price

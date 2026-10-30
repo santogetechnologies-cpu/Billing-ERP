@@ -5,7 +5,14 @@ import { ERPProvider } from './context/ERPContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { InactivityWarningModal } from './components/auth/InactivityWarningModal';
-import { canManageBarcodeOverride, canManageCompanySettings, canAccessUserActivity } from './utils/rbac';
+import {
+  canManageBarcodeOverride,
+  canManageCompanySettings,
+  canAccessUserActivity,
+  canManageProducts,
+  canManageInitialStock,
+  canUpdateStock
+} from './utils/rbac';
 
 // Auth Pages
 import { LoginPage } from './pages/auth/LoginPage';
@@ -35,6 +42,8 @@ import { BarcodeOverridePage } from './pages/purchases/BarcodeOverridePage';
 // Products
 import { ProductListPage } from './pages/products/ProductListPage';
 import { NewProductPage } from './pages/products/NewProductPage';
+import { InitialStockPage } from './pages/products/InitialStockPage';
+import { UpdateStockPage } from './pages/products/UpdateStockPage';
 import { UnitsPage } from './pages/products/UnitsPage';
 import { PricingRulesPage } from './pages/products/PricingRulesPage';
 
@@ -47,6 +56,8 @@ import { StockTransfersPage } from './pages/inventory/StockTransfersPage';
 import { BatchManagementPage } from './pages/inventory/BatchManagementPage';
 import { SerialNumbersPage } from './pages/inventory/SerialNumbersPage';
 import { StockValuationPage } from './pages/inventory/StockValuationPage';
+import { CustomerReturnsPage } from './pages/inventory/CustomerReturnsPage';
+import { OrderReceivePage } from './pages/inventory/OrderReceivePage';
 
 // Customers & Suppliers
 import { CustomersPage } from './pages/customers/CustomersPage';
@@ -70,6 +81,7 @@ import { TrialBalancePage } from './pages/accounting/TrialBalancePage';
 import { ProfitLossPage } from './pages/accounting/ProfitLossPage';
 import { BalanceSheetPage } from './pages/accounting/BalanceSheetPage';
 import { CashFlowPage } from './pages/accounting/CashFlowPage';
+import { AccountantDashboardPage } from './pages/accounting/AccountantDashboardPage';
 
 // Taxes & Reports
 import { TaxesPage } from './pages/taxes/TaxesPage';
@@ -237,6 +249,15 @@ export function App() {
                 }
               />
               <Route
+                path="purchases/delivery-tracking"
+                element={
+                  <ProtectedRoute requiredModule="purchases">
+                    <PurchaseOrdersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="delivery-tracking" element={<Navigate to="/purchases/delivery-tracking" replace />} />
+              <Route
                 path="purchases/new"
                 element={
                   <ProtectedRoute requiredModule="purchases" requiredAction="create">
@@ -281,31 +302,51 @@ export function App() {
               <Route
                 path="products"
                 element={
-                  <ProtectedRoute requiredModule="products">
+                  <ProtectedRoute requiredModule="products" customValidator={canManageProducts}>
                     <ProductListPage />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="products/new"
+                element={<Navigate to="/products/initial-stock" replace />}
+              />
+              <Route
+                path="products/edit/:id"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="create">
+                  <ProtectedRoute requiredModule="products" requiredAction="edit" customValidator={canManageProducts}>
                     <NewProductPage />
                   </ProtectedRoute>
                 }
               />
               <Route
-                path="products/edit/:id"
+                path="products/:id"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="edit">
-                    <NewProductPage />
+                  <ProtectedRoute requiredModule="products" customValidator={canManageProducts}>
+                    <ProductListPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="products/initial-stock"
+                element={
+                  <ProtectedRoute requiredModule="products" requiredAction="create" customValidator={canManageInitialStock}>
+                    <InitialStockPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="products/update-stock"
+                element={
+                  <ProtectedRoute requiredModule="products" requiredAction="edit" customValidator={canUpdateStock}>
+                    <UpdateStockPage />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="units"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="manage">
+                  <ProtectedRoute requiredModule="products" requiredAction="manage" customValidator={canManageProducts}>
                     <UnitsPage />
                   </ProtectedRoute>
                 }
@@ -313,7 +354,7 @@ export function App() {
               <Route
                 path="pricing"
                 element={
-                  <ProtectedRoute requiredModule="products" requiredAction="manage">
+                  <ProtectedRoute requiredModule="products" requiredAction="manage" customValidator={canManageProducts}>
                     <PricingRulesPage />
                   </ProtectedRoute>
                 }
@@ -416,6 +457,38 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="inventory/purchase-returns"
+                element={
+                  <ProtectedRoute requiredModule="inventory">
+                    <CustomerReturnsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="inventory/customer-returns"
+                element={
+                  <ProtectedRoute requiredModule="inventory">
+                    <CustomerReturnsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="inventory/returns"
+                element={<Navigate to="/inventory/purchase-returns" replace />}
+              />
+              <Route
+                path="inventory/receive"
+                element={
+                  <ProtectedRoute requiredModule="inventory" requiredAction="create">
+                    <OrderReceivePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="inventory/order-receive"
+                element={<Navigate to="/inventory/receive" replace />}
+              />
 
               {/* Customers & Suppliers */}
               <Route
@@ -494,6 +567,14 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="payments/bills"
+                element={
+                  <ProtectedRoute requiredModule="payments">
+                    <AccountantDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Accounting */}
               <Route
@@ -501,6 +582,22 @@ export function App() {
                 element={
                   <ProtectedRoute requiredModule="accounting">
                     <ChartOfAccountsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="accounting/bills"
+                element={
+                  <ProtectedRoute requiredModule="accounting">
+                    <AccountantDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="accountant/dashboard"
+                element={
+                  <ProtectedRoute requiredModule="accounting">
+                    <AccountantDashboardPage />
                   </ProtectedRoute>
                 }
               />

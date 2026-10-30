@@ -13,7 +13,8 @@ import {
   AlertCircle,
   Package,
   Boxes,
-  DollarSign
+  DollarSign,
+  Calendar
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -22,6 +23,7 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { SalesInvoice } from '../../types';
 import { InvoicePrintModal } from '../../components/invoice/InvoicePrintModal';
+import { UserProfileModal } from '../../components/auth/UserProfileModal';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
 
 export const SalespersonDashboardPage: React.FC = () => {
@@ -36,6 +38,7 @@ export const SalespersonDashboardPage: React.FC = () => {
 
   const [selectedInvoice, setSelectedInvoice] = useState<SalesInvoice | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
 
   // Dynamic time-of-day greeting
@@ -44,6 +47,16 @@ export const SalespersonDashboardPage: React.FC = () => {
     if (hour < 12) return 'Good Morning';
     if (hour < 17) return 'Good Afternoon';
     return 'Good Evening';
+  }, []);
+
+  // Current localized date string matching Warehouse Manager dashboard header format
+  const formattedToday = useMemo(() => {
+    return new Date().toLocaleDateString(undefined, {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
   }, []);
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'Sales Person';
@@ -134,42 +147,66 @@ export const SalespersonDashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* 1. Header Banner */}
-      <div className="glass-panel p-5 border border-slate-200/90 rounded-2xl shadow-xs bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              {greeting}, {displayName}!
-            </h1>
-            <span className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-              Sales Person Portal
-            </span>
+      {/* 1. Dashboard Header */}
+      <div className="bg-white px-4 py-3.5 sm:px-5 sm:py-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+        {/* Left Column: Breadcrumb & Date (Row 1), Title & Subtitle (Row 2) */}
+        <div className="min-w-0 space-y-1">
+          {/* Breadcrumb & Date Badge */}
+          <div className="flex items-center gap-2 text-xs text-slate-400 font-medium flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>Dashboard</span>
+              <span>/</span>
+              <span className="text-slate-600 font-semibold">Sales Operations</span>
+            </div>
+            <span className="text-slate-300">•</span>
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100/80 text-slate-600 text-[11px] font-medium border border-slate-200/60 shrink-0">
+              <Calendar className="w-3 h-3 text-slate-400" />
+              <span>{formattedToday}</span>
+            </div>
           </div>
-          <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-            <span>{company.name || 'Universal Billing Workspace'}</span>
-            <span>•</span>
-            <span className="font-mono text-slate-600">
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
-              })}
-            </span>
-          </p>
+
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
+              Sales Dashboard
+            </h1>
+            <p className="text-xs text-slate-500 max-w-xl mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-slate-700">{company?.name || 'Universal ERP Enterprise'}</span>
+              <span className="text-slate-300">•</span>
+              <span>Real-time sales performance, inventory availability, and customer management</span>
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Right Column: Action Controls */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+          {/* User Profile Menu Button */}
+          <button
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 transition-all cursor-pointer shadow-2xs shrink-0"
+            title="View Profile"
+          >
+            <div className="w-5 h-5 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+              {(profile?.full_name || user?.email || 'S')[0].toUpperCase()}
+            </div>
+            <span className="text-xs font-semibold text-slate-800 truncate max-w-[120px]">
+              {displayName}
+            </span>
+          </button>
+
+          {/* Check Inventory Button */}
           <button
             onClick={() => navigate('/inventory')}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <Boxes className="w-4 h-4 text-slate-500" />
             <span>Check Inventory</span>
           </button>
+
+          {/* Add Customer Button */}
           <button
             onClick={() => navigate('/customers?action=new')}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>Add Customer</span>
@@ -353,6 +390,12 @@ export const SalespersonDashboardPage: React.FC = () => {
         invoice={selectedInvoice}
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
+      />
+
+      {/* Staff Account & Profile Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
       />
     </div>
   );

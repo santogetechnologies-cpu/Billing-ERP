@@ -1,7 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Bell,
   AlertTriangle,
   Clock,
   CheckCircle2,
@@ -17,8 +16,7 @@ import {
   RotateCcw,
   UserCheck,
   User,
-  ArrowRight,
-  Filter
+  ArrowRight
 } from 'lucide-react';
 import { Drawer } from './Drawer';
 import { Modal } from './Modal';
@@ -34,6 +32,23 @@ import {
 import { NotificationItem, SalesInvoice, PaymentRecord } from '../../types';
 import { InvoicePrintModal } from '../invoice/InvoicePrintModal';
 import { PaymentDetailModal } from '../payment/PaymentDetailModal';
+
+export interface NotificationCategoryTab {
+  id: string;
+  label: string;
+  high?: boolean;
+}
+
+export const NOTIFICATION_CATEGORY_TABS: NotificationCategoryTab[] = [
+  { id: 'all', label: 'All' },
+  { id: 'unread', label: 'Unread' },
+  { id: 'customer_complaint', label: 'Complaints', high: true },
+  { id: 'customer_product_damage', label: 'Product Damage', high: true },
+  { id: 'customer_support_request', label: 'Support' },
+  { id: 'customer_return_request', label: 'Returns & Replacements', high: true },
+  { id: 'customer_followup', label: 'Follow-ups' },
+  { id: 'customer_update', label: 'Customer Updates' }
+];
 
 interface NotificationsDrawerProps {
   isOpen: boolean;
@@ -67,6 +82,86 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all');
 
+  // Category tabs centering and smooth navigation
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const prevCategoryFilterRef = useRef<string>(categoryFilter);
+
+  const centerTab = useCallback((tabId: string, smooth: boolean = true) => {
+    const container = tabsContainerRef.current;
+    const tabEl = tabRefs.current.get(tabId);
+    if (!container || !tabEl) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const tabRect = tabEl.getBoundingClientRect();
+
+    if (containerRect.width === 0) return;
+
+    // Calculate distance needed to position the tab's center at container's center
+    const tabCenter = tabRect.left + tabRect.width / 2;
+    const containerCenter = containerRect.left + containerRect.width / 2;
+    const offset = tabCenter - containerCenter;
+
+    // If already centered within 1.5 pixels, avoid redundant scroll
+    if (Math.abs(offset) < 1.5) return;
+
+    const currentScrollLeft = container.scrollLeft;
+    const targetScrollLeft = currentScrollLeft + offset;
+    const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    const clampedScrollLeft = Math.max(0, Math.min(maxScrollLeft, targetScrollLeft));
+
+    if (Math.abs(clampedScrollLeft - currentScrollLeft) < 1.5) return;
+
+    container.scrollTo({
+      left: clampedScrollLeft,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  }, []);
+
+  const handleTabClick = (tabId: string) => {
+    setCategoryFilter(tabId);
+    centerTab(tabId, true);
+  };
+
+  const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let nextIndex = index;
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      nextIndex = (index + 1) % NOTIFICATION_CATEGORY_TABS.length;
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      nextIndex = (index - 1 + NOTIFICATION_CATEGORY_TABS.length) % NOTIFICATION_CATEGORY_TABS.length;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      nextIndex = NOTIFICATION_CATEGORY_TABS.length - 1;
+    } else {
+      return;
+    }
+
+    const nextTab = NOTIFICATION_CATEGORY_TABS[nextIndex];
+    if (nextTab) {
+      setCategoryFilter(nextTab.id);
+      const nextEl = tabRefs.current.get(nextTab.id);
+      nextEl?.focus();
+      centerTab(nextTab.id, true);
+    }
+  };
+
+  // Center selected tab when active category changes or drawer opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const timer = setTimeout(() => {
+      centerTab(categoryFilter, prevCategoryFilterRef.current !== categoryFilter);
+      prevCategoryFilterRef.current = categoryFilter;
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [categoryFilter, isOpen, centerTab]);
+
   const currentRole = profile?.role || (user as any)?.role;
   const isSalesperson = currentRole === 'Salesperson';
 
@@ -83,7 +178,9 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
   const displayedNotifications = useMemo(() => {
     let list = sortedNotifications;
 
-    if (categoryFilter !== 'all') {
+    if (categoryFilter === 'unread') {
+      list = list.filter(n => !n.read);
+    } else if (categoryFilter !== 'all') {
       list = list.filter(n => n.type === categoryFilter || n.category === categoryFilter);
     }
 
@@ -160,7 +257,24 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
       return;
     }
 
-    // 4. Working Action Link Handler: Customer Support Cases or General Links
+    // 4. Customer Support Cases & Customer Updates Handler
+    if (isCustomerSupportNotification(item)) {
+      if (item.customerId) {
+        navigate(`/customers/${item.customerId}${item.caseId ? `?caseId=${item.caseId}` : ''}`);
+        onClose();
+        return;
+      }
+      if (item.link) {
+        navigate(item.link);
+        onClose();
+        return;
+      }
+      navigate('/customers');
+      onClose();
+      return;
+    }
+
+    // 5. Working Action Link Handler: General Operational Links
     if (item.link) {
       let targetLink = item.link;
       if (currentRole === 'Purchase Manager' && targetLink.startsWith('/inventory/purchase-requests')) {
@@ -205,6 +319,8 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
       case 'stock_damage':
         return <AlertOctagon className="w-4 h-4 text-rose-600" />;
       case 'expiring_batch':
+      case 'expiring_batches':
+      case 'eod_expiry':
         return <Calendar className="w-4 h-4 text-orange-600" />;
       case 'overdue_invoice':
         return <Clock className="w-4 h-4 text-rose-600" />;
@@ -241,6 +357,8 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
       case 'overdue_invoice':
         return 'bg-rose-50 border-rose-200';
       case 'expiring_batch':
+      case 'expiring_batches':
+      case 'eod_expiry':
         return 'bg-orange-50 border-orange-200';
       case 'credit_limit':
         return 'bg-purple-50 border-purple-200';
@@ -265,6 +383,17 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
         return 'Follow-up Due';
       case 'customer_update':
         return 'Customer Update';
+      case 'out_of_stock':
+        return 'Out of Stock';
+      case 'limited_stock':
+        return 'Limited Stock';
+      case 'expiring_batch':
+        return 'Expiring Soon';
+      case 'expiring_batches':
+      case 'eod_expiry':
+        return 'Expiry Reminder';
+      case 'purchase_request':
+        return 'Purchase Request';
       default:
         return type.replace(/_/g, ' ');
     }
@@ -286,11 +415,20 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
               Clear all
             </button>
             <button
-              onClick={() => {
-                if (markAllNotificationsAsRead) {
-                  markAllNotificationsAsRead().catch(() => {});
-                } else {
-                  notifications.filter(n => !n.read).forEach(n => markNotificationAsRead(n.id).catch(() => {}));
+              onClick={async () => {
+                try {
+                  if (markAllNotificationsAsRead) {
+                    await markAllNotificationsAsRead();
+                  } else {
+                    await Promise.all(
+                      notifications.filter(n => !n.read).map(n => markNotificationAsRead(n.id))
+                    );
+                  }
+                } catch (err: any) {
+                  setErrorAlert({
+                    title: 'Update Failed',
+                    message: err?.message || 'Failed to mark all notifications as read. Please try again.'
+                  });
                 }
               }}
               className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 cursor-pointer"
@@ -304,22 +442,29 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
           {/* Filter Bar: Category Tabs & Priority Selector (Section 7) */}
           <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2 text-xs">
             {/* Category pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-none">
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'customer_complaint', label: 'Complaints', high: true },
-                { id: 'customer_product_damage', label: 'Damage & Defects' },
-                { id: 'customer_support_request', label: 'Support' },
-                { id: 'customer_return_request', label: 'Returns' },
-                { id: 'customer_followup', label: 'Follow-ups' },
-                { id: 'customer_update', label: 'Updates' }
-              ].map(tab => {
+            <div
+              ref={tabsContainerRef}
+              role="tablist"
+              aria-label="Notification Categories"
+              className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-none [&::-webkit-scrollbar]:hidden"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {NOTIFICATION_CATEGORY_TABS.map((tab, idx) => {
                 const isSelected = categoryFilter === tab.id;
                 return (
                   <button
                     key={tab.id}
+                    ref={el => {
+                      if (el) tabRefs.current.set(tab.id, el);
+                      else tabRefs.current.delete(tab.id);
+                    }}
+                    role="tab"
+                    aria-selected={isSelected}
+                    tabIndex={isSelected ? 0 : -1}
+                    data-tab-id={tab.id}
                     type="button"
-                    onClick={() => setCategoryFilter(tab.id)}
+                    onClick={() => handleTabClick(tab.id)}
+                    onKeyDown={e => handleTabKeyDown(e, idx)}
                     className={`px-2 py-1 rounded-md font-semibold shrink-0 transition-colors cursor-pointer flex items-center gap-1 ${
                       isSelected
                         ? 'bg-blue-600 text-white shadow-2xs'
@@ -345,7 +490,9 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                   className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[11px] text-slate-700 focus:outline-hidden"
                 >
                   <option value="all">All</option>
+                  <option value="Critical">Critical</option>
                   <option value="High">High Priority</option>
+                  <option value="Normal">Normal</option>
                   <option value="Medium">Medium</option>
                   <option value="Low">Low</option>
                 </select>
@@ -380,6 +527,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
           ) : (
             displayedNotifications.map(item => {
               const isComplaint = item.type === 'customer_complaint';
+              const isCriticalPriority = item.priority === 'Critical';
               const isHighPriority = item.priority === 'High' || isComplaint;
 
               return (
@@ -387,7 +535,11 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                   key={item.id}
                   onClick={() => handleNotificationClick(item)}
                   className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
-                    isHighPriority
+                    isCriticalPriority
+                      ? item.read
+                        ? 'bg-rose-50/25 border-rose-300 hover:border-rose-400'
+                        : 'bg-rose-50/60 border-rose-400 shadow-xs ring-1 ring-rose-300 hover:border-rose-500'
+                      : isHighPriority
                       ? item.read
                         ? 'bg-rose-50/20 border-rose-200 hover:border-rose-300'
                         : 'bg-rose-50/50 border-rose-300 shadow-xs ring-1 ring-rose-200/50 hover:border-rose-400'
@@ -404,9 +556,15 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                       {/* Top Badges & Time */}
                       <div className="flex items-center justify-between gap-1 mb-1">
                         <div className="flex flex-wrap items-center gap-1.5">
+                          {/* Prominent Critical Priority Badge */}
+                          {isCriticalPriority && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-rose-700 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-0.5 shadow-2xs">
+                              <AlertOctagon className="w-2.5 h-2.5" /> Critical
+                            </span>
+                          )}
                           {/* Prominent High Priority Badge */}
-                          {isHighPriority && (
-                            <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-0.5 shadow-2xs">
+                          {!isCriticalPriority && isHighPriority && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-amber-600 text-white font-bold text-[9px] uppercase tracking-wider flex items-center gap-0.5 shadow-2xs">
                               <ShieldAlert className="w-2.5 h-2.5" /> High Priority
                             </span>
                           )}
@@ -460,12 +618,57 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                       {/* Working Action Link Button */}
                       <div className="mt-2.5 flex items-center justify-between">
                         <span className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 group">
-                          {item.actionText || 'View Case'}
+                          {item.actionText || (
+                            item.type === 'customer_complaint'
+                              ? 'View Complaint'
+                              : item.type === 'customer_product_damage'
+                              ? 'View Case'
+                              : item.type === 'customer_support_request'
+                              ? 'View Support Request'
+                              : item.type === 'customer_return_request'
+                              ? 'Review Request'
+                              : item.type === 'customer_followup'
+                              ? 'View Case'
+                              : item.type === 'customer_update'
+                              ? item.caseId ? 'View Case' : 'View Customer'
+                              : item.type === 'out_of_stock' || item.type === 'limited_stock' || item.type === 'low_stock'
+                              ? 'View Product'
+                              : item.type === 'purchase_request'
+                              ? 'View Purchase Request'
+                              : item.type === 'expiring_batch'
+                              ? 'View Batch & Expiry Management'
+                              : item.type === 'expiring_batches' || item.type === 'eod_expiry'
+                              ? 'View Expiring Batches'
+                              : isCustomerSupportNotification(item)
+                              ? 'View Case'
+                              : 'View Details'
+                          )}
                           <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                         </span>
 
                         {!item.read && (
-                          <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" title="Unread" />
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  await markNotificationAsRead(item.id);
+                                } catch (err: any) {
+                                  setErrorAlert({
+                                    title: 'Update Failed',
+                                    message: err?.message || 'Failed to mark notification as read.'
+                                  });
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-0.5 rounded transition-colors"
+                              title="Mark as read"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span className="hidden sm:inline">Mark read</span>
+                            </button>
+                            <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" title="Unread" />
+                          </div>
                         )}
                       </div>
                     </div>

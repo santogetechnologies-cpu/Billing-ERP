@@ -1,4 +1,4 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import { purchaseRequestService } from '../src/services/purchaseRequestService';
 import { supabase } from '../src/lib/supabase';
 import { setTabScopedStaffSession } from '../src/services/authService';
@@ -38,17 +38,16 @@ async function runTests() {
       assert(!tabsBlock.includes('Partially Received'), "'Partially Received' removed from STATUS_TABS");
     }
 
-    // 3. Verify Table Headers (9 columns)
+    // 3. Verify Table Headers (8 columns, Requester column removed in recent user redesign)
     assert(pageContent.includes('Request #</th>'), 'Table contains Request # column header');
     assert(pageContent.includes('Date</th>'), 'Table contains Date column header');
     assert(pageContent.includes('Warehouse</th>'), 'Table contains Warehouse column header');
-    assert(pageContent.includes('Requester</th>'), 'Table contains Requester column header');
-    assert(pageContent.includes('Product(s)</th>'), 'Table contains Product(s) column header');
+    assert(pageContent.includes('Product Name</th>') || pageContent.includes('Product(s)</th>'), 'Table contains Product Name column header');
     assert(pageContent.includes('Quantity</th>'), 'Table contains Quantity column header');
     assert(pageContent.includes('Priority</th>'), 'Table contains Priority column header');
     assert(pageContent.includes('Status</th>'), 'Table contains Status column header');
     assert(pageContent.includes('Actions</th>'), 'Table contains Actions column header');
-    assert(pageContent.includes('colSpan={9}'), 'Empty state spans all 9 columns');
+    assert(pageContent.includes('colSpan={8}'), 'Empty state spans all 8 columns');
 
     // 4. Verify Pagination
     assert(pageContent.includes('const [currentPage, setCurrentPage] = useState<number>(1);'), 'Pagination currentPage state present');

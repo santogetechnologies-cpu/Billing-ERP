@@ -24,11 +24,13 @@ import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { StatCard } from '../../components/common/StatCard';
 import { DataTable, Column } from '../../components/common/DataTable';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import { StatusBadge, StockStatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { InventoryTransaction } from '../../types';
 import { Modal } from '../../components/common/Modal';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
+import { compareProductsAZ } from '../../utils/sortUtils';
+import { canPerformManualStockAdjustment } from '../../utils/rbac';
 import { sortNotifications } from '../../services/notificationService';
 import { SalespersonInventoryPage } from './SalespersonInventoryPage';
 
@@ -36,6 +38,7 @@ const InventoryDashboardInner: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
+  const canAdjust = canPerformManualStockAdjustment(profile?.role);
 
   const {
     products,
@@ -104,7 +107,7 @@ const InventoryDashboardInner: React.FC = () => {
   const [opWarehouse, setOpWarehouse] = useState('ALL');
   const [opCategory, setOpCategory] = useState('ALL');
   const [opStatus, setOpStatus] = useState<'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK'>('ALL');
-  const [opSort, setOpSort] = useState<'qty_desc' | 'qty_asc' | 'name_asc' | 'threshold_desc'>('qty_desc');
+  const [opSort, setOpSort] = useState<'qty_desc' | 'qty_asc' | 'name_asc' | 'threshold_desc'>('name_asc');
   const [opPage, setOpPage] = useState(1);
   const opPageSize = 10;
   const [movementProductFilter, setMovementProductFilter] = useState<string | null>(null);
@@ -119,6 +122,12 @@ const InventoryDashboardInner: React.FC = () => {
   const openAdjustForProduct = (productId: string) => {
     setAdjustProductId(productId);
     setAdjustQty('');
+    if (opWarehouse && opWarehouse !== 'ALL') {
+      const wh = warehouses.find(w => w.id === opWarehouse || w.code === opWarehouse || w.name === opWarehouse);
+      if (wh) {
+        setAdjustWarehouse(wh.code || wh.name);
+      }
+    }
     setStockModal(null);
     setIsAdjustModalOpen(true);
   };
@@ -386,32 +395,47 @@ const InventoryDashboardInner: React.FC = () => {
       list = list.filter(item => item.status === 'Out of Stock');
     }
 
-    // Sort
+    // Sort: Default A-Z by product name with case-insensitive compare & SKU tiebreaker
     list.sort((a, b) => {
-      if (opSort === 'qty_desc') return b.availableQty - a.availableQty;
-      if (opSort === 'qty_asc') return a.availableQty - b.availableQty;
-      if (opSort === 'name_asc') return a.product.name.localeCompare(b.product.name);
-      if (opSort === 'threshold_desc') return (b.reorderLevel || 0) - (a.reorderLevel || 0);
-      return 0;
+      if (opSort === 'qty_desc') {
+        const diff = b.availableQty - a.availableQty;
+        if (diff !== 0) return diff;
+        return compareProductsAZ(a.product, b.product);
+      }
+      if (opSort === 'qty_asc') {
+        const diff = a.availableQty - b.availableQty;
+        if (diff !== 0) return diff;
+        return compareProductsAZ(a.product, b.product);
+      }
+      if (opSort === 'threshold_desc') {
+        const diff = (b.reorderLevel || 0) - (a.reorderLevel || 0);
+        if (diff !== 0) return diff;
+        return compareProductsAZ(a.product, b.product);
+      }
+      return compareProductsAZ(a.product, b.product);
     });
 
     return list;
   }, [products, opWarehouse, opSearch, opCategory, opStatus, opSort, warehouses, getWarehouseStock]);
 
-  const totalOpPages = Math.ceil(filteredOperationalStock.length / opPageSize) || 1;
-  const paginatedOpStock = useMemo(() => {
-    const start = (opPage - 1) * opPageSize;
-    return filteredOperationalStock.slice(start, start + opPageSize);
-  }, [filteredOperationalStock, opPage, opPageSize]);
+  const paginatedOpStock = filteredOperationalStock;
 
   const displayMovementTransactions = useMemo(() => {
-    if (!movementProductFilter) return inventoryTransactions;
-    const q = movementProductFilter.toLowerCase();
-    return inventoryTransactions.filter(t =>
-      (t.productName && t.productName.toLowerCase().includes(q)) ||
-      (t.productId && t.productId.toLowerCase() === q)
-    );
-  }, [inventoryTransactions, movementProductFilter]);
+    let txs = inventoryTransactions;
+    if (movementProductFilter) {
+      const q = movementProductFilter.toLowerCase();
+      txs = txs.filter(t =>
+        (t.productName && t.productName.toLowerCase().includes(q)) ||
+        (t.productId && t.productId.toLowerCase() === q)
+      );
+    }
+    if (opWarehouse && opWarehouse !== 'ALL') {
+      const wh = warehouses.find(w => w.id === opWarehouse || w.code === opWarehouse || w.name === opWarehouse);
+      const targetCodes = [opWarehouse, wh?.code, wh?.name, wh?.id].filter(Boolean);
+      txs = txs.filter(t => targetCodes.includes(t.warehouse));
+    }
+    return txs;
+  }, [inventoryTransactions, movementProductFilter, opWarehouse, warehouses]);
 
   const handleAdjustSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -438,7 +462,6 @@ const InventoryDashboardInner: React.FC = () => {
       sortable: true,
       sortValue: row => new Date(row.date).getTime(),
       width: '11%',
-      minWidth: '115px',
       align: 'left',
       render: row => (
         <span
@@ -454,8 +477,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Type',
       sortable: true,
       sortValue: row => row.type,
-      width: '12%',
-      minWidth: '125px',
+      width: '13%',
       align: 'left',
       render: row => {
         const typeStyleMap: Record<string, { bg: string; text: string; border: string }> = {
@@ -509,10 +531,10 @@ const InventoryDashboardInner: React.FC = () => {
 
         return (
           <span
-            className={`inline-flex items-center justify-center px-2 py-0.5 min-h-[22px] rounded-md text-[11px] font-semibold border whitespace-nowrap tracking-wide leading-none ${style.bg} ${style.text} ${style.border}`}
+            className={`inline-flex items-center justify-center px-2 py-0.5 min-h-[22px] rounded-md text-[11px] font-semibold border whitespace-nowrap tracking-wide leading-none max-w-full truncate ${style.bg} ${style.text} ${style.border}`}
             title={row.type}
           >
-            {row.type}
+            <span className="truncate">{row.type}</span>
           </span>
         );
       }
@@ -522,8 +544,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Product',
       sortable: true,
       sortValue: row => row.productName?.toLowerCase(),
-      width: '19%',
-      minWidth: '160px',
+      width: '22%',
       align: 'left',
       render: row => (
         <span
@@ -549,8 +570,7 @@ const InventoryDashboardInner: React.FC = () => {
         return q;
       },
       align: 'center',
-      width: '12%',
-      minWidth: '100px',
+      width: '11%',
       render: row => {
         let rawQty = Number(row.qty) || 0;
         // Sales, Purchase Returns, and Stock Consumptions are outward stock movements
@@ -594,15 +614,14 @@ const InventoryDashboardInner: React.FC = () => {
         const wh = warehouses.find(w => w.id === row.warehouse || w.code === row.warehouse);
         return (wh ? wh.name : row.warehouse || 'Central').toLowerCase();
       },
-      width: '15%',
-      minWidth: '140px',
+      width: '14%',
       align: 'left',
       render: row => {
         const wh = warehouses.find(w => w.id === row.warehouse || w.code === row.warehouse);
         const whLabel = wh ? wh.name : row.warehouse || 'Central';
         return (
           <span
-            className="inline-flex items-center px-2.5 py-0.5 h-6 rounded-md bg-slate-100 text-slate-700 border border-slate-200/90 text-[11px] font-medium max-w-full truncate"
+            className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200/90 text-[11px] font-medium max-w-full truncate"
             title={wh ? `${wh.name} (${wh.code || ''})` : whLabel}
           >
             <span className="truncate">{whLabel}</span>
@@ -615,8 +634,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Reference',
       sortable: true,
       sortValue: row => (row.referenceDoc || '').toLowerCase(),
-      width: '14%',
-      minWidth: '145px',
+      width: '13%',
       align: 'left',
       render: row => (
         <span
@@ -632,8 +650,7 @@ const InventoryDashboardInner: React.FC = () => {
       header: 'Remarks',
       sortable: true,
       sortValue: row => (row.notes || '').toLowerCase(),
-      width: '17%',
-      minWidth: '150px',
+      width: '16%',
       align: 'left',
       render: row => (
         <span
@@ -664,14 +681,6 @@ const InventoryDashboardInner: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
-          <button
-            onClick={() => navigate('/inventory/valuation')}
-            className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>Stock Valuation</span>
-          </button>
-
           <button
             onClick={() => navigate('/inventory/warehouses')}
             className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
@@ -845,7 +854,7 @@ const InventoryDashboardInner: React.FC = () => {
               }`}
             >
               <Boxes className="w-4 h-4" />
-              <span>Physical Stock & Availability</span>
+              <span>Current Stock</span>
               <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono ${
                 activeTab === 'stock' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
               }`}>
@@ -863,7 +872,7 @@ const InventoryDashboardInner: React.FC = () => {
               }`}
             >
               <ArrowRightLeft className="w-4 h-4" />
-              <span>Stock Movement Ledger</span>
+              <span>Stock History</span>
               <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono ${
                 activeTab === 'movements' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
               }`}>
@@ -872,13 +881,21 @@ const InventoryDashboardInner: React.FC = () => {
             </button>
           </div>
 
-          {activeTab === 'movements' && movementProductFilter && (
+          {activeTab === 'movements' && (movementProductFilter || opWarehouse !== 'ALL') && (
             <div className="flex items-center gap-2 pb-2 text-xs">
               <span className="text-slate-600">
-                Filtered: <strong className="text-slate-900 font-semibold">{movementProductFilter}</strong>
+                Filtered: {movementProductFilter && <strong className="text-slate-900 font-semibold">{movementProductFilter} </strong>}
+                {opWarehouse !== 'ALL' && (
+                  <span className="text-slate-500 font-medium">
+                    (Hub: {warehouses.find(w => w.id === opWarehouse || w.code === opWarehouse)?.name || opWarehouse})
+                  </span>
+                )}
               </span>
               <button
-                onClick={() => setMovementProductFilter(null)}
+                onClick={() => {
+                  setMovementProductFilter(null);
+                  setOpWarehouse('ALL');
+                }}
                 className="text-blue-600 hover:text-blue-800 underline font-semibold cursor-pointer"
               >
                 Clear
@@ -887,7 +904,7 @@ const InventoryDashboardInner: React.FC = () => {
           )}
         </div>
 
-        {/* Tab 1: Physical Stock & Availability */}
+        {/* Tab 1: Current Stock */}
         {activeTab === 'stock' && (
           <div className="p-4 sm:p-5 space-y-4">
             {/* Filters Toolbar */}
@@ -987,43 +1004,43 @@ const InventoryDashboardInner: React.FC = () => {
             </div>
 
             {/* Operational Inventory Table */}
-            <div className="overflow-x-auto scrollbar-thin rounded-xl border border-slate-200">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="overflow-x-hidden no-scrollbar w-full rounded-xl border border-slate-200">
+              <table className="w-full table-fixed text-left text-xs border-collapse">
                 <colgroup>
                   {isWarehouseManager ? (
                     <>
-                      <col className="w-[36%]" />
+                      <col className="w-[38%]" />
                       <col className="w-[38%]" />
                       <col className="w-[12%]" />
-                      <col className="w-[14%]" />
+                      <col className="w-[12%]" />
                     </>
                   ) : (
                     <>
-                      <col className="w-[24%]" />
+                      <col className="w-[23%]" />
+                      <col className="w-[11%]" />
+                      <col className="w-[23%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[11%]" />
                       <col className="w-[10%]" />
-                      <col className="w-[24%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
+                      <col className="w-[9%]" />
                     </>
                   )}
                 </colgroup>
                 <thead className="bg-slate-50/90 text-slate-600 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200">
                   <tr>
-                    <th className={`py-3 px-4 ${isWarehouseManager ? 'w-[36%] min-w-[240px]' : ''}`}>Product Name & SKU</th>
+                    <th className="py-3 px-4">Product Name & SKU</th>
                     {!isWarehouseManager && (
                       <th className="py-3 px-3">Category</th>
                     )}
-                    <th className={`py-3 px-3 ${isWarehouseManager ? 'w-[38%] min-w-[260px]' : ''}`}>Warehouse Stock Breakdown</th>
+                    <th className="py-3 px-3">Warehouse Stock Breakdown</th>
                     {!isWarehouseManager && (
                       <th className="py-3 px-3 text-right">Available Quantity</th>
                     )}
                     {!isWarehouseManager && (
                       <th className="py-3 px-3 text-center">Low-Stock Threshold</th>
                     )}
-                    <th className={`py-3 px-3 text-center ${isWarehouseManager ? 'w-[12%] min-w-[120px]' : ''}`}>Stock Status</th>
-                    <th className={`py-3 px-4 text-right ${isWarehouseManager ? 'w-[14%] min-w-[140px]' : ''}`}>Actions</th>
+                    <th className="py-3 px-3 text-center">Stock Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1051,7 +1068,7 @@ const InventoryDashboardInner: React.FC = () => {
                       return (
                         <tr key={item.product.id} className="hover:bg-slate-50/70 transition-colors">
                           {/* Product Name & SKU */}
-                          <td className="py-3 px-4 align-middle">
+                          <td className="py-3 px-4 align-middle min-w-0">
                             <span className="font-bold text-slate-900 block truncate" title={item.product.name}>
                               {item.product.name}
                             </span>
@@ -1062,35 +1079,35 @@ const InventoryDashboardInner: React.FC = () => {
 
                           {/* Category */}
                           {!isWarehouseManager && (
-                            <td className="py-3 px-3 align-middle text-slate-600">
-                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100">
+                            <td className="py-3 px-3 align-middle text-slate-600 min-w-0">
+                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 truncate block">
                                 {item.product.category || 'General'}
                               </span>
                             </td>
                           )}
 
                           {/* Warehouse Breakdown */}
-                          <td className="py-3 px-3 align-middle text-slate-700">
+                          <td className="py-3 px-3 align-middle text-slate-700 min-w-0">
                             {opWarehouse !== 'ALL' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-[11px]">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-[11px] max-w-full truncate">
                                 <Building className="w-3 h-3 text-blue-500 shrink-0" />
-                                <span>{item.warehouseLabel}: <strong>{formatNumber(item.availableQty)} {item.product.primaryUnit || 'Units'}</strong></span>
+                                <span className="truncate">{item.warehouseLabel}: <strong>{formatNumber(item.availableQty)} {item.product.primaryUnit || 'Units'}</strong></span>
                               </span>
                             ) : whBreakdown.length > 0 ? (
-                              <div className={`flex flex-wrap gap-1 ${isWarehouseManager ? 'max-w-md' : 'max-w-xs'}`}>
-                                {whBreakdown.slice(0, isWarehouseManager ? 4 : 2).map(({ warehouse, stock }) => (
+                              <div className="flex flex-wrap items-center gap-1 max-w-full">
+                                {whBreakdown.slice(0, isWarehouseManager ? 3 : 2).map(({ warehouse, stock }) => (
                                   <span
                                     key={warehouse.id}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 shrink-0"
                                     title={`${warehouse.name}: ${stock} ${item.product.primaryUnit || 'Units'}`}
                                   >
-                                    <span className="truncate max-w-[80px]">{warehouse.name}:</span>
+                                    <span className="truncate max-w-[85px]">{warehouse.name}:</span>
                                     <strong className="font-mono">{formatNumber(stock)}</strong>
                                   </span>
                                 ))}
-                                {whBreakdown.length > (isWarehouseManager ? 4 : 2) && (
-                                  <span className="text-[10px] font-bold text-slate-500 self-center">
-                                    +{whBreakdown.length - (isWarehouseManager ? 4 : 2)} more
+                                {whBreakdown.length > (isWarehouseManager ? 3 : 2) && (
+                                  <span className="text-[10px] font-bold text-slate-500 self-center shrink-0">
+                                    +{whBreakdown.length - (isWarehouseManager ? 3 : 2)} more
                                   </span>
                                 )}
                               </div>
@@ -1134,43 +1151,49 @@ const InventoryDashboardInner: React.FC = () => {
                           )}
 
                           {/* Stock Status */}
-                          <td className="py-3 px-3 text-center align-middle">
+                          <td className="py-3 px-2 text-center align-middle whitespace-nowrap">
                             <div className="flex justify-center">
-                              <StatusBadge
-                              status={
-                                item.status === 'Active'
-                                  ? 'In Stock'
-                                  : item.status === 'Limited Stock'
-                                  ? 'Low Stock'
-                                  : 'Out of Stock'
-                              }
-                            />
+                              <StockStatusBadge
+                                status={
+                                  item.status === 'Active'
+                                    ? 'In Stock'
+                                    : item.status === 'Limited Stock'
+                                    ? 'Low Stock'
+                                    : 'Out of Stock'
+                                }
+                                currentStock={item.availableQty}
+                                unit={item.product.primaryUnit || 'Piece'}
+                                size="sm"
+                                align="center"
+                              />
                             </div>
                           </td>
 
                           {/* Actions */}
-                          <td className="py-3 px-4 text-right align-middle">
+                          <td className="py-3 px-4 text-right align-middle whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => openAdjustForProduct(item.product.id)}
-                                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
-                                title="Adjust physical stock balance"
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>Adjust</span>
-                              </button>
+                              {canAdjust && (
+                                <button
+                                  type="button"
+                                  onClick={() => openAdjustForProduct(item.product.id)}
+                                  className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs shrink-0"
+                                  title="Adjust Stock"
+                                  aria-label="Adjust Stock"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => {
                                   setMovementProductFilter(item.product.name);
                                   setActiveTab('movements');
                                 }}
-                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
-                                title="View transaction ledger"
+                                className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 border border-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shadow-2xs hover:shadow-xs shrink-0"
+                                title="View Stock Movements"
+                                aria-label="View Stock Movements"
                               >
-                                <ArrowRightLeft className="w-3 h-3 text-slate-500" />
-                                <span>Movements</span>
+                                <ArrowRightLeft className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
@@ -1181,38 +1204,10 @@ const InventoryDashboardInner: React.FC = () => {
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
-            {totalOpPages > 1 && (
-              <div className="flex items-center justify-between pt-2 text-xs text-slate-500">
-                <span>
-                  Showing {(opPage - 1) * opPageSize + 1}–{Math.min(opPage * opPageSize, filteredOperationalStock.length)} of {filteredOperationalStock.length} products
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    disabled={opPage === 1}
-                    onClick={() => setOpPage(p => Math.max(1, p - 1))}
-                    className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    Previous
-                  </button>
-                  <span className="px-2 font-semibold text-slate-700">
-                    Page {opPage} of {totalOpPages}
-                  </span>
-                  <button
-                    disabled={opPage === totalOpPages}
-                    onClick={() => setOpPage(p => Math.min(totalOpPages, p + 1))}
-                    className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
-        {/* Tab 2: Stock Movement Ledger */}
+        {/* Tab 2: Stock History */}
         {activeTab === 'movements' && (
           <div className="p-4 sm:p-5">
             <DataTable
@@ -1226,7 +1221,7 @@ const InventoryDashboardInner: React.FC = () => {
               defaultSortDir="desc"
               pageSize={10}
               tableFixed={true}
-              minTableWidth="980px"
+              hideHorizontalScroll={true}
               filters={[
                 {
                   key: 'type',
@@ -1651,15 +1646,23 @@ const InventoryDashboardInner: React.FC = () => {
                           {formatCurrency(effectiveValuation)}
                         </td>
                         <td className="py-2 px-2 text-center font-sans whitespace-nowrap align-middle">
-                          <StatusBadge status={status} size="sm" />
+                          <StockStatusBadge
+                            status={status}
+                            currentStock={effectiveQty}
+                            unit={p.primaryUnit || 'Piece'}
+                            size="sm"
+                            align="center"
+                          />
                         </td>
                         <td className="py-2 px-3 text-right font-sans overflow-hidden align-middle">
-                          <button
-                            onClick={() => openAdjustForProduct(p.id)}
-                            className="px-2.5 py-1 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
-                          >
-                            Adjust
-                          </button>
+                          {canAdjust && (
+                            <button
+                              onClick={() => openAdjustForProduct(p.id)}
+                              className="px-2.5 py-1 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer"
+                            >
+                              Adjust
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -2253,12 +2256,14 @@ const InventoryDashboardInner: React.FC = () => {
                       <td className="py-2 px-3 text-right text-slate-600 overflow-hidden truncate">{formatCurrency(p.costPrice)}</td>
                       <td className="py-2 px-3 text-right text-slate-500 overflow-hidden truncate">{p.reorderLevel} {p.primaryUnit}</td>
                       <td className="py-2 px-3 text-right font-sans overflow-hidden">
-                        <button
-                          onClick={() => openAdjustForProduct(p.id)}
-                          className="px-2 py-0.5 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-colors mr-1.5"
-                        >
-                          Adjust
-                        </button>
+                        {canAdjust && (
+                          <button
+                            onClick={() => openAdjustForProduct(p.id)}
+                            className="px-2 py-0.5 text-[10px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-colors mr-1.5"
+                          >
+                            Adjust
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setStockModal(null);
@@ -2455,7 +2460,15 @@ const InventoryDashboardInner: React.FC = () => {
                         <button
                           onClick={() => {
                             setStockModal(null);
-                            navigate('/sales/new');
+                            navigate(`/inventory/batches?search=${encodeURIComponent(b.batchNumber || b.productName)}`, {
+                              state: {
+                                batchId: b.id,
+                                batchNumber: b.batchNumber,
+                                productId: b.productId,
+                                productName: b.productName,
+                                fromDispatch: true
+                              }
+                            });
                           }}
                           className="inline-flex items-center justify-center px-3 py-1 text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-2xs cursor-pointer"
                         >

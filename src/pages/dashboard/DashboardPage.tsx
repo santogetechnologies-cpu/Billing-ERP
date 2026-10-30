@@ -30,13 +30,14 @@ import { calculateStockStatus } from '../../utils/inventoryUtils';
 import { hasPermission, canAccessRoute } from '../../utils/rbac';
 import { WarehouseManagerDashboardPage } from '../warehouse/WarehouseManagerDashboardPage';
 import { PurchaseManagerDashboardPage } from '../purchases/PurchaseManagerDashboardPage';
+import { AccountantDashboardPage } from '../accounting/AccountantDashboardPage';
 import { UserPresenceBadge } from '../../components/common/UserPresenceBadge';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { profile } = useAuth();
 
-  // Role-based route redirection: POS-only Cashier, Salesperson dashboard, and Warehouse Manager dashboard
+  // Role-based route redirection: POS-only Cashier, Salesperson dashboard, Warehouse Manager, Purchase Manager, and Accountant
   if (profile?.role === 'Warehouse Manager') {
     return <WarehouseManagerDashboardPage />;
   }
@@ -48,6 +49,9 @@ export const DashboardPage: React.FC = () => {
   }
   if (profile?.role === 'Purchase Manager') {
     return <PurchaseManagerDashboardPage />;
+  }
+  if (profile?.role === 'Accountant') {
+    return <AccountantDashboardPage />;
   }
 
   const {

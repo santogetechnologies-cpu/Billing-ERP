@@ -33,6 +33,8 @@ import { POSQuantitySelector } from '../../components/pos/POSQuantitySelector';
 import { UNIVERSAL_BUILTIN_UNITS } from '../../data/unitsData';
 import { ModalCloseButton } from '../../components/common/ModalCloseButton';
 import { UserPresenceBadge } from '../../components/common/UserPresenceBadge';
+import { sortProductsAZ } from '../../utils/sortUtils';
+import { StockStatusBadge } from '../../components/common/StatusBadge';
 
 export const FastPOSPage: React.FC = () => {
   const navigate = useNavigate();
@@ -147,6 +149,8 @@ export const FastPOSPage: React.FC = () => {
   const [completedInvoice, setCompletedInvoice] = useState<SalesInvoice | null>(null);
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  const isSavingRef = useRef(false);
 
   // Auto-focus barcode input
   useEffect(() => {
@@ -174,9 +178,9 @@ export const FastPOSPage: React.FC = () => {
     return ['All', ...Array.from(set)];
   }, [products]);
 
-  // Filtered Products
+  // Filtered Products (sorted A-Z)
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    const list = products.filter(p => {
       const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
       const matchSearch =
         p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -184,6 +188,7 @@ export const FastPOSPage: React.FC = () => {
         p.barcode.includes(productSearch);
       return matchCat && matchSearch && p.isActive;
     });
+    return sortProductsAZ(list);
   }, [products, selectedCategory, productSearch]);
 
   // Display stock alert warning message
@@ -460,7 +465,15 @@ export const FastPOSPage: React.FC = () => {
 
   // Finalize POS Sale & Checkout with Pre-Transaction Stock Validation
   const handleCheckout = async () => {
-    if (cart.length === 0 || isSubmitting) return;
+    // Requirement 7: If the invoice has already been saved, printing it again must reuse the same saved invoice ID and invoice number. Never create another invoice or deduct stock again.
+    if (completedInvoice && completedInvoice.id) {
+      setPaymentModalOpen(false);
+      setPrintModalOpen(true);
+      return;
+    }
+
+    // Requirement 8: Prevent duplicate save operations from repeated clicks, print callbacks or page refreshes.
+    if (cart.length === 0 || isSavingRef.current || isSubmitting) return;
 
     // Strict validation immediately before confirming transaction
     for (const item of cart) {
@@ -478,6 +491,7 @@ export const FastPOSPage: React.FC = () => {
       }
     }
 
+    isSavingRef.current = true;
     setIsSubmitting(true);
     try {
       let maxSeq = 1000;
@@ -530,14 +544,21 @@ export const FastPOSPage: React.FC = () => {
       setCashTendered('');
       setPaymentModalOpen(false);
       setCompletedInvoice(newInvoice);
+      // Requirement 9: Show a clear success message such as "Invoice saved successfully" after the database confirms the save.
+      setSaveSuccessMessage(`Invoice saved successfully (${newInvoice.invoiceNumber})`);
+      // Requirement 2: After successful saving, open or remain on a dedicated Saved Invoice Preview screen instead of automatically navigating back to the billing page.
       setPrintModalOpen(true);
       setStockWarningMessage(null);
     } catch (err: any) {
       console.error(`[POS Checkout Error] Company: ${company.id}, Error: ${err?.message || err}`);
+      // Requirement 10: If saving fails, show an error and do not display a false success message.
       const errMsg = err?.message || 'Database transaction error';
       showStockWarning(errMsg);
+      setSaveSuccessMessage(null);
+      setCompletedInvoice(null);
       alert(`POS Checkout failed: ${errMsg}`);
     } finally {
+      isSavingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -573,8 +594,19 @@ export const FastPOSPage: React.FC = () => {
               Retail Showroom
             </span>
             <UserPresenceBadge size="sm" />
+            {completedInvoice && (
+              <button
+                type="button"
+                id="pos-reprint-saved-btn"
+                onClick={() => setPrintModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors shadow-2xs cursor-pointer"
+                title="View and reprint saved bill"
+              >
+                <Printer className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Saved Bill: #{completedInvoice.invoiceNumber}</span>
+              </button>
+            )}
           </div>
-
         </div>
 
         {/* Barcode scanner input */}
@@ -731,17 +763,20 @@ export const FastPOSPage: React.FC = () => {
                           <span className="text-[10px] font-mono text-slate-400 truncate uppercase flex-1 min-w-0">
                             {prod.sku}
                           </span>
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 ${
+                          <StockStatusBadge
+                            status={
                               isOutOfStock
-                                ? 'bg-rose-100 text-rose-700 font-semibold border border-rose-200'
+                                ? 'Out of Stock'
                                 : prod.reorderLevel !== null && prod.reorderLevel !== undefined && stockInWh <= prod.reorderLevel
-                                ? 'bg-amber-50 text-amber-700'
-                                : 'bg-emerald-50 text-emerald-700'
-                            }`}
-                          >
-                            {isOutOfStock ? `Out of Stock • ${stockInWh} ${prod.primaryUnit}` : `${stockInWh} ${prod.primaryUnit}`}
-                          </span>
+                                ? 'Limited'
+                                : 'In Stock'
+                            }
+                            currentStock={stockInWh}
+                            unit={prod.primaryUnit}
+                            size="sm"
+                            align="right"
+                            className="shrink-0"
+                          />
                         </div>
                         <h4 className="font-semibold text-xs text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-2 mt-1">
                           {prod.name}
@@ -1059,14 +1094,20 @@ export const FastPOSPage: React.FC = () => {
               {/* Confirm & Print Receipt Button */}
               <button
                 type="button"
+                id="pos-confirm-print-btn"
                 disabled={isSubmitting}
                 onClick={handleCheckout}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Processing Settlement...</span>
+                    <span>Processing Settlement & Saving...</span>
+                  </>
+                ) : completedInvoice ? (
+                  <>
+                    <Printer className="w-4 h-4" />
+                    <span>Print Bill ({completedInvoice.invoiceNumber})</span>
                   </>
                 ) : (
                   <>
@@ -1184,7 +1225,15 @@ export const FastPOSPage: React.FC = () => {
         invoice={completedInvoice}
         isOpen={printModalOpen}
         defaultFormat="Thermal"
-        onClose={() => setPrintModalOpen(false)}
+        showSuccessBanner={true}
+        preventBackdropClose={true}
+        closeButtonLabel="Close / Back to Billing"
+        onClose={() => {
+          setPrintModalOpen(false);
+          // Return to billing page without navigating away
+          setCompletedInvoice(null);
+          setSaveSuccessMessage(null);
+        }}
       />
     </div>
   );

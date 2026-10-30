@@ -75,25 +75,46 @@ export const BarcodeCanvas: React.FC<BarcodeCanvasProps> = ({
 
     return (
       <div
-        className={`flex flex-col items-center justify-center w-full max-w-full overflow-hidden ${
-          hasBorder ? 'p-2 bg-white rounded-lg border border-slate-200' : 'p-0.5'
+        className={`flex flex-col items-center justify-center w-full max-w-full overflow-hidden print:overflow-visible ${
+          hasBorder ? 'p-2 bg-white rounded-lg border border-slate-200 print:border-black' : 'p-0.5'
         } ${className}`}
       >
         <svg
           width={qrSize}
           height={qrSize}
           viewBox={`0 0 ${size} ${size}`}
-          className="shape-rendering-crispEdges max-w-full h-auto shrink-0"
+          shapeRendering="crispEdges"
+          className="max-w-full h-auto shrink-0"
+          style={{
+            shapeRendering: 'crispEdges',
+            WebkitPrintColorAdjust: 'exact',
+            printColorAdjust: 'exact'
+          }}
         >
+          <rect width={size} height={size} fill="#ffffff" />
           {grid.map((row, r) =>
             row.map((active, c) =>
-              active ? <rect key={`${r}-${c}`} x={c} y={r} width={1} height={1} fill="#0f172a" /> : null
+              active ? (
+                <rect
+                  key={`${r}-${c}`}
+                  x={c}
+                  y={r}
+                  width={1}
+                  height={1}
+                  fill="#000000"
+                  style={{
+                    shapeRendering: 'crispEdges',
+                    WebkitPrintColorAdjust: 'exact',
+                    printColorAdjust: 'exact'
+                  }}
+                />
+              ) : null
             )
           )}
         </svg>
         {showText && (
           <span
-            className={`w-full text-center truncate block text-slate-800 mt-1 font-mono ${textClass}`}
+            className={`w-full text-center truncate block text-slate-800 print:text-black mt-1 font-mono ${textClass}`}
             title={safeValue}
           >
             {safeValue}
@@ -133,24 +154,43 @@ export const BarcodeCanvas: React.FC<BarcodeCanvasProps> = ({
 
   return (
     <div
-      className={`flex flex-col items-center justify-center w-full max-w-full overflow-hidden ${
-        hasBorder ? 'p-2 bg-white rounded-lg border border-slate-200' : 'p-0'
+      className={`flex flex-col items-center justify-center w-full max-w-full overflow-hidden print:overflow-visible ${
+        hasBorder ? 'p-2 bg-white rounded-lg border border-slate-200 print:border-black' : 'p-0'
       } ${className}`}
     >
       <svg
         viewBox={`0 0 ${totalWidth} 48`}
         preserveAspectRatio="none"
+        shapeRendering="crispEdges"
         className="w-full max-w-full h-auto block"
-        style={{ maxHeight: height ? `${height}px` : '38px', height: height ? `${height}px` : '38px' }}
+        style={{
+          maxHeight: height ? `${height}px` : '38px',
+          height: height ? `${height}px` : '38px',
+          shapeRendering: 'crispEdges',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact'
+        }}
       >
         <rect width={totalWidth} height="48" fill="#ffffff" />
         {bars.map((bar, i) => (
-          <rect key={i} x={bar.x} y="0" width={bar.width} height="48" fill="#0f172a" />
+          <rect
+            key={i}
+            x={bar.x}
+            y="0"
+            width={bar.width}
+            height="48"
+            fill="#000000"
+            style={{
+              shapeRendering: 'crispEdges',
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact'
+            }}
+          />
         ))}
       </svg>
       {showText && (
         <span
-          className={`w-full text-center truncate block text-slate-800 font-semibold mt-1 px-1 leading-none ${textClass}`}
+          className={`w-full text-center truncate block text-slate-800 print:text-black font-semibold mt-1 px-1 leading-none ${textClass}`}
           title={safeValue}
         >
           {safeValue}

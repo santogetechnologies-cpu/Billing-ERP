@@ -38,8 +38,8 @@ function runTestSuite() {
   assert('Salesperson has NO payment processing permissions (ALL_DENIED)', 
     spPerms.payments.view === false && spPerms.payments.create === false && spPerms.payments.edit === false && spPerms.payments.delete === false);
 
-  assert('Salesperson has NO settings permissions (ALL_DENIED)', 
-    spPerms.settings.view === false && spPerms.settings.create === false && spPerms.settings.manage === false);
+  assert('Salesperson has VIEW_ONLY settings permissions (personal preferences)', 
+    spPerms.settings.view === true && spPerms.settings.create === false && spPerms.settings.manage === false);
 
   assert('Salesperson CANNOT delete customers', spPerms.customers.delete === false);
   assert('Salesperson CAN view customers', spPerms.customers.view === true);
@@ -64,15 +64,15 @@ function runTestSuite() {
   // --- 2. Allowed Navigation Menus in RBAC ---
   console.log('\n--- 2. Navigation Menus for Salesperson ---');
   const spMenus = ROLE_ALLOWED_NAV_MENUS.Salesperson;
-  assert('Salesperson allowed nav menus length is exactly 3 (Dashboard, Sales, Customers)',
-    spMenus.length === 3 && spMenus.includes('Dashboard') && spMenus.includes('Sales') && spMenus.includes('Customers'),
+  assert('Salesperson allowed nav menus includes Dashboard, Sales, Customers, Inventory, Settings',
+    spMenus.includes('Dashboard') && spMenus.includes('Sales') && spMenus.includes('Customers') && spMenus.includes('Inventory') && spMenus.includes('Settings'),
     spMenus);
 
   assert('Salesperson excluded from Purchases menu', !spMenus.includes('Purchases'));
-  assert('Salesperson excluded from Inventory menu', !spMenus.includes('Inventory'));
+  assert('Salesperson includes Inventory menu', spMenus.includes('Inventory'));
   assert('Salesperson excluded from Accounting menu', !spMenus.includes('Accounting'));
   assert('Salesperson excluded from Reports menu', !spMenus.includes('Reports'));
-  assert('Salesperson excluded from Settings menu', !spMenus.includes('Settings'));
+  assert('Salesperson includes Settings menu', spMenus.includes('Settings'));
   assert('Salesperson excluded from Barcode menu', !spMenus.includes('Barcode'));
 
   // --- 3. Sub-Item Access for Salesperson ---
@@ -90,6 +90,7 @@ function runTestSuite() {
   assert('Salesperson can access /customers', canAccessRoute('Salesperson', '/customers'));
   assert('Salesperson can access /customers/cust-101', canAccessRoute('Salesperson', '/customers/cust-101'));
   assert('Salesperson can access /inventory (view-only mode via Check Inventory button)', canAccessRoute('Salesperson', '/inventory'));
+  assert('Salesperson can access /settings', canAccessRoute('Salesperson', '/settings'));
 
   // Blocked routes:
   const forbiddenRoutes = [
@@ -113,8 +114,7 @@ function runTestSuite() {
     '/accounting/ledger',
     '/reports',
     '/barcode',
-    '/users',
-    '/settings'
+    '/users'
   ];
 
   for (const route of forbiddenRoutes) {
@@ -141,6 +141,7 @@ function runTestSuite() {
   assert('Salesperson sidebar includes Dashboard (/sales/dashboard)', sidebarCode.includes("path: '/sales/dashboard'"));
   assert('Salesperson sidebar includes Sales (/sales)', sidebarCode.includes("path: '/sales'"));
   assert('Salesperson sidebar includes Customers (/customers)', sidebarCode.includes("path: '/customers'"));
+  assert('Salesperson sidebar includes Inventory (/inventory)', sidebarCode.includes("path: '/inventory'"));
   assert('Salesperson sidebar includes My Profile', sidebarCode.includes("path: '#profile'"));
 
   // Check that no forbidden links are inside salespersonNavItems block
@@ -148,12 +149,12 @@ function runTestSuite() {
   assert('Found salespersonNavItems array definition', !!spNavMatch);
   if (spNavMatch) {
     const spNavContent = spNavMatch[1];
-    assert('salespersonNavItems has exactly 4 items', (spNavContent.match(/name:/g) || []).length === 4);
+    assert('salespersonNavItems has 6 items', (spNavContent.match(/name:/g) || []).length === 6);
     assert('salespersonNavItems does not contain purchases', !spNavContent.toLowerCase().includes('purchases'));
-    assert('salespersonNavItems does not contain inventory', !spNavContent.toLowerCase().includes('inventory'));
+    assert('salespersonNavItems contains inventory', spNavContent.toLowerCase().includes('inventory'));
     assert('salespersonNavItems does not contain suppliers', !spNavContent.toLowerCase().includes('suppliers'));
     assert('salespersonNavItems does not contain barcode', !spNavContent.toLowerCase().includes('barcode'));
-    assert('salespersonNavItems does not contain settings', !spNavContent.toLowerCase().includes('settings'));
+    assert('salespersonNavItems contains settings', spNavContent.toLowerCase().includes('settings'));
   }
 
   // --- 7. Inspection of Salesperson Dashboard Component File ---

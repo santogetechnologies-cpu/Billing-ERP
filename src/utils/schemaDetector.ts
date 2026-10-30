@@ -96,6 +96,189 @@ export function clearProfileSchemaCache(): void {
 }
 
 // ---------------------------------------------------------------------------
+// NOTIFICATIONS SCHEMA DETECTION & 400 PREVENTION
+// ---------------------------------------------------------------------------
+let cachedNotificationColumns: Set<string> | null = null;
+let notificationColumnsPromise: Promise<Set<string>> | null = null;
+
+const BASELINE_NOTIFICATION_COLUMNS = new Set([
+  'id',
+  'company_id',
+  'user_id',
+  'title',
+  'message',
+  'type',
+  'link',
+  'is_read',
+  'created_at'
+]);
+
+/**
+ * Inspects public.notifications schema once and returns the exact set of supported columns.
+ * Prevents PostgREST 400 (PGRST204) Bad Request errors caused by sending columns
+ * that do not exist yet in the database.
+ */
+export async function getAvailableNotificationColumns(): Promise<Set<string>> {
+  if (cachedNotificationColumns) {
+    return cachedNotificationColumns;
+  }
+
+  if (notificationColumnsPromise) {
+    return notificationColumnsPromise;
+  }
+
+  notificationColumnsPromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .limit(1);
+
+      if (!error && data && data.length > 0 && typeof data[0] === 'object') {
+        cachedNotificationColumns = new Set(Object.keys(data[0]));
+        return cachedNotificationColumns;
+      }
+    } catch (err) {
+      console.warn('Unable to probe notifications schema, falling back to baseline:', err);
+    }
+
+    cachedNotificationColumns = new Set(BASELINE_NOTIFICATION_COLUMNS);
+    return cachedNotificationColumns;
+  })();
+
+  try {
+    return await notificationColumnsPromise;
+  } finally {
+    notificationColumnsPromise = null;
+  }
+}
+
+/**
+ * Filter a notification insert payload to only include columns supported by the current database schema.
+ */
+export async function filterSupportedNotificationPayload(
+  rawPayload: Record<string, any>
+): Promise<Record<string, any>> {
+  const supportedCols = await getAvailableNotificationColumns();
+  const safePayload: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(rawPayload)) {
+    if (supportedCols.has(key) && value !== undefined) {
+      safePayload[key] = value;
+    }
+  }
+
+  return safePayload;
+}
+
+/**
+ * Check if a specific column is supported by the notifications table.
+ */
+export async function hasNotificationColumn(columnName: string): Promise<boolean> {
+  const supportedCols = await getAvailableNotificationColumns();
+  return supportedCols.has(columnName);
+}
+
+/**
+ * Clear notification column cache to force re-detection.
+ */
+export function clearNotificationSchemaCache(): void {
+  cachedNotificationColumns = null;
+  notificationColumnsPromise = null;
+}
+
+// ---------------------------------------------------------------------------
+// WAREHOUSES SCHEMA DETECTION & 400 PREVENTION
+// ---------------------------------------------------------------------------
+let cachedWarehouseColumns: Set<string> | null = null;
+let warehouseColumnsPromise: Promise<Set<string>> | null = null;
+
+const BASELINE_WAREHOUSE_COLUMNS = new Set([
+  'id',
+  'company_id',
+  'branch_id',
+  'name',
+  'code',
+  'address',
+  'is_default',
+  'created_at'
+]);
+
+/**
+ * Inspects public.warehouses schema once and returns the exact set of supported columns.
+ * Prevents PostgREST 400 (PGRST204) Bad Request errors caused by sending columns
+ * that do not exist yet in the database.
+ */
+export async function getAvailableWarehouseColumns(): Promise<Set<string>> {
+  if (cachedWarehouseColumns) {
+    return cachedWarehouseColumns;
+  }
+
+  if (warehouseColumnsPromise) {
+    return warehouseColumnsPromise;
+  }
+
+  warehouseColumnsPromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('warehouses')
+        .select('*')
+        .limit(1);
+
+      if (!error && data && data.length > 0 && typeof data[0] === 'object') {
+        cachedWarehouseColumns = new Set(Object.keys(data[0]));
+        return cachedWarehouseColumns;
+      }
+    } catch (err) {
+      console.warn('Unable to probe warehouses schema, falling back to baseline:', err);
+    }
+
+    cachedWarehouseColumns = new Set(BASELINE_WAREHOUSE_COLUMNS);
+    return cachedWarehouseColumns;
+  })();
+
+  try {
+    return await warehouseColumnsPromise;
+  } finally {
+    warehouseColumnsPromise = null;
+  }
+}
+
+/**
+ * Filter a warehouse insert/update payload to only include columns supported by the current database schema.
+ */
+export async function filterSupportedWarehousePayload(
+  rawPayload: Record<string, any>
+): Promise<Record<string, any>> {
+  const supportedCols = await getAvailableWarehouseColumns();
+  const safePayload: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(rawPayload)) {
+    if (supportedCols.has(key) && value !== undefined) {
+      safePayload[key] = value;
+    }
+  }
+
+  return safePayload;
+}
+
+/**
+ * Check if a specific column is supported by the warehouses table.
+ */
+export async function hasWarehouseColumn(columnName: string): Promise<boolean> {
+  const supportedCols = await getAvailableWarehouseColumns();
+  return supportedCols.has(columnName);
+}
+
+/**
+ * Clear warehouse column cache to force re-detection.
+ */
+export function clearWarehouseSchemaCache(): void {
+  cachedWarehouseColumns = null;
+  warehouseColumnsPromise = null;
+}
+
+// ---------------------------------------------------------------------------
 // TABLE SCHEMA CACHE & 404 SUPPRESSION
 // ---------------------------------------------------------------------------
 const STORAGE_KEY_MISSING_TABLES = 'universal_billing_missing_tables';
@@ -107,8 +290,11 @@ const KNOWN_UNMIGRATED_TABLES = [
   'purchase_request_items',
   'purchase_request_history',
   'purchase_orders',
+  'purchase_order_items',
   'user_sessions',
-  'barcode_audit_logs'
+  'barcode_audit_logs',
+  'customer_returns',
+  'customer_support_cases'
 ];
 
 function getPersistedMissingTables(): Set<string> {
@@ -121,12 +307,12 @@ function getPersistedMissingTables(): Set<string> {
       if (Array.isArray(arr)) {
         arr.forEach((t: string) => set.add(t));
       }
-    } else {
-      // Seed initial unmigrated tables so zero 404 network errors are logged
-      try {
-        storage.setItem(STORAGE_KEY_MISSING_TABLES, JSON.stringify(Array.from(set)));
-      } catch {}
     }
+    // Always ensure known unmigrated tables are seeded to eliminate browser console 404s
+    KNOWN_UNMIGRATED_TABLES.forEach(t => set.add(t));
+    try {
+      storage.setItem(STORAGE_KEY_MISSING_TABLES, JSON.stringify(Array.from(set)));
+    } catch {}
   } catch {
     KNOWN_UNMIGRATED_TABLES.forEach(t => set.add(t));
   }
@@ -235,4 +421,96 @@ if (typeof window !== 'undefined') {
   (window as any).verifyUniversalBillingSchema = verifyAndSyncTableSchema;
   (window as any).clearTableSchemaCache = clearTableSchemaCache;
 }
+
+// ---------------------------------------------------------------------------
+// PURCHASES SCHEMA DETECTION & 400 PREVENTION
+// ---------------------------------------------------------------------------
+let cachedPurchaseColumns: Set<string> | null = null;
+let purchaseColumnsPromise: Promise<Set<string>> | null = null;
+
+const BASELINE_PURCHASE_COLUMNS = new Set([
+  'id',
+  'company_id',
+  'invoice_number',
+  'doc_type',
+  'date',
+  'due_date',
+  'supplier_id',
+  'supplier_name',
+  'supplier_gstin',
+  'subtotal',
+  'tax_total',
+  'freight_charges',
+  'other_charges',
+  'grand_total',
+  'paid_amount',
+  'payment_status',
+  'warehouse_id',
+  'notes',
+  'created_at',
+  'updated_at'
+]);
+
+export async function getAvailablePurchaseColumns(): Promise<Set<string>> {
+  if (cachedPurchaseColumns) return cachedPurchaseColumns;
+  if (purchaseColumnsPromise) return purchaseColumnsPromise;
+
+  purchaseColumnsPromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('purchases')
+        .select('*')
+        .limit(1);
+
+      if (!error && data && data.length > 0 && typeof data[0] === 'object') {
+        cachedPurchaseColumns = new Set(Object.keys(data[0]));
+        return cachedPurchaseColumns;
+      }
+    } catch (err) {
+      console.warn('Unable to probe purchases schema, falling back to baseline:', err);
+    }
+    cachedPurchaseColumns = new Set(BASELINE_PURCHASE_COLUMNS);
+    return cachedPurchaseColumns;
+  })();
+
+  try {
+    return await purchaseColumnsPromise;
+  } finally {
+    purchaseColumnsPromise = null;
+  }
+}
+
+export async function filterSupportedPurchasePayload(
+  rawPayload: Record<string, any>
+): Promise<Record<string, any>> {
+  const supportedCols = await getAvailablePurchaseColumns();
+  const safePayload: Record<string, any> = {};
+  const uuidCols = new Set([
+    'company_id',
+    'branch_id',
+    'warehouse_id',
+    'supplier_id',
+    'purchase_order_id',
+    'purchase_request_id'
+  ]);
+
+  for (const [key, value] of Object.entries(rawPayload)) {
+    if (supportedCols.has(key) && value !== undefined) {
+      if (
+        uuidCols.has(key) &&
+        (value === '' ||
+          value === null ||
+          (typeof value === 'string' &&
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())))
+      ) {
+        safePayload[key] = null;
+      } else {
+        safePayload[key] = value;
+      }
+    }
+  }
+
+  return safePayload;
+}
+
 

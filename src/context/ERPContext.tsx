@@ -29,7 +29,12 @@ import {
   PurchaseRequest,
   CreatePurchaseRequestInput,
   PurchaseRequestStatus,
-  PaymentMethod
+  PaymentMethod,
+  CustomerReturn,
+  CreateCustomerReturnInput,
+  UpdateCustomerReturnInput,
+  RecordSupplierDeliveryInput,
+  SupplierDeliveryReceiptResult
 } from '../types';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -42,7 +47,9 @@ import { supplierService } from '../services/supplierService';
 import { salesService } from '../services/salesService';
 import { purchaseService } from '../services/purchaseService';
 import { purchaseRequestService } from '../services/purchaseRequestService';
+import { orderReceiveService } from '../services/orderReceiveService';
 import { inventoryService } from '../services/inventoryService';
+import { customerReturnService } from '../services/customerReturnService';
 import { categoryService } from '../services/categoryService';
 import { expenseService } from '../services/expenseService';
 import { paymentService } from '../services/paymentService';
@@ -52,8 +59,10 @@ import { auditService } from '../services/auditService';
 import { notificationService, sortNotifications } from '../services/notificationService';
 import { barcodeService } from '../services/barcodeService';
 import { stockAlertService } from '../services/stockAlertService';
+import { customerSupportService } from '../services/customerSupportService';
 import { normalizeUnitKey } from '../data/unitsData';
 import { validateStockAvailability, StockValidationResult, isBatchExpired } from '../utils/inventoryUtils';
+import { sortProductsAZ } from '../utils/sortUtils';
 
 
 const getSavedInitialTheme = (): string => {
@@ -111,6 +120,7 @@ export interface ERPContextType {
   deleteProduct: (id: string) => Promise<void>;
   generateSKU: (category: string, productName: string) => string;
   generateBarcode: (sku: string) => string;
+  generateNextBatchNumber: (targetDate?: string) => Promise<string>;
   customCategories: string[];
   addCustomCategory: (name: string) => Promise<string>;
 
@@ -178,14 +188,18 @@ export interface ERPContextType {
   createStockTransfer: (transfer: Omit<StockTransfer, 'id' | 'createdAt'>) => Promise<StockTransfer>;
   updateTransferStatus: (id: string, status: StockTransfer['status'], actorName?: string) => Promise<void>;
   adjustStock: (productId: string, adjustmentQty: number, reason: string, warehouse: string) => Promise<void>;
+  recordOpeningStock: (params: Parameters<typeof inventoryService.recordOpeningStock>[0]) => Promise<InventoryTransaction>;
+  recordStockBundle: (bundle: Parameters<typeof inventoryService.recordStockBundle>[0]) => Promise<{ success: boolean; count: number }>;
   getWarehouseStock: (warehouseIdOrCode: string | undefined, productId: string) => number;
   getProductStockByWarehouse: (productId: string) => Record<string, number>;
   validateSaleStock: (warehouseId: string, items: { productId: string; qty: number; unit?: string; productName?: string }[]) => StockValidationResult;
   refreshStockBalances: () => Promise<void>;
   batches: Batch[];
   addBatch: (batch: Omit<Batch, 'id'>) => Promise<Batch>;
+  updateBatch: (batchId: string, updates: Partial<Batch>) => Promise<void>;
   serialNumbers: SerialNumber[];
   addSerialNumber: (serial: Omit<SerialNumber, 'id'>) => Promise<SerialNumber>;
+  updateSerialNumber: (serialId: string, updates: Partial<SerialNumber>) => Promise<void>;
 
   // Units & Conversions
   units: Unit[];
@@ -218,6 +232,7 @@ export interface ERPContextType {
   purchaseRequests: PurchaseRequest[];
   refreshPurchaseRequests: () => Promise<void>;
   createPurchaseRequest: (input: CreatePurchaseRequestInput) => Promise<PurchaseRequest>;
+  updatePurchaseRequest: (requestId: string, input: Partial<CreatePurchaseRequestInput>) => Promise<PurchaseRequest>;
   updatePurchaseRequestStatus: (params: {
     requestId: string;
     status: PurchaseRequestStatus;
@@ -228,6 +243,7 @@ export interface ERPContextType {
     adjustedItems?: { itemId: string; approvedQty: number; adjustmentReason?: string }[];
   }) => Promise<PurchaseRequest>;
   cancelPurchaseRequest: (requestId: string, cancellationReason: string) => Promise<PurchaseRequest>;
+  deletePurchaseRequest: (requestId: string) => Promise<boolean>;
   createPurchaseOrderFromRequest: (params: {
     requestId: string;
     supplierId: string;
@@ -245,16 +261,52 @@ export interface ERPContextType {
       unit: string;
     }>;
   }) => Promise<{ purchaseOrderId: string; purchaseOrderNumber: string; request: PurchaseRequest }>;
+  approvePurchaseRequestWithOrder: (params: {
+    requestId: string;
+    supplierId: string;
+    supplierName?: string;
+    supplierGstin?: string;
+    destinationWarehouseId?: string;
+    notes?: string;
+    expectedDelivery?: string;
+    approvedItems: Array<{
+      id?: string;
+      productId: string;
+      productName: string;
+      sku?: string;
+      unit: string;
+      requestedQty: number;
+      approvedQty: number;
+      rate?: number;
+      taxRate?: number;
+      isCustom?: boolean;
+      adjustmentReason?: string;
+    }>;
+  }) => Promise<{ purchaseOrderId: string; purchaseOrderNumber: string; request: PurchaseRequest }>;
   recordGoodsReceipt: (params: {
     requestId: string;
     receivedItems: Array<{
       itemId: string;
       productId: string;
       receivedQty: number;
+      damagedQty?: number;
+      acceptedQty?: number;
     }>;
     receivingWarehouseId: string;
     invoiceNumber?: string;
+    notes?: string;
   }) => Promise<PurchaseRequest>;
+  recordSupplierDelivery: (input: RecordSupplierDeliveryInput) => Promise<SupplierDeliveryReceiptResult>;
+
+  // Customer Returns Workflow
+  customerReturns: CustomerReturn[];
+  refreshCustomerReturns: () => Promise<void>;
+  addCustomerReturn: (input: CreateCustomerReturnInput) => Promise<CustomerReturn>;
+  updateCustomerReturn: (returnId: string, input: UpdateCustomerReturnInput) => Promise<CustomerReturn>;
+  approveCustomerReturn: (returnId: string, reviewerId?: string, reviewerName?: string) => Promise<CustomerReturn>;
+  rejectCustomerReturn: (returnId: string, reason: string, reviewerId?: string, reviewerName?: string) => Promise<CustomerReturn>;
+  restockCustomerReturn: (returnId: string, warehouseId?: string, restockedById?: string, restockedByName?: string) => Promise<{ returnRecord: CustomerReturn; restocked: boolean; message: string }>;
+  refundCustomerReturn: (returnId: string, refundMethod: string, refundAmount?: number, refundedById?: string, refundedByName?: string) => Promise<CustomerReturn>;
 
   // System
   auditLogs: AuditLog[];
@@ -309,6 +361,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [heldInvoices, setHeldInvoices] = useState<HeldInvoice[]>([]);
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+  const [customerReturns, setCustomerReturns] = useState<CustomerReturn[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
 
   // ID-based deduplication helper to ensure state integrity across refreshes and mutations
@@ -344,10 +397,41 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (newAlerts && newAlerts.length > 0) {
         setNotifications(prev => sortNotifications(dedupeById([...newAlerts, ...prev])));
       }
+
+      // Check Batch Expiry & EOD Expiry Reminder for Warehouse Manager
+      if (batches && batches.length > 0 && currentRole === 'Warehouse Manager' && user?.id) {
+        const [expiryAlerts, eodAlerts] = await Promise.all([
+          stockAlertService.checkBatchExpiryAlerts({
+            batches,
+            companyId: targetCompId,
+            warehouses,
+            users,
+            existingNotifications: notifications,
+            createNotification: async notif => notificationService.createNotification(notif, targetCompId)
+          }),
+          stockAlertService.checkEndOfDayExpiryReminder({
+            batches,
+            companyId: targetCompId,
+            company,
+            warehouses,
+            users,
+            currentUserId: user?.id,
+            currentUserRole: currentRole,
+            existingNotifications: notifications,
+            createNotification: async notif => notificationService.createNotification(notif, targetCompId)
+          })
+        ]);
+        const allNewBatchAlerts = [...(expiryAlerts || []), ...(eodAlerts || [])].filter(
+          item => item.userId === user?.id
+        );
+        if (allNewBatchAlerts.length > 0) {
+          setNotifications(prev => sortNotifications(dedupeById([...allNewBatchAlerts, ...prev])));
+        }
+      }
     } catch (err) {
       console.warn('Stock alert evaluation note:', err);
     }
-  }, [products, warehouses, stockBalances, users, user?.id, profile?.role, (user as any)?.role, company.id, companyId, activeCompanyId]);
+  }, [products, batches, warehouses, stockBalances, users, user?.id, profile?.role, (user as any)?.role, company.id, companyId, activeCompanyId, notifications]);
 
   const loadRequestIdRef = useRef<number>(0);
 
@@ -387,7 +471,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditData,
         notifData,
         requestsData,
-        categoriesData
+        categoriesData,
+        customerReturnsData
       ] = await Promise.all([
         companyService.getCompany(targetCompId),
         productService.getProducts(undefined, targetCompId),
@@ -413,7 +498,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditService.getAuditLogs(targetCompId),
         notificationService.getNotifications(targetCompId, user?.id, profile?.role || (user as any)?.role),
         purchaseRequestService.getPurchaseRequests(undefined, targetCompId, profile?.role || (user as any)?.role, user?.id),
-        categoryService.getCustomCategories(targetCompId)
+        categoryService.getCustomCategories(targetCompId),
+        customerReturnService.getCustomerReturns(targetCompId)
       ]);
 
       // Verify request is still current before updating in-memory state
@@ -432,13 +518,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch {}
         setCompany(companyData);
       }
-      setProducts(dedupeById(productsData || []));
+      setProducts(sortProductsAZ(dedupeById(productsData || [])));
       setCustomCategories(categoriesData || []);
       setCustomers(dedupeById(customersData || []));
       setSuppliers(dedupeById(suppliersData || []));
       setSalesInvoices(dedupeById(salesData || []));
       setPurchaseInvoices(dedupeById(purchasesData || []));
       setPurchaseRequests(dedupeById(requestsData || []));
+      setCustomerReturns(dedupeById(customerReturnsData || []));
       setExpenses(dedupeById(expensesData || []));
       setPayments(dedupeById(paymentsData || []));
       setInventoryTransactions(dedupeById(stockTxnsData || []));
@@ -488,10 +575,65 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             currentRole
           );
           if (generatedAlerts && generatedAlerts.length > 0) {
-            setNotifications(prev => sortNotifications(dedupeById([...generatedAlerts, ...prev])));
+            setNotifications(prev => sortNotifications(dedupeById([...prev, ...generatedAlerts])));
           }
         } catch (e) {
           console.warn('Initial stock alert check note:', e);
+        }
+      }
+
+      // Check Batch Expiry & EOD Expiry Reminder for Warehouse Manager
+      if (batchesData && batchesData.length > 0 && currentRole === 'Warehouse Manager' && user?.id) {
+        try {
+          const [expiryAlerts, eodAlerts] = await Promise.all([
+            stockAlertService.checkBatchExpiryAlerts({
+              batches: batchesData,
+              companyId: targetCompId,
+              warehouses: warehousesData || [],
+              users: usersData || [],
+              existingNotifications: notifData || [],
+              createNotification: async notif => notificationService.createNotification(notif, targetCompId)
+            }),
+            stockAlertService.checkEndOfDayExpiryReminder({
+              batches: batchesData,
+              companyId: targetCompId,
+              company: companyData || company,
+              warehouses: warehousesData || [],
+              users: usersData || [],
+              currentUserId: user?.id,
+              currentUserRole: currentRole,
+              existingNotifications: notifData || [],
+              createNotification: async notif => notificationService.createNotification(notif, targetCompId)
+            })
+          ]);
+          const allNewBatchAlerts = [...(expiryAlerts || []), ...(eodAlerts || [])].filter(
+            item => item.userId === user.id
+          );
+          if (allNewBatchAlerts.length > 0) {
+            setNotifications(prev => sortNotifications(dedupeById([...prev, ...allNewBatchAlerts])));
+          }
+        } catch (e) {
+          console.warn('Initial batch expiry check note:', e);
+        }
+      }
+
+      // Check Customer Follow-up Reminders for Sales Person (Requirement 5)
+      if (currentRole === 'Salesperson' && user?.id) {
+        try {
+          const supportCases = await customerSupportService.getSupportCases(targetCompId, user.id, currentRole);
+          if (supportCases && supportCases.length > 0) {
+            const followUpAlerts = await customerSupportService.checkPendingFollowups(
+              targetCompId,
+              supportCases,
+              customersData || [],
+              notifData || []
+            );
+            if (followUpAlerts && followUpAlerts.length > 0) {
+              setNotifications(prev => sortNotifications(dedupeById([...prev, ...followUpAlerts])));
+            }
+          }
+        } catch (e) {
+          console.warn('Initial customer support follow-up check note:', e);
         }
       }
     } catch (err: any) {
@@ -678,6 +820,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return barcodeService.generateEAN13(sku);
   };
 
+  const generateNextBatchNumber = async (targetDate?: string): Promise<string> => {
+    return productService.generateNextBatchNumber(company.id, targetDate);
+  };
+
   // Products
   const addCustomCategory = async (catName: string): Promise<string> => {
     const created = await categoryService.createCategory(catName, activeCompanyId);
@@ -690,7 +836,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addProduct = async (productData: Omit<Product, 'id' | 'createdAt'>): Promise<Product> => {
     const newProduct = await productService.createProduct(productData, company.id);
-    setProducts(prev => [newProduct, ...prev.filter(p => p.id !== newProduct.id)]);
+    setProducts(prev => sortProductsAZ([newProduct, ...prev.filter(p => p.id !== newProduct.id)]));
 
     if (newProduct.openingStock > 0) {
       try {
@@ -728,7 +874,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     addAuditLog('Created Product', 'Products', newProduct.name, 'None', `SKU: ${newProduct.sku} | Stock: ${newProduct.openingStock}`);
-    const nextList = [newProduct, ...products.filter(p => p.id !== newProduct.id)];
+    const nextList = sortProductsAZ([newProduct, ...products.filter(p => p.id !== newProduct.id)]);
     checkStockAlerts(nextList);
     return newProduct;
   };
@@ -737,13 +883,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await productService.updateProduct(id, updates, company.id);
     let nextList: Product[] = [];
     setProducts(prev => {
-      nextList = prev.map(p => {
+      nextList = sortProductsAZ(prev.map(p => {
         if (p.id === id) {
           addAuditLog('Updated Product', 'Products', p.name, `₹${p.sellingPrice}`, `₹${updates.sellingPrice ?? p.sellingPrice}`);
           return { ...p, ...updates };
         }
         return p;
-      });
+      }));
       return nextList;
     });
     try {
@@ -1210,6 +1356,265 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   };
 
+  // Customer Returns Workflow Handlers
+  const refreshCustomerReturns = async () => {
+    const data = await customerReturnService.getCustomerReturns(company.id);
+    setCustomerReturns(data);
+  };
+
+  const addCustomerReturn = async (input: CreateCustomerReturnInput) => {
+    const newReturn = await customerReturnService.createCustomerReturn(
+      {
+        ...input,
+        createdBy: user?.id,
+        createdByName: profile?.full_name || user?.email || 'User'
+      },
+      company.id
+    );
+    setCustomerReturns(prev => [newReturn, ...prev.filter(r => r.id !== newReturn.id)]);
+
+    // If directly restocked upon return (Instant Stock Update workflow)
+    if (newReturn.returnStatus === 'Stock Restocked' || Boolean(newReturn.restockedAt) || Boolean(input.directRestock)) {
+      if (newReturn.condition === 'Resalable') {
+        let updatedProductsList: Product[] = [];
+        setProducts(prev => {
+          updatedProductsList = prev.map(p => {
+            if (p.id === newReturn.productId) {
+              return { ...p, currentStock: Math.max(0, (p.currentStock || 0) + newReturn.returnedQty) };
+            }
+            return p;
+          });
+          return updatedProductsList;
+        });
+        if (updatedProductsList.length > 0) {
+          checkStockAlerts(updatedProductsList);
+        }
+
+        const targetWarehouseId = newReturn.warehouseId || warehouses.find(w => w.isDefault)?.id || warehouses[0]?.id;
+        if (targetWarehouseId) {
+          setStockBalances(prev => {
+            const idx = prev.findIndex(b => b.warehouseId === targetWarehouseId && b.productId === newReturn.productId);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + newReturn.returnedQty, updatedAt: new Date().toISOString() };
+              return copy;
+            }
+            return [...prev, {
+              id: `sb_${Date.now()}`,
+              warehouseId: targetWarehouseId,
+              productId: newReturn.productId,
+              quantity: newReturn.returnedQty,
+              updatedAt: new Date().toISOString()
+            }];
+          });
+        }
+
+        addAuditLog(
+          'Customer Return Restocked',
+          'Inventory',
+          newReturn.returnNumber,
+          'Restocked',
+          `Directly restocked ${newReturn.returnedQty} ${newReturn.unit} ${newReturn.productName} to ${newReturn.warehouseName || 'Godown'}`
+        );
+      } else {
+        addAuditLog(
+          'Customer Return Quarantined',
+          'Inventory',
+          newReturn.returnNumber,
+          'Quarantined',
+          `Logged ${newReturn.returnedQty} ${newReturn.unit} to quarantine (${newReturn.condition}). Sellable stock preserved.`
+        );
+      }
+    } else {
+      addAuditLog(
+        'Created Customer Return',
+        'Inventory',
+        newReturn.returnNumber,
+        'Created',
+        `Return created for ${newReturn.customerName} - ${newReturn.productName} (${newReturn.returnedQty} ${newReturn.unit})`
+      );
+    }
+    return newReturn;
+  };
+
+  const updateCustomerReturn = async (returnId: string, input: UpdateCustomerReturnInput) => {
+    const { updatedReturn, auditLogs: changes, productStockDelta, warehouseStockDeltas } =
+      await customerReturnService.updateCustomerReturn(
+        returnId,
+        {
+          ...input,
+          updatedBy: user?.id,
+          updatedByName: profile?.full_name || user?.email || 'Sales Person'
+        },
+        company.id
+      );
+
+    setCustomerReturns(prev => prev.map(r => r.id === updatedReturn.id ? updatedReturn : r));
+
+    // If product master stock changed
+    if (productStockDelta !== 0) {
+      let updatedProductsList: Product[] = [];
+      setProducts(prev => {
+        updatedProductsList = prev.map(p => {
+          if (p.id === updatedReturn.productId) {
+            return { ...p, currentStock: Math.max(0, (p.currentStock || 0) + productStockDelta) };
+          }
+          return p;
+        });
+        return updatedProductsList;
+      });
+      if (updatedProductsList.length > 0) {
+        checkStockAlerts(updatedProductsList);
+      }
+    }
+
+    // If warehouse balances changed
+    if (warehouseStockDeltas.length > 0) {
+      setStockBalances(prev => {
+        let copy = [...prev];
+        for (const whDelta of warehouseStockDeltas) {
+          const idx = copy.findIndex(b => b.warehouseId === whDelta.warehouseId && b.productId === updatedReturn.productId);
+          if (idx >= 0) {
+            copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + whDelta.delta, updatedAt: new Date().toISOString() };
+          } else if (whDelta.delta > 0) {
+            copy.push({
+              id: `sb_${Date.now()}_${Math.random()}`,
+              warehouseId: whDelta.warehouseId,
+              productId: updatedReturn.productId,
+              quantity: whDelta.delta,
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }
+        return copy;
+      });
+    }
+
+    // Record audit trail entries in ERP audit log
+    for (const log of changes) {
+      addAuditLog(
+        'Updated Customer Return',
+        'Inventory',
+        updatedReturn.returnNumber,
+        `${log.field}: ${log.oldValue}`,
+        `${log.field}: ${log.newValue}`
+      );
+    }
+
+    return updatedReturn;
+  };
+
+  const approveCustomerReturn = async (returnId: string, reviewerId?: string, reviewerName?: string) => {
+    const updated = await customerReturnService.approveReturn(
+      returnId,
+      reviewerId || user?.id,
+      reviewerName || profile?.full_name || 'Manager',
+      company.id
+    );
+    setCustomerReturns(prev => prev.map(r => r.id === returnId ? updated : r));
+    addAuditLog('Approved Customer Return', 'Inventory', updated.returnNumber, 'Approved', `Approved return of ${updated.returnedQty} ${updated.unit} ${updated.productName}`);
+    return updated;
+  };
+
+  const rejectCustomerReturn = async (returnId: string, reason: string, reviewerId?: string, reviewerName?: string) => {
+    const updated = await customerReturnService.rejectReturn(
+      returnId,
+      reason,
+      reviewerId || user?.id,
+      reviewerName || profile?.full_name || 'Manager',
+      company.id
+    );
+    setCustomerReturns(prev => prev.map(r => r.id === returnId ? updated : r));
+    addAuditLog('Rejected Customer Return', 'Inventory', updated.returnNumber, 'Rejected', `Reason: ${reason}`);
+    return updated;
+  };
+
+  const restockCustomerReturn = async (
+    returnId: string,
+    warehouseId?: string,
+    restockedById?: string,
+    restockedByName?: string
+  ) => {
+    const targetWh = warehouses.find(w => w.id === warehouseId) || warehouses.find(w => w.isDefault) || warehouses[0];
+    const res = await customerReturnService.restockReturn(
+      returnId,
+      targetWh?.id,
+      targetWh?.name,
+      restockedById || user?.id,
+      restockedByName || profile?.full_name || 'Warehouse Staff',
+      company.id
+    );
+
+    setCustomerReturns(prev => prev.map(r => r.id === returnId ? res.returnRecord : r));
+
+    // Live in-memory stock update if resalable and newly restocked
+    if (res.restocked && res.returnRecord.condition === 'Resalable') {
+      let updatedProductsList: Product[] = [];
+      setProducts(prev => {
+        updatedProductsList = prev.map(p => {
+          if (p.id === res.returnRecord.productId) {
+            return { ...p, currentStock: Math.max(0, (p.currentStock || 0) + res.returnRecord.returnedQty) };
+          }
+          return p;
+        });
+        return updatedProductsList;
+      });
+      if (updatedProductsList.length > 0) {
+        checkStockAlerts(updatedProductsList);
+      }
+
+      // Update warehouse stock balances in memory
+      if (targetWh?.id) {
+        setStockBalances(prev => {
+          const idx = prev.findIndex(b => b.warehouseId === targetWh.id && b.productId === res.returnRecord.productId);
+          if (idx >= 0) {
+            const copy = [...prev];
+            copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + res.returnRecord.returnedQty, updatedAt: new Date().toISOString() };
+            return copy;
+          }
+          return [...prev, {
+            id: `sb_${Date.now()}`,
+            warehouseId: targetWh.id,
+            productId: res.returnRecord.productId,
+            quantity: res.returnRecord.returnedQty,
+            updatedAt: new Date().toISOString()
+          }];
+        });
+      }
+    }
+
+    addAuditLog(
+      res.returnRecord.condition === 'Resalable' ? 'Restocked Customer Return' : 'Quarantined Customer Return',
+      'Inventory',
+      res.returnRecord.returnNumber,
+      'Restocked',
+      res.message
+    );
+
+    return res;
+  };
+
+  const refundCustomerReturn = async (
+    returnId: string,
+    refundMethod: string,
+    refundAmount?: number,
+    refundedById?: string,
+    refundedByName?: string
+  ) => {
+    const updated = await customerReturnService.processRefund(
+      returnId,
+      refundMethod,
+      refundAmount,
+      refundedById || user?.id,
+      refundedByName || profile?.full_name || 'Cashier',
+      company.id
+    );
+
+    setCustomerReturns(prev => prev.map(r => r.id === returnId ? updated : r));
+    addAuditLog('Processed Return Refund', 'Payments', updated.returnNumber, 'Refunded', `Refunded ₹${updated.refundAmount} via ${refundMethod}`);
+    return updated;
+  };
+
   // Expenses
   const addExpense = async (expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense> => {
     const newExpense = await expenseService.createExpense(expenseData, company.id);
@@ -1293,6 +1698,48 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addAuditLog('Adjusted Stock', 'Inventory', prod?.name || productId, `Adjust: ${adjustmentQty}`, reason);
   };
 
+  // Record Opening Stock
+  const recordOpeningStock = async (params: Parameters<typeof inventoryService.recordOpeningStock>[0]): Promise<InventoryTransaction> => {
+    const txn = await inventoryService.recordOpeningStock({
+      ...params,
+      companyId: company.id,
+      currentUser: user ? { id: user.id, name: profile?.full_name || user.email || 'User', role: profile?.role } : undefined
+    });
+    setInventoryTransactions(prev => [txn, ...prev.filter(t => t.id !== txn.id)]);
+    const [freshBalances, freshProducts] = await Promise.all([
+      inventoryService.getStockBalances(company.id),
+      productService.getProducts(undefined, company.id)
+    ]);
+    setStockBalances(freshBalances);
+    setProducts(sortProductsAZ(freshProducts));
+    checkStockAlerts(freshProducts);
+
+    addAuditLog('Recorded Opening Stock', 'Product', txn.productName || params.productId, `Initial: ${params.quantity}`, params.notes || 'Opening stock');
+    return txn;
+  };
+
+  // Record Stock Bundle
+  const recordStockBundle = async (bundle: Parameters<typeof inventoryService.recordStockBundle>[0]): Promise<{ success: boolean; count: number }> => {
+    const res = await inventoryService.recordStockBundle({
+      ...bundle,
+      companyId: company.id,
+      currentUser: user ? { id: user.id, name: profile?.full_name || user.email || 'User', role: profile?.role } : undefined
+    });
+    if (res.transactions && res.transactions.length > 0) {
+      setInventoryTransactions(prev => [...res.transactions, ...prev]);
+    }
+    const [freshBalances, freshProducts] = await Promise.all([
+      inventoryService.getStockBalances(company.id),
+      productService.getProducts(undefined, company.id)
+    ]);
+    setStockBalances(freshBalances);
+    setProducts(sortProductsAZ(freshProducts));
+    checkStockAlerts(freshProducts);
+
+    addAuditLog('Recorded Stock Bundle', 'Product', bundle.referenceNumber || 'Bundle', `Items: ${bundle.items.length}`, bundle.notes || 'Multi-product opening stock');
+    return { success: true, count: res.count };
+  };
+
   // Multi-Warehouse Management
   const addWarehouse = async (whData: Omit<Warehouse, 'id'>): Promise<Warehouse> => {
     const newWh = await companyService.createWarehouse(whData, company.id);
@@ -1342,7 +1789,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setStockTransfers(freshTransfers);
     setStockBalances(freshBalances);
     setInventoryTransactions(freshTxns);
-    setProducts(freshProducts);
+    setProducts(sortProductsAZ(freshProducts));
     checkStockAlerts(freshProducts);
     addAuditLog('Stock Transfer', 'Inventory', newTransfer.transferNumber, newTransfer.fromWarehouse, `${newTransfer.toWarehouse} (${newTransfer.items.length} items) - Completed`);
     return newTransfer;
@@ -1361,7 +1808,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setStockTransfers(freshTransfers);
     setStockBalances(freshBalances);
     setInventoryTransactions(freshTxns);
-    setProducts(freshProducts);
+    setProducts(sortProductsAZ(freshProducts));
     checkStockAlerts(freshProducts);
     addAuditLog('Transfer Status Changed', 'Inventory', id, 'Status update', status);
   };
@@ -1370,6 +1817,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addBatch = async (batchData: Omit<Batch, 'id'>): Promise<Batch> => {
     const newBatch = await productService.createBatch(batchData, company.id);
     setBatches(prev => [newBatch, ...prev.filter(b => b.id !== newBatch.id)]);
+
+    // Evaluate 30-day batch expiry alert if entering warning window
+    try {
+      const currentRole = profile?.role || (user as any)?.role;
+      const targetCompId = company.id || companyId || activeCompanyId || '00000000-0000-0000-0000-000000000001';
+      if (currentRole === 'Warehouse Manager' && user?.id) {
+        const alerts = await stockAlertService.checkBatchExpiryAlerts({
+          batches: [newBatch],
+          companyId: targetCompId,
+          warehouses,
+          users,
+          existingNotifications: notifications,
+          createNotification: async notif => notificationService.createNotification(notif, targetCompId)
+        });
+        if (alerts.length > 0) {
+          setNotifications(prev => sortNotifications(dedupeById([...alerts, ...prev])));
+        }
+      }
+    } catch {}
+
     return newBatch;
   };
 
@@ -1377,6 +1844,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newSerial = await productService.createSerialNumber(serialData, company.id);
     setSerialNumbers(prev => [newSerial, ...prev.filter(s => s.id !== newSerial.id)]);
     return newSerial;
+  };
+
+  const updateBatch = async (batchId: string, updates: Partial<Batch>): Promise<void> => {
+    await productService.updateBatch(batchId, updates, company.id);
+    setBatches(prev => prev.map(b => (b.id === batchId ? { ...b, ...updates } : b)));
+  };
+
+  const updateSerialNumber = async (serialId: string, updates: Partial<SerialNumber>): Promise<void> => {
+    await productService.updateSerialNumber(serialId, updates, company.id);
+    setSerialNumbers(prev => prev.map(s => (s.id === serialId ? { ...s, ...updates } : s)));
   };
 
   // Units & Conversions
@@ -1512,14 +1989,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications(sortNotifications(updated));
 
     try {
-      await notificationService.markAsRead(id, activeCompanyId);
+      await notificationService.markAsRead(id, activeCompanyId, user?.id);
     } catch (err) {
       console.error('Failed to mark notification as read in database:', err);
       // Restore previous state to prevent false confirmation
       setNotifications(previousNotifications);
       throw err;
     }
-  }, [notifications, activeCompanyId]);
+  }, [notifications, activeCompanyId, user?.id]);
 
   const markAllNotificationsAsRead = useCallback(async () => {
     const unread = notifications.filter(n => !n.read);
@@ -1527,12 +2004,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const previousNotifications = notifications;
     const currentRole = profile?.role || (user as any)?.role;
+    const unreadIds = unread.map(n => n.id);
 
     const updated = notifications.map(n => ({ ...n, read: true }));
     setNotifications(sortNotifications(updated));
 
     try {
-      await notificationService.markAllAsRead(activeCompanyId, user?.id, currentRole);
+      await notificationService.markAllAsRead(activeCompanyId, user?.id, currentRole, unreadIds);
     } catch (err) {
       console.error('Failed to mark all notifications as read in database:', err);
       setNotifications(previousNotifications);
@@ -1592,6 +2070,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   }, [activeCompanyId, user, profile?.full_name, profile?.role, (user as any)?.role]);
 
+  const handleUpdatePurchaseRequest = useCallback(async (requestId: string, input: Partial<CreatePurchaseRequestInput>): Promise<PurchaseRequest> => {
+    const res = await purchaseRequestService.updatePurchaseRequest(
+      requestId,
+      input,
+      activeCompanyId,
+      user ? { id: user.id, name: profile?.full_name || user.email || 'Warehouse Manager', role: profile?.role } : undefined
+    );
+    setPurchaseRequests(prev => prev.map(r => r.id === res.id ? res : r));
+    const notifs = await notificationService.getNotifications(activeCompanyId, user?.id, profile?.role || (user as any)?.role);
+    setNotifications(sortNotifications(dedupeById(notifs || [])));
+    return res;
+  }, [activeCompanyId, user, profile?.full_name, profile?.role, (user as any)?.role]);
+
   const handleUpdatePurchaseRequestStatus = useCallback(async (params: {
     requestId: string;
     status: PurchaseRequestStatus;
@@ -1623,8 +2114,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   }, [activeCompanyId, user, profile?.full_name, profile?.role, (user as any)?.role]);
 
+  const handleDeletePurchaseRequest = useCallback(async (requestId: string): Promise<boolean> => {
+    const res = await purchaseRequestService.deletePurchaseRequest(requestId, activeCompanyId, profile?.role);
+    setPurchaseRequests(prev => prev.filter(r => r.id !== requestId));
+    return res;
+  }, [activeCompanyId, profile?.role]);
+
   const handleCreatePurchaseOrderFromRequest = useCallback(async (params: any) => {
     const res = await purchaseRequestService.createPurchaseOrderFromRequest(
+      params,
+      activeCompanyId,
+      user ? { id: user.id, name: profile?.full_name || user.email || 'Purchase Manager', role: profile?.role } : undefined
+    );
+    setPurchaseRequests(prev => prev.map(r => r.id === res.request.id ? res.request : r));
+    const notifs = await notificationService.getNotifications(activeCompanyId, user?.id, profile?.role || (user as any)?.role);
+    setNotifications(sortNotifications(dedupeById(notifs || [])));
+    return res;
+  }, [activeCompanyId, user, profile?.full_name, profile?.role, (user as any)?.role]);
+
+  const handleApprovePurchaseRequestWithOrder = useCallback(async (params: any) => {
+    const res = await purchaseRequestService.approvePurchaseRequestWithOrder(
       params,
       activeCompanyId,
       user ? { id: user.id, name: profile?.full_name || user.email || 'Purchase Manager', role: profile?.role } : undefined
@@ -1641,7 +2150,23 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       activeCompanyId,
       user ? { id: user.id, name: profile?.full_name || user.email || 'Warehouse Staff', role: profile?.role } : undefined
     );
-    setPurchaseRequests(prev => prev.map(r => r.id === res.id ? res : r));
+    setPurchaseRequests(prev => {
+      const exists = prev.some(r => r.id === res.id || (res.purchaseOrderId && r.purchaseOrderId === res.purchaseOrderId));
+      if (exists) {
+        return prev.map(r => (r.id === res.id || (res.purchaseOrderId && r.purchaseOrderId === res.purchaseOrderId)) ? res : r);
+      }
+      return [res, ...prev];
+    });
+    await loadAllData(activeCompanyId);
+    return res;
+  }, [activeCompanyId, user, profile?.full_name, profile?.role, loadAllData]);
+
+  const handleRecordSupplierDelivery = useCallback(async (input: RecordSupplierDeliveryInput): Promise<SupplierDeliveryReceiptResult> => {
+    const res = await orderReceiveService.confirmSupplierDelivery(
+      input,
+      activeCompanyId,
+      user ? { id: user.id, name: profile?.full_name || user.email || 'Warehouse Staff', role: profile?.role } : undefined
+    );
     await loadAllData(activeCompanyId);
     return res;
   }, [activeCompanyId, user, profile?.full_name, profile?.role, loadAllData]);
@@ -1661,6 +2186,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteProduct,
     generateSKU,
     generateBarcode,
+    generateNextBatchNumber,
     customCategories,
     addCustomCategory,
     customers,
@@ -1682,13 +2208,25 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createPurchaseInvoice,
     processPurchaseReturn,
     recordPurchasePayment,
+    customerReturns,
+    refreshCustomerReturns,
+    addCustomerReturn,
+    updateCustomerReturn,
+    approveCustomerReturn,
+    rejectCustomerReturn,
+    restockCustomerReturn,
+    refundCustomerReturn,
     purchaseRequests,
     refreshPurchaseRequests,
     createPurchaseRequest: handleCreatePurchaseRequest,
+    updatePurchaseRequest: handleUpdatePurchaseRequest,
     updatePurchaseRequestStatus: handleUpdatePurchaseRequestStatus,
     cancelPurchaseRequest: handleCancelPurchaseRequest,
+    deletePurchaseRequest: handleDeletePurchaseRequest,
     createPurchaseOrderFromRequest: handleCreatePurchaseOrderFromRequest,
+    approvePurchaseRequestWithOrder: handleApprovePurchaseRequestWithOrder,
     recordGoodsReceipt: handleRecordGoodsReceipt,
+    recordSupplierDelivery: handleRecordSupplierDelivery,
     expenses,
     addExpense,
     deleteExpense,
@@ -1705,14 +2243,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createStockTransfer,
     updateTransferStatus,
     adjustStock,
+    recordOpeningStock,
+    recordStockBundle,
     getWarehouseStock,
     getProductStockByWarehouse,
     validateSaleStock,
     refreshStockBalances,
     batches,
     addBatch,
+    updateBatch,
     serialNumbers,
     addSerialNumber,
+    updateSerialNumber,
     units,
     addUnit,
     updateUnit,
@@ -1760,6 +2302,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteProduct,
     generateSKU,
     generateBarcode,
+    generateNextBatchNumber,
     customers,
     addCustomer,
     updateCustomer,
@@ -1779,13 +2322,24 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createPurchaseInvoice,
     processPurchaseReturn,
     recordPurchasePayment,
+    customerReturns,
+    refreshCustomerReturns,
+    addCustomerReturn,
+    updateCustomerReturn,
+    approveCustomerReturn,
+    rejectCustomerReturn,
+    restockCustomerReturn,
+    refundCustomerReturn,
     purchaseRequests,
     refreshPurchaseRequests,
     handleCreatePurchaseRequest,
+    handleUpdatePurchaseRequest,
     handleUpdatePurchaseRequestStatus,
     handleCancelPurchaseRequest,
+    handleDeletePurchaseRequest,
     handleCreatePurchaseOrderFromRequest,
     handleRecordGoodsReceipt,
+    handleRecordSupplierDelivery,
     expenses,
     addExpense,
     deleteExpense,
@@ -1802,14 +2356,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createStockTransfer,
     updateTransferStatus,
     adjustStock,
+    recordOpeningStock,
+    recordStockBundle,
     getWarehouseStock,
     getProductStockByWarehouse,
     validateSaleStock,
     refreshStockBalances,
     batches,
     addBatch,
+    updateBatch,
     serialNumbers,
     addSerialNumber,
+    updateSerialNumber,
     units,
     addUnit,
     updateUnit,

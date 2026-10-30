@@ -1,8 +1,13 @@
 import { supabase } from '../lib/supabase';
 import { NotificationItem, SalesInvoice, PaymentRecord, CustomerSupportPriority } from '../types';
 import { getAppStorage } from '../utils/storageUtils';
+import { filterSupportedNotificationPayload, hasNotificationColumn } from '../utils/schemaDetector';
 
-const STORAGE_KEY = (cId: string) => `universal_billing_notifications_${cId}`;
+const isUuid = (id?: string | null): boolean =>
+  Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+
+const STORAGE_KEY = (cId: string, uId?: string | null) =>
+  `universal_billing_notifications_${cId}${uId ? `_${uId}` : ''}`;
 
 /**
  * Safely parses the notification creation timestamp to epoch milliseconds.
@@ -117,18 +122,6 @@ export const notificationService = {
     const isStockAlert = (type: string) =>
       type === 'low_stock' || type === 'limited_stock' || type === 'out_of_stock' || type === 'stock_damage';
 
-    const isPRCancellation = (it: NotificationItem) => {
-      if (it.type !== 'purchase_request') return false;
-      const titleLower = (it.title || '').toLowerCase();
-      const messageLower = (it.message || '').toLowerCase();
-      return (
-        titleLower.includes('cancel') ||
-        titleLower.includes('cancelled') ||
-        messageLower.includes('cancelled') ||
-        messageLower.includes('status: cancelled')
-      );
-    };
-
     const isPRCreationOrRoutine = (it: NotificationItem) => {
       if (it.type !== 'purchase_request') return false;
       const titleLower = (it.title || '').toLowerCase();
@@ -199,27 +192,39 @@ export const notificationService = {
     }
 
     // 1. WAREHOUSE MANAGER ROLE RESTRICTION:
-    // A Warehouse Manager MUST ONLY receive notifications from the 5 permitted categories:
-    //   A. Low Stock Alert (low_stock)
-    //   B. Out of Stock Alert (out_of_stock)
-    //   C. Limited Stock Alert (limited_stock)
-    //   D. Purchase Request Cancellation (purchase_request cancellation addressed to this manager)
-    //   E. Stock Damage Alert (stock_damage)
+    // A Warehouse Manager MUST ONLY receive notifications for their assigned warehouses/requests:
+    //   A. Out of Stock Alert (out_of_stock)
+    //   B. Limited Stock Alert (limited_stock, low_stock)
+    //   C. Purchase Request Approved, Rejected, or Cancelled (addressed to submitting manager)
+    //   D. Batch Expiry Alert (expiring_batch - 30 days before expiry)
+    //   E. End-of-Day Expiry Reminder (expiring_batches, eod_expiry)
+    //   F. Stock Damage Alert (stock_damage)
     // Strictly EXCLUDES:
     //   - Customer support, complaints, damages, returns, follow-ups
-    //   - Routine PR creation notifications ("New Purchase Request: PR-...")
-    //   - General purchasing updates
-    //   - Unrelated sales, accounting, user management, or administrative notifications
+    //   - Routine PR creation notifications ("New Purchase Request: PR-...") by others
+    //   - Unrelated sales, POS, invoicing, accounting, or administrative notifications
     if (role === 'Warehouse Manager') {
       if (!userId) return false;
 
-      // Category A, B, C, E: Stock alerts & damage alerts
+      // Category A, B, F: Stock alerts & stock damage
       if (isStockAlert(item.type)) {
         return item.userId === userId;
       }
 
-      // Category D: Purchase Request Cancellation
-      if (isPRCancellation(item) && !isPRCreationOrRoutine(item)) {
+      // Category C: Purchase Request decision notifications (Approved, Rejected, Cancelled)
+      if (item.type === 'purchase_request') {
+        if (item.userId !== userId) return false;
+        // Routine creation notifications or company broadcast PRs never shown to submitting Warehouse Manager
+        if (isPRCreationOrRoutine(item)) return false;
+        return true;
+      }
+
+      // Category D & E: Batch Expiry alerts & End-of-Day Expiry Reminders
+      if (
+        item.type === 'expiring_batch' ||
+        item.type === 'expiring_batches' ||
+        item.type === 'eod_expiry'
+      ) {
         return item.userId === userId;
       }
 
@@ -280,8 +285,8 @@ export const notificationService = {
         return true;
       }
 
-      // C. Purchase Requests & Purchase Orders
-      if (item.type === 'purchase_request' || item.type === 'purchase_order') {
+      // C. Purchase Orders (Retired pending Purchase Request notifications for Purchase Manager)
+      if (item.type === 'purchase_order') {
         const titleLower = (item.title || '').toLowerCase();
         const messageLower = (item.message || '').toLowerCase();
 
@@ -293,13 +298,19 @@ export const notificationService = {
 
         return true;
       }
+      if (item.type === 'purchase_request') {
+        return false;
+      }
 
-      // D. Supplier Updates
+      // D. Supplier Updates & Accountant Correction Requests
       if (
         item.type === 'supplier_update' ||
         item.type === 'supplier' ||
+        item.type === 'bill_correction' ||
+        item.type === 'supplier_bill_correction' ||
         (item.title || '').toLowerCase().includes('supplier') ||
-        (item.message || '').toLowerCase().includes('supplier')
+        (item.message || '').toLowerCase().includes('supplier') ||
+        (item.title || '').toLowerCase().includes('correction')
       ) {
         return true;
       }
@@ -311,6 +322,27 @@ export const notificationService = {
 
       // Deny all other unrelated notifications
       return false;
+    }
+
+    // 2B. ACCOUNTANT ROLE:
+    // Receives supplier bills awaiting review, payment approvals, overdue / due date alerts.
+    // Strictly blocks: stock alerts and customer support.
+    if (role === 'Accountant') {
+      if (isStockAlert(item.type) || isCustomerSupportNotification(item)) {
+        return false;
+      }
+      if (
+        item.type === 'supplier_bill' ||
+        item.type === 'bill_for_review' ||
+        item.type === 'bill_approved' ||
+        item.type === 'bill_due_date' ||
+        item.type === 'bill_overdue' ||
+        item.type === 'payment' ||
+        item.type === 'accounting'
+      ) {
+        return true;
+      }
+      return !item.userId || item.userId === userId;
     }
 
     // 3. Stock alerts (low_stock, limited_stock, out_of_stock, stock_damage):
@@ -375,12 +407,17 @@ export const notificationService = {
           'customer_followup',
           'customer_update'
         ];
-        query = query.or(`type.in.(${csTypes.join(',')}),category.in.(${csTypes.join(',')})`);
-      } else if (role === 'Warehouse Manager' && userId) {
+        const hasCategory = await hasNotificationColumn('category');
+        if (hasCategory) {
+          query = query.or(`type.in.(${csTypes.join(',')}),category.in.(${csTypes.join(',')})`);
+        } else {
+          query = query.in('type', csTypes);
+        }
+      } else if (role === 'Warehouse Manager' && isUuid(userId)) {
         query = query.eq('user_id', userId);
       }
 
-      query = query.order('created_at', { ascending: false }).limit(100);
+      query = query.order('created_at', { ascending: false }).limit(250);
 
       const { data, error } = await query;
 
@@ -423,7 +460,7 @@ export const notificationService = {
               ? new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : 'Just now',
             createdAt: d.created_at || new Date().toISOString(),
-            read: d.read ?? d.is_read ?? false,
+            read: Boolean(d.is_read ?? d.read ?? false),
             link: d.link || undefined,
             userId: d.user_id || null,
             warehouseId: d.warehouse_id || null,
@@ -451,11 +488,11 @@ export const notificationService = {
       console.warn('Supabase getNotifications note:', err);
     }
 
-    // Fallback/merge with local storage cache
+    // Fallback/merge with user-scoped local storage cache
     const storage = getAppStorage();
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
         if (raw) {
           const cached: NotificationItem[] = JSON.parse(raw);
           const existingMap = new Map(items.map(i => [i.id, i]));
@@ -468,7 +505,7 @@ export const notificationService = {
                 read: Boolean(c.read)
               });
             } else {
-              // Synchronize read status if cache has newer read status
+              // Synchronize read status: if cache has read: true that was persisted, ensure it is kept
               if (c.read && !existing.read) {
                 existing.read = true;
               }
@@ -478,6 +515,8 @@ export const notificationService = {
             }
           });
         }
+        // Save current user-authorized list back to user-scoped cache
+        storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(items.slice(0, 200)));
       } catch {}
     }
 
@@ -490,12 +529,11 @@ export const notificationService = {
    * Marks a notification as read in database and local cache.
    * Throws if database update fails so the caller does not falsely confirm read status.
    */
-  async markAsRead(id: string, companyId?: string): Promise<void> {
+  async markAsRead(id: string, companyId?: string, userId?: string): Promise<void> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     let dbError: any = null;
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    if (isUuid) {
+    if (isUuid(id)) {
       try {
         // Primary Supabase column is `is_read`
         let { error } = await supabase
@@ -528,13 +566,19 @@ export const notificationService = {
     const storage = getAppStorage();
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
-        if (raw) {
-          const list: NotificationItem[] = JSON.parse(raw);
-          const updated = sortNotifications(
-            list.map(item => (item.id === id ? { ...item, read: true } : item))
-          );
-          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+        const updateList = (k: string) => {
+          const raw = storage.getItem(k);
+          if (raw) {
+            const list: NotificationItem[] = JSON.parse(raw);
+            const updated = sortNotifications(
+              list.map(item => (item.id === id ? { ...item, read: true } : item))
+            );
+            storage.setItem(k, JSON.stringify(updated));
+          }
+        };
+        updateList(STORAGE_KEY(finalCompanyId));
+        if (userId) {
+          updateList(STORAGE_KEY(finalCompanyId, userId));
         }
       } catch {}
     }
@@ -542,37 +586,60 @@ export const notificationService = {
 
   /**
    * Marks all authorized notifications as read for company/user.
+   * Supports target notification IDs for precise user-scoped persistence.
    */
-  async markAllAsRead(companyId?: string, userId?: string, role?: string): Promise<void> {
+  async markAllAsRead(
+    companyId?: string,
+    userId?: string,
+    role?: string,
+    notificationIds?: string[]
+  ): Promise<void> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     let dbError: any = null;
 
     try {
-      let query = supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('company_id', finalCompanyId);
+      // 1. Resolve target notification IDs to mark as read:
+      let targetIds = notificationIds && notificationIds.length > 0
+        ? notificationIds
+        : (await this.getNotifications(companyId, userId, role)).filter(n => !n.read).map(n => n.id);
 
-      if (role && role !== 'Owner' && role !== 'Admin' && userId) {
-        query = query.eq('user_id', userId);
-      }
+      const validUuids = targetIds.filter(id => isUuid(id));
 
-      let { error } = await query;
-      if (error && (error.code === 'PGRST204' || error.message?.includes('is_read'))) {
-        let fbQuery = supabase
-          .from('notifications')
-          .update({ read: true })
-          .eq('company_id', finalCompanyId);
-        if (role && role !== 'Owner' && role !== 'Admin' && userId) {
-          fbQuery = fbQuery.eq('user_id', userId);
+      if (validUuids.length > 0) {
+        // Update in batches of 100 to respect query limits
+        for (let i = 0; i < validUuids.length; i += 100) {
+          const batch = validUuids.slice(i, i + 100);
+          let { error } = await supabase
+            .from('notifications')
+            .update({ is_read: true })
+            .in('id', batch);
+
+          if (error && (error.code === 'PGRST204' || error.message?.includes('is_read'))) {
+            const fb = await supabase
+              .from('notifications')
+              .update({ read: true })
+              .in('id', batch);
+            error = fb.error;
+          }
+
+          if (error) {
+            dbError = error;
+            console.warn('Failed to mark batch as read in DB:', error);
+            break;
+          }
         }
-        const fbRes = await fbQuery;
-        error = fbRes.error;
-      }
+      } else if (isUuid(userId)) {
+        let query = supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('company_id', finalCompanyId)
+          .eq('user_id', userId);
 
-      if (error) {
-        dbError = error;
-        console.warn('Failed to mark all as read in DB:', error);
+        const { error } = await query;
+        if (error) {
+          dbError = error;
+          console.warn('Failed to mark all as read by user_id in DB:', error);
+        }
       }
     } catch (e) {
       dbError = e;
@@ -586,18 +653,13 @@ export const notificationService = {
     const storage = getAppStorage();
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
         if (raw) {
           const list: NotificationItem[] = JSON.parse(raw);
           const updated = sortNotifications(
-            list.map(item => {
-              if (!role || role === 'Owner' || role === 'Admin' || item.userId === userId) {
-                return { ...item, read: true };
-              }
-              return item;
-            })
+            list.map(item => ({ ...item, read: true }))
           );
-          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+          storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(updated));
         }
       } catch {}
     }
@@ -612,9 +674,8 @@ export const notificationService = {
     try {
       await supabase
         .from('notifications')
-        .update({ is_read: true, read: true })
+        .update({ is_read: true })
         .eq('company_id', finalCompanyId)
-        .eq('warehouse_id', warehouseId)
         .eq('title', 'Missing Warehouse Manager Assignment');
     } catch (e) {
       console.warn('Failed to resolve missing warehouse manager alert in DB:', e);
@@ -661,21 +722,21 @@ export const notificationService = {
     if (storage) {
       try {
         if (!role || role === 'Owner' || role === 'Admin') {
-          storage.removeItem(STORAGE_KEY(finalCompanyId));
+          storage.removeItem(STORAGE_KEY(finalCompanyId, userId));
         } else if (role === 'Salesperson') {
-          const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+          const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
           if (raw) {
             const list: NotificationItem[] = JSON.parse(raw);
             // Retain shared company warehouse alerts; only remove this salesperson's customer support notifications
             const remaining = list.filter(n => !(isCustomerSupportNotification(n) && n.userId === userId));
-            storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(remaining));
+            storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(remaining));
           }
         } else if (userId) {
-          const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+          const raw = storage.getItem(STORAGE_KEY(finalCompanyId, userId));
           if (raw) {
             const list: NotificationItem[] = JSON.parse(raw);
             const remaining = list.filter(n => n.userId && n.userId !== userId);
-            storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(remaining));
+            storage.setItem(STORAGE_KEY(finalCompanyId, userId), JSON.stringify(remaining));
           }
         }
       } catch {}
@@ -768,40 +829,56 @@ export const notificationService = {
       notif.dedupKey ||
       (notif.caseId ? `${notif.type}_${notif.caseId}_${notif.userId || 'unassigned'}` : undefined);
 
-    // Stable deduplication (Requirement 9): if an unread notification with identical dedupKey already exists,
-    // update it rather than creating a duplicate alert copy.
+    // Stable deduplication: if a notification with identical dedupKey already exists,
+    // preserve it rather than resetting read status or creating a duplicate copy.
     const storage = getAppStorage();
     if (storage && dedupKey) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, notif.userId));
         const list: NotificationItem[] = raw ? JSON.parse(raw) : [];
-        const existingIdx = list.findIndex(n => n.dedupKey === dedupKey && !n.read);
+        const existingIdx = list.findIndex(n => n.dedupKey === dedupKey);
         if (existingIdx !== -1) {
           const existing = list[existingIdx];
-          existing.message = notif.message;
-          existing.title = notif.title;
-          existing.timestamp = 'Just now';
-          existing.createdAt = createdAt;
-          if (notif.caseStatus) existing.caseStatus = notif.caseStatus;
-          list.splice(existingIdx, 1);
-          const updated = sortNotifications([existing, ...list]);
-          storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated.slice(0, 100)));
           return existing;
         }
       } catch {}
     }
 
     try {
-      // Try full insert with extended recipient targeting and customer support columns
-      const { data, error } = await supabase
-        .from('notifications')
-        .insert({
+      // Check database-level deduplication if dedupKey is provided
+      if (dedupKey) {
+        try {
+          const hasDedup = await hasNotificationColumn('dedup_key');
+          if (hasDedup) {
+            const { data: existingDb } = await supabase
+              .from('notifications')
+              .select('id, is_read')
+              .eq('company_id', finalCompanyId)
+              .eq('dedup_key', dedupKey)
+              .maybeSingle();
+
+            if (existingDb?.id) {
+              createdId = existingDb.id;
+              // If it already exists in DB, do not reset is_read to false!
+            }
+          }
+        } catch {}
+      }
+
+      if (!createdId) {
+        const rawPayload = {
           company_id: finalCompanyId,
           user_id: notif.userId || null,
           warehouse_id: notif.warehouseId || null,
           product_id: notif.productId || null,
           customer_id: notif.customerId || null,
-          priority: notif.priority || (notif.type === 'customer_complaint' ? 'High' : 'Normal'),
+          priority:
+            notif.priority ||
+            (notif.type === 'customer_complaint' ||
+            notif.type === 'customer_product_damage' ||
+            notif.type === 'customer_return_request'
+              ? 'High'
+              : 'Normal'),
           category: notif.category || (isCustomerSupportNotification(notif) ? notif.type : null),
           case_id: notif.caseId || null,
           case_status: notif.caseStatus || null,
@@ -814,29 +891,21 @@ export const notificationService = {
           link: calculatedLink,
           is_read: false,
           created_at: createdAt
-        })
-        .select()
-        .single();
+        };
 
-      if (!error && data?.id) {
-        createdId = data.id;
-      } else if (error) {
-        // Fallback for earlier database schema
-        const { data: fbData } = await supabase
+        const safePayload = await filterSupportedNotificationPayload(rawPayload);
+
+        const { data, error } = await supabase
           .from('notifications')
-          .insert({
-            company_id: finalCompanyId,
-            user_id: notif.userId || null,
-            title: notif.title,
-            message: notif.message,
-            type: notif.type,
-            link: calculatedLink,
-            is_read: false,
-            created_at: createdAt
-          })
+          .insert(safePayload)
           .select()
           .single();
-        if (fbData?.id) createdId = fbData.id;
+
+        if (!error && data?.id) {
+          createdId = data.id;
+        } else if (error) {
+          console.warn('Supabase notification insert note:', error);
+        }
       }
     } catch (e) {
       console.warn('Supabase notification insert note:', e);
@@ -865,8 +934,13 @@ export const notificationService = {
       paymentId: notif.paymentId || null,
       invoiceNumber: finalInvoiceNumber,
       paymentNumber: finalPaymentNumber,
-      warehouseName: notif.warehouseName,
-      priority: notif.priority || (notif.type === 'customer_complaint' ? 'High' : 'Normal'),
+      priority:
+        notif.priority ||
+        (notif.type === 'customer_complaint' ||
+        notif.type === 'customer_product_damage' ||
+        notif.type === 'customer_return_request'
+          ? 'High'
+          : 'Normal'),
       category: notif.category || (isCustomerSupportNotification(notif) ? notif.type : undefined),
       customerId: notif.customerId || null,
       customerName: notif.customerName,
@@ -883,10 +957,10 @@ export const notificationService = {
     // Save to local storage cache for offline / test resilience, preserving required sort
     if (storage) {
       try {
-        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId, notif.userId));
         const list: NotificationItem[] = raw ? JSON.parse(raw) : [];
         const updated = sortNotifications([item, ...list.filter(n => n.id !== item.id)]);
-        storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated.slice(0, 100)));
+        storage.setItem(STORAGE_KEY(finalCompanyId, notif.userId), JSON.stringify(updated.slice(0, 100)));
       } catch {}
     }
 

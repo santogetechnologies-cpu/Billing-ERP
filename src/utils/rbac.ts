@@ -169,7 +169,8 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     products: VIEW_ONLY,
     // View-only real-time shop inventory for customer stock queries
     inventory: VIEW_ONLY,
-    settings: ALL_DENIED,
+    // Permitted personal & appearance settings
+    settings: { view: true, create: false, edit: false, delete: false, approve: false, export: false, manage: false },
     pos: ALL_DENIED,
     payments: ALL_DENIED,
     purchases: ALL_DENIED,
@@ -190,9 +191,10 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     purchases: { view: true, create: true, edit: true, delete: false, approve: true, export: true, manage: false },
     suppliers: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
     expenses: { view: true, create: true, edit: false, delete: false, approve: false, export: false, manage: false },
-    // Shared cross-module read to inspect product costs and stock levels for re-ordering
-    products: VIEW_ONLY,
-    inventory: VIEW_ONLY,
+    // Authorized product management, initial stock, bundles, and stock updates
+    products: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
+    // Authorized inventory stock overview, transfers, history, and adjustments; strictly denied from warehouse administration & deletion
+    inventory: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
     // Permitted personal & appearance settings
     settings: { view: true, create: false, edit: false, delete: false, approve: false, export: false, manage: false },
     // Forbidden areas
@@ -213,7 +215,7 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
   'Warehouse Manager': {
     dashboard: { view: true, create: false, edit: false, delete: false, approve: false, export: false, manage: false },
     inventory: { view: true, create: true, edit: true, delete: false, approve: true, export: true, manage: true },
-    products: { view: true, create: true, edit: true, delete: true, approve: false, export: true, manage: false }, // Inventory, batch edits & product master deletion
+    products: VIEW_ONLY, // View-only catalog for assigned warehouse stock & availability; no create, edit, or delete
     barcode: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: true },
     // Shared cross-module read for receiving incoming shipments
     purchases: VIEW_ONLY,
@@ -285,6 +287,8 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
   '/purchases/invoices': { module: 'purchases', action: 'view' },
   '/purchases/requests': { module: 'purchases', action: 'view' },
   '/purchases/orders': { module: 'purchases', action: 'view' },
+  '/purchases/delivery-tracking': { module: 'purchases', action: 'view' },
+  '/delivery-tracking': { module: 'purchases', action: 'view' },
   '/purchases/barcode-management': { module: 'purchases', action: 'edit' },
   '/purchases/barcode-override': { module: 'purchases', action: 'edit' },
   '/purchases/new': { module: 'purchases', action: 'create' },
@@ -293,11 +297,18 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
   // Products
   '/products': { module: 'products', action: 'view' },
   '/products/new': { module: 'products', action: 'create' },
+  '/products/initial-stock': { module: 'products', action: 'create' },
+  '/products/update-stock': { module: 'products', action: 'edit' },
   '/units': { module: 'products', action: 'manage' },
   '/pricing': { module: 'products', action: 'manage' },
 
   // Inventory
   '/inventory': { module: 'inventory', action: 'view' },
+  '/inventory/receive': { module: 'inventory', action: 'create' },
+  '/inventory/order-receive': { module: 'inventory', action: 'create' },
+  '/inventory/purchase-returns': { module: 'inventory', action: 'view' },
+  '/inventory/customer-returns': { module: 'inventory', action: 'view' },
+  '/inventory/returns': { module: 'inventory', action: 'view' },
   '/inventory/alerts': { module: 'inventory', action: 'view' },
   '/inventory/reorder': { module: 'inventory', action: 'view' },
   '/inventory/purchase-requests': { module: 'inventory', action: 'view' },
@@ -318,12 +329,15 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
 
   // Payments & Banking
   '/payments': { module: 'payments', action: 'view' },
+  '/payments/bills': { module: 'payments', action: 'view' },
   '/cash-bank': { module: 'payments', action: 'view' },
   '/receivables': { module: 'payments', action: 'view' },
   '/payables': { module: 'payments', action: 'view' },
 
   // Accounting
   '/accounting': { module: 'accounting', action: 'view' },
+  '/accounting/bills': { module: 'accounting', action: 'view' },
+  '/accountant/dashboard': { module: 'dashboard', action: 'view' },
   '/accounting/ledger': { module: 'accounting', action: 'view' },
   '/accounting/trial-balance': { module: 'accounting', action: 'view' },
   '/accounting/profit-loss': { module: 'accounting', action: 'view' },
@@ -431,16 +445,73 @@ export function canAccessHeaderProfile(role?: UserRole | string | null): boolean
  * Barcode Management belongs to Warehouse Operations and is removed from Purchase Manager.
  * Restricted to authorized Owner and Admin roles.
  */
+
+/**
+ * Validates whether the role can create products and edit product master information.
+ * Restricted to Owner, Admin, and Purchase Manager. Strictly denied for Warehouse Manager.
+ */
+export function canManageProducts(role?: UserRole | string | null): boolean {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+}
+
+/**
+ * Validates whether the role can manage initial stock and stock bundles.
+ * Restricted to Owner, Admin, and Purchase Manager. Strictly denied for Warehouse Manager.
+ */
+export function canManageInitialStock(role?: UserRole | string | null): boolean {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+}
+
+/**
+ * Validates whether the role can manage existing stock updates.
+ * Restricted to Owner, Admin, and Purchase Manager. Strictly denied for Warehouse Manager.
+ */
+export function canUpdateStock(role?: UserRole | string | null): boolean {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+}
+
+/**
+ * Validates whether the role is authorized to perform manual stock adjustments.
+ * Restricted to Owner, Admin, and Purchase Manager. Strictly denied for Warehouse Manager.
+ */
+export function canPerformManualStockAdjustment(role?: UserRole | string | null): boolean {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+}
+
+export function canAssignBarcode(role?: UserRole | string | null): boolean {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+}
+
 export function canManageBarcodeOverride(role?: UserRole | string | null): boolean {
   if (!role) return false;
-  if (role === 'Purchase Manager') return false;
-  if ((role === 'Owner' || role === 'Admin') && (hasPermission(role, 'purchases', 'edit') || hasPermission(role, 'barcode', 'edit') || hasPermission(role, 'products', 'edit'))) return true;
+  const normalized = normalizeRole(role);
+  if (normalized === 'Purchase Manager') return false;
+  if ((normalized === 'Owner' || normalized === 'Admin') && (hasPermission(role, 'purchases', 'edit') || hasPermission(role, 'barcode', 'edit') || hasPermission(role, 'products', 'edit'))) return true;
   return false;
 }
 
 // ---------------------------------------------------------------------------
 // CORE AUTHORIZATION HELPERS
 // ---------------------------------------------------------------------------
+
+export function normalizeRole(role: UserRole | string | undefined | null): UserRole | null {
+  if (!role) return null;
+  const trimmed = role.trim();
+  if (trimmed === 'Sales Person' || trimmed === 'Sales person' || trimmed === 'salesperson') {
+    return 'Salesperson';
+  }
+  return trimmed as UserRole;
+}
 
 /**
  * Validates whether a specific role has permission to execute an action on a module.
@@ -453,7 +524,8 @@ export function hasPermission(
   if (!role) return false;
 
   // Normalized role check
-  const normalizedRole = (role as UserRole);
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
   const rolePermissions = ROLE_PERMISSIONS_MATRIX[normalizedRole];
 
   if (!rolePermissions) {
@@ -475,10 +547,86 @@ export function canAccessRoute(
   path: string
 ): boolean {
   if (!role || !path || typeof path !== 'string') return false;
-  const normalizedRole = role as UserRole;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
 
   // Clean trailing slashes
   const cleanPath = path === '/' ? '/' : path.replace(/\/$/, '');
+
+  // Product Master, Initial Stock & Update Stock: restricted strictly to Owner, Admin, Purchase Manager
+  if (
+    cleanPath === '/products' ||
+    cleanPath.startsWith('/products/')
+  ) {
+    if (
+      cleanPath === '/products/initial-stock' ||
+      cleanPath.startsWith('/products/initial-stock/')
+    ) {
+      return canManageInitialStock(normalizedRole);
+    }
+    if (
+      cleanPath === '/products/update-stock' ||
+      cleanPath.startsWith('/products/update-stock/')
+    ) {
+      return canUpdateStock(normalizedRole);
+    }
+    // /products, /products/new, /products/edit/:id
+    return canManageProducts(normalizedRole);
+  }
+
+  // Inventory Adjustments (manual stock adjustment): restricted to Owner, Admin, Purchase Manager (Warehouse Manager strictly denied)
+  if (
+    cleanPath === '/inventory/adjustments' ||
+    cleanPath.startsWith('/inventory/adjustments/')
+  ) {
+    return canPerformManualStockAdjustment(normalizedRole);
+  }
+
+
+  // Purchase Return / Customer Returns under Inventory:
+  // Authorized for Owner, Admin, Warehouse Manager, Salesperson (submit/view returns), and Cashier (refund processing)
+  if (
+    cleanPath === '/inventory/purchase-returns' ||
+    cleanPath === '/inventory/customer-returns' ||
+    cleanPath === '/inventory/returns'
+  ) {
+    return (
+      normalizedRole === 'Owner' ||
+      normalizedRole === 'Admin' ||
+      normalizedRole === 'Warehouse Manager' ||
+      normalizedRole === 'Salesperson' ||
+      normalizedRole === 'Cashier'
+    );
+  }
+
+  // Order Receive section under Inventory:
+  // Authorized strictly for Warehouse Manager, Admin, and Owner
+  if (
+    cleanPath === '/inventory/receive' ||
+    cleanPath.startsWith('/inventory/receive/') ||
+    cleanPath === '/inventory/order-receive' ||
+    cleanPath.startsWith('/inventory/order-receive/')
+  ) {
+    return (
+      normalizedRole === 'Owner' ||
+      normalizedRole === 'Admin' ||
+      normalizedRole === 'Warehouse Manager'
+    );
+  }
+
+  // Warehouse Details & Locations (/inventory/warehouses):
+  // Authorized: Owner, Admin, Warehouse Manager, and Purchase Manager (View-only for stock visibility & purchasing destinations)
+  if (
+    cleanPath === '/inventory/warehouses' ||
+    cleanPath.startsWith('/inventory/warehouses/')
+  ) {
+    return (
+      normalizedRole === 'Owner' ||
+      normalizedRole === 'Admin' ||
+      normalizedRole === 'Warehouse Manager' ||
+      normalizedRole === 'Purchase Manager'
+    );
+  }
 
   // Prevent Purchase Manager from accessing Warehouse Manager's Barcode Management page or purchase barcode routes
   if (normalizedRole === 'Purchase Manager') {
@@ -487,26 +635,31 @@ export function canAccessRoute(
     }
 
     // Purchase Manager Inventory Access Rules:
-    // Authorized: /inventory (Stock Overview), /inventory/total-cost, and /inventory/valuation (Total Product Cost)
-    // Hidden & Forbidden: /inventory/alerts, /inventory/reorder, /inventory/purchase-requests, /inventory/transfers,
-    //                     /inventory/adjustments, /inventory/batches, /inventory/serials, /inventory/warehouses
+    // Authorized: /inventory (Stock Overview & History), /inventory/warehouses (Warehouse Details), /inventory/transfers (Stock Transfer), /inventory/adjustments, /inventory/total-cost, and /inventory/valuation (Total Product Cost)
+    // Hidden & Forbidden: /inventory/alerts, /inventory/reorder, /inventory/purchase-requests,
+    //                     /inventory/batches, /inventory/serials,
+    //                     /inventory/receive, /inventory/order-receive
     if (
+      cleanPath === '/inventory/receive' ||
+      cleanPath.startsWith('/inventory/receive/') ||
+      cleanPath === '/inventory/order-receive' ||
+      cleanPath.startsWith('/inventory/order-receive/') ||
       cleanPath === '/inventory/alerts' ||
       cleanPath.startsWith('/inventory/alerts/') ||
       cleanPath === '/inventory/reorder' ||
       cleanPath.startsWith('/inventory/reorder/') ||
       cleanPath === '/inventory/purchase-requests' ||
       cleanPath.startsWith('/inventory/purchase-requests/') ||
-      cleanPath === '/inventory/transfers' ||
-      cleanPath.startsWith('/inventory/transfers/') ||
-      cleanPath === '/inventory/adjustments' ||
-      cleanPath.startsWith('/inventory/adjustments/') ||
+      cleanPath === '/inventory/purchase-returns' ||
+      cleanPath.startsWith('/inventory/purchase-returns/') ||
+      cleanPath === '/inventory/customer-returns' ||
+      cleanPath.startsWith('/inventory/customer-returns/') ||
+      cleanPath === '/inventory/returns' ||
+      cleanPath.startsWith('/inventory/returns/') ||
       cleanPath === '/inventory/batches' ||
       cleanPath.startsWith('/inventory/batches/') ||
       cleanPath === '/inventory/serials' ||
-      cleanPath.startsWith('/inventory/serials/') ||
-      cleanPath === '/inventory/warehouses' ||
-      cleanPath.startsWith('/inventory/warehouses/')
+      cleanPath.startsWith('/inventory/serials/')
     ) {
       return false;
     }
@@ -553,11 +706,13 @@ export function canAccessRoute(
       cleanPath.startsWith('/audit/') ||
       cleanPath === '/barcode' ||
       cleanPath.startsWith('/barcode/') ||
-      cleanPath === '/settings' ||
-      cleanPath.startsWith('/settings/') ||
       // Salespersons can view-only /inventory via Check Inventory dashboard button,
+      // and Purchase / Customer Returns (/inventory/purchase-returns) to submit/view customer return requests,
       // but are strictly forbidden from all warehouse stock management sub-routes
-      cleanPath.startsWith('/inventory/')
+      (cleanPath.startsWith('/inventory/') &&
+        cleanPath !== '/inventory/purchase-returns' &&
+        cleanPath !== '/inventory/customer-returns' &&
+        cleanPath !== '/inventory/returns')
     ) {
       return false;
     }
@@ -643,7 +798,7 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Dashboard',
     'Sales',
     'Purchases',
-    'Products',
+    'Product',
     'Inventory',
     'Warehouses / Godowns',
     'Customers',
@@ -664,7 +819,7 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Dashboard',
     'Sales',
     'Purchases',
-    'Products',
+    'Product',
     'Inventory',
     'Warehouses / Godowns',
     'Customers',
@@ -691,14 +846,18 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
   Salesperson: [
     'Dashboard',
     'Sales',
-    'Customers'
+    'Customers',
+    'Inventory',
+    'Settings'
   ],
   'Purchase Manager': [
     'Dashboard',
     'Purchases',
     'Suppliers',
-    'Products',
+    'Product',
     'Inventory',
+    'Warehouses / Godowns',
+    'Warehouse Details',
     'Expenses',
     'Settings'
   ],
@@ -706,7 +865,6 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Dashboard',
     'Inventory',
     'Warehouses / Godowns',
-    'Products',
     'Barcode',
     'Settings'
   ],
@@ -714,7 +872,6 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Dashboard',
     'Sales',
     'Customers',
-    'Products',
     'Payments',
     'Settings'
   ]
@@ -728,16 +885,27 @@ export function canRoleAccessNavItem(
   navItemName: string
 ): boolean {
   if (!role) return false;
-  const normalizedRole = role as UserRole;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
   if (navItemName === 'User Activity' && !canAccessUserActivity(normalizedRole)) {
     return false;
   }
   const allowedMenus = ROLE_ALLOWED_NAV_MENUS[normalizedRole];
   if (!allowedMenus) return false;
 
+  // Match both 'Product' and 'Products'
+  if (navItemName === 'Product' || navItemName === 'Products') {
+    return allowedMenus.includes('Product') || allowedMenus.includes('Products');
+  }
+
   // Match both 'Barcode' and 'Barcode Management'
   if (navItemName === 'Barcode Management' || navItemName === 'Barcode') {
     return allowedMenus.includes('Barcode') || allowedMenus.includes('Barcode Management');
+  }
+
+  // Match both 'Warehouse Details' and 'Warehouses / Godowns'
+  if (navItemName === 'Warehouse Details' || navItemName === 'Warehouses / Godowns') {
+    return allowedMenus.includes('Warehouse Details') || allowedMenus.includes('Warehouses / Godowns');
   }
 
   return allowedMenus.includes(navItemName);
@@ -754,11 +922,54 @@ export function canRoleAccessSubItem(
   subItemPath: string
 ): boolean {
   if (!role) return false;
-  const normalizedRole = role as UserRole;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
 
   // First verify underlying route access permission
   if (!canAccessRoute(normalizedRole, subItemPath)) {
     return false;
+  }
+
+  // Purchase Return submenu under Inventory is strictly for the Salesperson role only
+  if (
+    parentName === 'Inventory' &&
+    (subItemPath === '/inventory/purchase-returns' ||
+      subItemPath === '/inventory/customer-returns' ||
+      subItemPath === '/inventory/returns' ||
+      _subItemName === 'Purchase Return' ||
+      _subItemName === 'Purchase Returns' ||
+      _subItemName === 'Customer Return' ||
+      _subItemName === 'Customer Returns')
+  ) {
+    return normalizedRole === 'Salesperson';
+  }
+
+
+  // Product / Products parent submenu scoping:
+  if (parentName === 'Product' || parentName === 'Products') {
+    if (
+      subItemPath === '/products/initial-stock' ||
+      _subItemName === 'Initial Stock' ||
+      _subItemName === 'Add Stock' ||
+      _subItemName === 'Add Product / Initial Stock'
+    ) {
+      return canManageInitialStock(normalizedRole);
+    }
+    if (subItemPath === '/products/update-stock' || _subItemName === 'Update Stock') {
+      return canUpdateStock(normalizedRole);
+    }
+    if (subItemPath === '/inventory/transfers' || _subItemName === 'Stock Transfer' || _subItemName === 'Stock Transfers') {
+      return (
+        normalizedRole === 'Purchase Manager' ||
+        normalizedRole === 'Owner' ||
+        normalizedRole === 'Admin' ||
+        normalizedRole === 'Warehouse Manager'
+      );
+    }
+    if (subItemPath === '/products' || _subItemName === 'Product Master') {
+      return canManageProducts(normalizedRole);
+    }
+    return canManageProducts(normalizedRole);
   }
 
   // Role-specific operational submenu scoping
@@ -767,43 +978,107 @@ export function canRoleAccessSubItem(
     if (parentName === 'Sales') {
       return subItemPath === '/sales';
     }
+    // In Inventory: Salesperson accesses view-only stock lookup and Purchase Return / Customer Returns
+    if (parentName === 'Inventory') {
+      return (
+        subItemPath === '/inventory' ||
+        subItemPath === '/inventory/purchase-returns' ||
+        subItemPath === '/inventory/customer-returns' ||
+        subItemPath === '/inventory/returns'
+      );
+    }
     return false;
   }
   if (normalizedRole === 'Purchase Manager') {
-    // In Purchases: Barcode Management belongs to Warehouse Operations and must NOT appear for Purchase Manager
+    // In Purchases: Barcode Management, Delivery Tracking, New Purchase Order, and New Purchase Bill must NOT appear for Purchase Manager
+    // Authorized: Purchase Orders, Purchase Bills, Purchase Returns
     if (parentName === 'Purchases') {
-      if (subItemPath.startsWith('/purchases/barcode') || _subItemName.toLowerCase().includes('barcode')) {
+      if (
+        subItemPath.startsWith('/purchases/barcode') ||
+        _subItemName.toLowerCase().includes('barcode') ||
+        subItemPath === '/purchases/requests' ||
+        _subItemName === 'Purchase Requests' ||
+        subItemPath === '/purchases/delivery-tracking' ||
+        _subItemName === 'Delivery Tracking' ||
+        subItemPath === '/purchases/new?docType=purchase_order' ||
+        _subItemName === 'New Purchase Order' ||
+        subItemPath === '/purchases/new' ||
+        _subItemName === 'New Purchase Bill'
+      ) {
         return false;
       }
+      return true;
     }
-    // In Products: can view Product Master to check purchase prices, but not manage units or pricing rules
-    if (parentName === 'Products') {
-      return subItemPath === '/products';
+    // In Product: can access Product Master, Initial Stock, Update Stock, and Stock Transfer
+    if (parentName === 'Product' || parentName === 'Products') {
+      return (
+        subItemPath === '/products' ||
+        subItemPath === '/products/initial-stock' ||
+        subItemPath === '/products/update-stock' ||
+        subItemPath === '/inventory/transfers' ||
+        _subItemName === 'Product Master' ||
+        _subItemName === 'Add Stock' ||
+        _subItemName === 'Add Product / Initial Stock' ||
+        _subItemName === 'Update Stock' ||
+        _subItemName === 'Stock Transfer'
+      );
     }
-    // In Inventory: Purchase Manager has access to ONLY Stock Overview and Total Product Cost
+    // In Inventory: Purchase Manager has access to Stock Overview & History, Warehouse Details, Stock Transfers, and Total Product Cost / Valuation
     if (parentName === 'Inventory') {
-      // Explicitly reject hidden options
+      // Explicitly reject hidden warehouse options
       if (
         subItemPath === '/inventory/alerts' ||
         subItemPath === '/inventory/reorder' ||
         subItemPath === '/inventory/purchase-requests' ||
+        subItemPath === '/inventory/purchase-returns' ||
+        subItemPath === '/inventory/customer-returns' ||
+        subItemPath === '/inventory/returns' ||
+        subItemPath === '/inventory/receive' ||
+        subItemPath === '/inventory/order-receive' ||
+        subItemPath === '/inventory/batches' ||
+        subItemPath === '/inventory/serials' ||
         _subItemName === 'Low Stock & Reorder' ||
-        _subItemName === 'Purchase Requests'
+        _subItemName === 'Purchase Requests' ||
+        _subItemName === 'Customer Returns' ||
+        _subItemName === 'Purchase Returns' ||
+        _subItemName === 'Order Receive' ||
+        _subItemName === 'Batch Tracking' ||
+        _subItemName === 'Serial Numbers'
       ) {
         return false;
       }
       return (
         subItemPath === '/inventory' ||
+        subItemPath === '/inventory/warehouses' ||
+        subItemPath === '/inventory/transfers' ||
         subItemPath === '/inventory/total-cost' ||
-        subItemPath === '/inventory/valuation'
+        subItemPath === '/inventory/valuation' ||
+        _subItemName === 'Stock Overview' ||
+        _subItemName === 'Warehouse Details' ||
+        _subItemName === 'Warehouses / Godowns' ||
+        _subItemName === 'Stock Transfers' ||
+        _subItemName === 'Stock Transfer' ||
+        _subItemName === 'Total Product Cost'
       );
     }
   }
 
   if (normalizedRole === 'Warehouse Manager') {
-    // In Products: Warehouse Manager can manage product master and add products
-    if (parentName === 'Products') {
-      return subItemPath === '/products' || subItemPath === '/products/new';
+    // In Product: Warehouse Manager has no access
+    if (parentName === 'Product' || parentName === 'Products') {
+      return false;
+    }
+    // In Inventory: Warehouse Manager cannot access manual adjustments or retired purchase requests
+    if (parentName === 'Inventory') {
+      if (
+        subItemPath === '/inventory/adjustments' ||
+        _subItemName.toLowerCase().includes('adjustment') ||
+        subItemPath === '/inventory/purchase-requests' ||
+        _subItemName === 'Purchase Requests'
+      ) {
+        return false;
+      }
+      return true;
     }
   }
 
@@ -816,9 +1091,9 @@ export function canRoleAccessSubItem(
     if (parentName === 'Payments') {
       return subItemPath === '/payments';
     }
-    // In Products: Cashier only does price lookup on Product Master
-    if (parentName === 'Products') {
-      return subItemPath === '/products';
+    // In Products: Cashier has no access to product master menu
+    if (parentName === 'Products' || parentName === 'Product') {
+      return false;
     }
   }
 

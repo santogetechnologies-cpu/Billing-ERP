@@ -18,6 +18,7 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { Modal } from '../../components/common/Modal';
 import { exportToExcel, exportToCSV } from '../../utils/exportUtils';
+import { sortProductsAZ } from '../../utils/sortUtils';
 
 export const PurchaseReturnsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,7 +47,7 @@ export const PurchaseReturnsPage: React.FC = () => {
   // Products available in the selected original invoice
   const availableItems = useMemo(() => {
     if (!activePurchase || !activePurchase.items || activePurchase.items.length === 0) {
-      return products.map(p => ({
+      const list = products.map(p => ({
         id: p.id,
         name: p.name,
         rate: p.purchasePrice,
@@ -54,8 +55,9 @@ export const PurchaseReturnsPage: React.FC = () => {
         maxQty: p.currentStock,
         sku: p.sku
       }));
+      return sortProductsAZ(list);
     }
-    return activePurchase.items.map(it => {
+    const list = activePurchase.items.map(it => {
       const prod = products.find(p => p.id === it.productId);
       return {
         id: it.productId,
@@ -66,6 +68,7 @@ export const PurchaseReturnsPage: React.FC = () => {
         sku: prod?.sku || ''
       };
     });
+    return sortProductsAZ(list);
   }, [activePurchase, products]);
 
   // Calculate rate and amount

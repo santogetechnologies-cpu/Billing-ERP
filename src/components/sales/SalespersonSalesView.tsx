@@ -26,9 +26,9 @@ export const SalespersonSalesView: React.FC = () => {
   const [isPrintOpen, setIsPrintOpen] = useState(false);
 
   // Tab: 'all' | 'orders' | 'invoices'
-  const initialTab = searchParams.get('tab') || (searchParams.get('filter') === 'today' ? 'invoices' : 'all');
+  const initialTab = searchParams.get('tab') || 'invoices';
   const [salesTab, setSalesTab] = useState<'all' | 'orders' | 'invoices'>(
-    initialTab === 'orders' ? 'orders' : initialTab === 'invoices' ? 'invoices' : 'all'
+    initialTab === 'orders' ? 'orders' : initialTab === 'all' ? 'all' : 'invoices'
   );
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -349,7 +349,7 @@ export const SalespersonSalesView: React.FC = () => {
                 : 'All Customer Sales Records'}
             </h2>
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-              Showing {displayedSalesList.length} of {salesInvoices.length} records
+              {displayedSalesList.length} {displayedSalesList.length === 1 ? 'record' : 'records'}
             </span>
           </div>
           <span className="text-[11px] text-slate-400">
@@ -431,11 +431,11 @@ export const SalespersonSalesView: React.FC = () => {
                             setSelectedInvoice(record);
                             setIsPrintOpen(true);
                           }}
-                          className="px-2.5 py-1 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                          className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-2xs hover:shadow-xs"
                           title="View Sales Details & Slip"
+                          aria-label="View Sales Details & Slip"
                         >
-                          <Eye className="w-3.5 h-3.5 inline mr-1" />
-                          <span>View Details</span>
+                          <Eye className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>

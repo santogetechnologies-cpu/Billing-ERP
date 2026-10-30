@@ -25,16 +25,18 @@ import {
   Calendar,
   Warehouse as WarehouseIcon,
   Check,
-  ArrowRight
+  ArrowRight,
+  Edit2
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../utils/rbac';
 import { StatCard } from '../../components/common/StatCard';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import { StatusBadge, StockStatusBadge } from '../../components/common/StatusBadge';
 import { Modal } from '../../components/common/Modal';
 import { UserProfileModal } from '../../components/auth/UserProfileModal';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
+import { compareProductsAZ } from '../../utils/sortUtils';
 import {
   Product,
   Warehouse,
@@ -56,6 +58,11 @@ interface EnrichedLowStockProduct {
   unit: string;
   warningLimit: number | null;
   suggestedQty: number;
+  rawSuggestedQty: number;
+  activeRequestedQty: number;
+  isCovered: boolean;
+  activeRequestNumber?: string;
+  activeRequestId?: string;
   stockStatus: 'Out of Stock' | 'Limited Stock' | 'Active';
   lastMovementDate?: string;
   lastMovementType?: string;
@@ -80,6 +87,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
     inventoryTransactions,
     purchaseRequests,
     createPurchaseRequest,
+    updatePurchaseRequest,
     refreshData,
     getWarehouseStock,
     company
@@ -119,21 +127,23 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
 
   // Table Filters & Pagination for Low Stock & Reorder
   const [tableSearch, setTableSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OUT_OF_STOCK' | 'LIMITED_STOCK'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OUT_OF_STOCK' | 'LIMITED_STOCK' | 'ON_REQUEST'>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [sortField, setSortField] = useState<'stock' | 'suggestedQty' | 'name'>('stock');
+  const [sortField, setSortField] = useState<'stock' | 'suggestedQty' | 'name'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Multi-Selection State for Bulk Purchase Request
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
 
-  // Modal State for Create Purchase Request Workflow
+  // Modal State for Create / Edit Purchase Request Workflow
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [requestItems, setRequestItems] = useState<MultiRequestItem[]>([]);
   const [requestWarehouseId, setRequestWarehouseId] = useState<string>('');
   const [priority, setPriority] = useState<PurchaseRequestPriority>('High');
-  const [reason, setReason] = useState<string>('Inventory stock replenishment for warning-level threshold');
+  const [reason, setReason] = useState<string>('Critical inventory replenishment: Items are out of stock');
+  const [reasonError, setReasonError] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 5);
@@ -148,51 +158,18 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
   // Replenishment Reason input auto-selection refs & handlers
   const reasonInputRef = useRef<HTMLInputElement>(null);
   const isReasonEditedRef = useRef<boolean>(false);
-  const shouldSelectOnMouseUpRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    if (isRequestModalOpen) {
-      isReasonEditedRef.current = false;
-      shouldSelectOnMouseUpRef.current = false;
-    }
-  }, [isRequestModalOpen]);
 
   const handleReasonFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    if (!isReasonEditedRef.current) {
+    // Only select on initial focus if text exists and user hasn't edited yet
+    if (!isReasonEditedRef.current && reason) {
       e.currentTarget.select();
-    }
-  };
-
-  const handleReasonMouseDown = () => {
-    if (!isReasonEditedRef.current && document.activeElement !== reasonInputRef.current) {
-      shouldSelectOnMouseUpRef.current = true;
-    }
-  };
-
-  const handleReasonMouseUp = (e: React.MouseEvent<HTMLInputElement>) => {
-    if (shouldSelectOnMouseUpRef.current) {
-      shouldSelectOnMouseUpRef.current = false;
-      e.currentTarget.select();
-    }
-  };
-
-  const handleReasonKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!isReasonEditedRef.current) {
-      // Allow navigation and shortcut keys
-      if (e.key === 'Tab' || e.key === 'Escape' || e.ctrlKey || e.metaKey || e.altKey) {
-        return;
-      }
-      // If typing immediately after focus, ensure full selection so the key replaces default text
-      const input = e.currentTarget;
-      if (input.selectionStart !== 0 || input.selectionEnd !== input.value.length) {
-        input.select();
-      }
     }
   };
 
   const handleReasonChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     isReasonEditedRef.current = true;
     setReason(e.target.value);
+    if (reasonError) setReasonError(null);
   };
 
 
@@ -227,6 +204,57 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
     return Math.max(0, stockVal);
   };
 
+  // Active purchase request statuses that cover replenishment requirement
+  const ACTIVE_REQUEST_STATUSES: Set<PurchaseRequestStatus> = useMemo(() => new Set([
+    'Pending Review',
+    'Pending Approval',
+    'Under Review',
+    'Clarification Requested',
+    'Approved',
+    'Ordered',
+    'Partially Received'
+  ]), []);
+
+  // Helper: Get total active requested quantity and latest active request for a product in warehouse scope
+  const getProductActiveRequestInfo = (productId: string, whId: string, excludeRequestId?: string | null) => {
+    let activeQty = 0;
+    let latestReq: PurchaseRequest | null = null;
+
+    const matchingRequests = purchaseRequests.filter(req => {
+      if (excludeRequestId && req.id === excludeRequestId) return false;
+      if (!ACTIVE_REQUEST_STATUSES.has(req.status)) return false;
+      if (whId === 'ALL') {
+        return authorizedWarehouses.some(w => w.id === req.warehouseId || w.name === req.warehouseName);
+      }
+      return req.warehouseId === whId;
+    });
+
+    for (const req of matchingRequests) {
+      const item = req.items?.find(it => it.productId === productId);
+      if (!item) continue;
+
+      let pending = 0;
+      if (req.status === 'Partially Received') {
+        const target = item.approvedQty !== null && item.approvedQty !== undefined ? item.approvedQty : item.requestedQty;
+        pending = Math.max(0, target - Number(item.receivedQty || 0));
+      } else if (req.status === 'Approved' || req.status === 'Ordered') {
+        pending = item.approvedQty !== null && item.approvedQty !== undefined ? item.approvedQty : item.requestedQty;
+      } else {
+        // Pending Review, Pending Approval, Under Review, Clarification Requested
+        pending = Number(item.requestedQty || 0);
+      }
+
+      if (pending > 0) {
+        activeQty += pending;
+        if (!latestReq || new Date(req.createdAt || 0).getTime() > new Date(latestReq.createdAt || 0).getTime()) {
+          latestReq = req;
+        }
+      }
+    }
+
+    return { activeQty, latestReq };
+  };
+
   // Helper: Last stock movement for a product
   const getProductLastMovement = (product: Product): { date?: string; type?: string } => {
     const tx = inventoryTransactions.find(
@@ -254,14 +282,20 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         stockStatus = 'Limited Stock';
       }
 
-      // Suggested reorder quantity formula
-      let suggestedQty = 0;
+      // Raw suggested reorder quantity formula based on physical stock & warning limits
+      let rawSuggestedQty = 0;
       if (currentStock <= 0) {
         const target = limit && limit > 0 ? limit * 2 : 20;
-        suggestedQty = target;
+        rawSuggestedQty = target;
       } else if (limit !== null && currentStock <= limit) {
-        suggestedQty = Math.max(1, (limit * 2) - currentStock);
+        rawSuggestedQty = Math.max(1, (limit * 2) - currentStock);
       }
+
+      // Active purchase requests already submitted and covering this product in this warehouse
+      const { activeQty, latestReq } = getProductActiveRequestInfo(p.id, selectedWarehouseId);
+      const isCovered = rawSuggestedQty > 0 && activeQty >= rawSuggestedQty;
+      const remainingSuggestedQty = Math.max(0, rawSuggestedQty - activeQty);
+      const suggestedQty = remainingSuggestedQty > 0 ? remainingSuggestedQty : rawSuggestedQty;
 
       const movement = getProductLastMovement(p);
 
@@ -276,19 +310,39 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         unit: p.primaryUnit || 'Piece',
         warningLimit: limit,
         suggestedQty,
+        rawSuggestedQty,
+        activeRequestedQty: activeQty,
+        isCovered,
+        activeRequestNumber: latestReq?.requestNumber,
+        activeRequestId: latestReq?.id,
         stockStatus,
         lastMovementDate: movement.date,
         lastMovementType: movement.type
       } as EnrichedLowStockProduct;
     });
-  }, [products, selectedWarehouseId, authorizedWarehouses, warehouses, inventoryTransactions]);
+  }, [products, selectedWarehouseId, authorizedWarehouses, warehouses, inventoryTransactions, purchaseRequests]);
 
-  // 2. Summary Metrics Calculations
+  // 4. Actionable Low Stock & Reorder Products List (Out of Stock + Limited Stock that still require a new purchase request)
+  const lowStockProducts = useMemo(() => {
+    return enrichedCatalog.filter(
+      p => (p.stockStatus === 'Out of Stock' || p.stockStatus === 'Limited Stock') && !p.isCovered
+    );
+  }, [enrichedCatalog]);
+
+  // Products with active purchase requests covering their replenishment
+  const coveredLowStockProducts = useMemo(() => {
+    return enrichedCatalog.filter(
+      p => (p.stockStatus === 'Out of Stock' || p.stockStatus === 'Limited Stock') && p.isCovered
+    );
+  }, [enrichedCatalog]);
+
+  // 2. Summary Metrics Calculations (Counts reflect products that still require a new purchase request)
   const metrics = useMemo(() => {
     const totalProducts = enrichedCatalog.length;
-    const outOfStockCount = enrichedCatalog.filter(p => p.stockStatus === 'Out of Stock').length;
-    const lowStockCount = enrichedCatalog.filter(p => p.stockStatus === 'Limited Stock').length;
-    const activeHealthyCount = Math.max(0, totalProducts - outOfStockCount - lowStockCount);
+    const outOfStockCount = lowStockProducts.filter(p => p.stockStatus === 'Out of Stock').length;
+    const lowStockCount = lowStockProducts.filter(p => p.stockStatus === 'Limited Stock').length;
+    const coveredCount = coveredLowStockProducts.length;
+    const activeHealthyCount = Math.max(0, totalProducts - outOfStockCount - lowStockCount - coveredCount);
 
     // Pending purchase requests count (filtered to warehouse if not ALL)
     const pendingPRCount = purchaseRequests.filter(req => {
@@ -300,7 +354,6 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
 
       if (!isPendingStatus) return false;
       if (selectedWarehouseId === 'ALL') {
-        // Must belong to authorized warehouses
         return authorizedWarehouses.some(w => w.id === req.warehouseId || w.name === req.warehouseName);
       }
       return req.warehouseId === selectedWarehouseId;
@@ -310,10 +363,11 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
       totalProducts,
       outOfStockCount,
       lowStockCount,
+      coveredCount,
       activeHealthyCount,
       pendingPRCount
     };
-  }, [enrichedCatalog, purchaseRequests, selectedWarehouseId, authorizedWarehouses]);
+  }, [enrichedCatalog, lowStockProducts, coveredLowStockProducts, purchaseRequests, selectedWarehouseId, authorizedWarehouses]);
 
   // 3. Stock Status Donut Chart Percentages
   const chartData = useMemo(() => {
@@ -349,16 +403,9 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
     };
   }, [metrics]);
 
-  // 4. Low Stock & Reorder Products List (Out of Stock + Limited Stock)
-  const lowStockProducts = useMemo(() => {
-    return enrichedCatalog.filter(
-      p => p.stockStatus === 'Out of Stock' || p.stockStatus === 'Limited Stock'
-    );
-  }, [enrichedCatalog]);
-
   // Filtered & Sorted Low Stock List
   const filteredLowStockProducts = useMemo(() => {
-    let result = lowStockProducts;
+    let result = statusFilter === 'ON_REQUEST' ? coveredLowStockProducts : lowStockProducts;
 
     // Search filter
     if (tableSearch.trim()) {
@@ -375,26 +422,26 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
       result = result.filter(p => p.stockStatus === 'Limited Stock');
     }
 
-    // Sorting
+    // Sorting: Default A-Z by product name with case-insensitivity and SKU tiebreaker
     return [...result].sort((a, b) => {
       let comparison = 0;
       if (sortField === 'stock') {
         comparison = a.currentStock - b.currentStock;
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a, b);
       } else if (sortField === 'suggestedQty') {
         comparison = a.suggestedQty - b.suggestedQty;
-      } else if (sortField === 'name') {
-        comparison = a.name.localeCompare(b.name);
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a, b);
+      } else {
+        comparison = compareProductsAZ(a, b);
+        return sortOrder === 'asc' ? comparison : -comparison;
       }
-      return sortOrder === 'asc' ? comparison : -comparison;
     });
-  }, [lowStockProducts, tableSearch, statusFilter, sortField, sortOrder]);
+  }, [lowStockProducts, coveredLowStockProducts, tableSearch, statusFilter, sortField, sortOrder]);
 
-  // Pagination for Low Stock Table
-  const totalPages = Math.max(1, Math.ceil(filteredLowStockProducts.length / pageSize));
-  const paginatedLowStock = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredLowStockProducts.slice(start, start + pageSize);
-  }, [filteredLowStockProducts, currentPage, pageSize]);
+  // Continuous single-page list for Low Stock Table
+  const paginatedLowStock = filteredLowStockProducts;
 
   // 5. Recent Purchase Requests (filtered to authorized warehouses, sorted latest first)
   const recentPurchaseRequests = useMemo(() => {
@@ -406,7 +453,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         return req.warehouseId === selectedWarehouseId;
       })
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-      .slice(0, 5);
+      .slice(0, 10);
   }, [purchaseRequests, selectedWarehouseId, authorizedWarehouses]);
 
   // Helper: Extract concise product and quantity summary for purchase request list
@@ -488,7 +535,10 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
       const currentStock = getProductStockInScope(p, targetWhId);
       const limit = p.reorderLevel !== null && p.reorderLevel !== undefined ? Number(p.reorderLevel) : null;
       const target = limit && limit > 0 ? limit * 2 : 20;
-      const suggested = currentStock <= 0 ? target : Math.max(1, target - currentStock);
+      const rawSuggested = currentStock <= 0 ? target : Math.max(1, target - currentStock);
+      const { activeQty } = getProductActiveRequestInfo(p.id, targetWhId);
+      const remainingSuggested = Math.max(0, rawSuggested - activeQty);
+      const suggested = remainingSuggested > 0 ? remainingSuggested : rawSuggested;
 
       return {
         product: p,
@@ -501,6 +551,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
       };
     });
 
+    setEditingRequestId(null);
     setRequestItems(items);
     setPriority(items.some(i => i.currentStock <= 0) ? 'Urgent' : 'High');
     setReason(
@@ -508,28 +559,104 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         ? 'Critical inventory replenishment: Items are out of stock'
         : 'Stock replenishment: Inventory at or below configured warning limits'
     );
+    setReasonError(null);
     setSubmitSuccessMsg(null);
     isReasonEditedRef.current = false;
-    shouldSelectOnMouseUpRef.current = false;
+    setIsRequestModalOpen(true);
+  };
+
+  // Open modal for editing an existing saved Purchase Request
+  const handleOpenEditRequestModal = (req: PurchaseRequest) => {
+    setEditingRequestId(req.id);
+    setRequestWarehouseId(req.warehouseId);
+    setPriority(req.priority);
+    // Explicitly preserve the saved replenishment reason without reverting to default
+    setReason(req.reason || '');
+    isReasonEditedRef.current = true;
+    setReasonError(null);
+    if (req.requestedDeliveryDate) {
+      setDeliveryDate(req.requestedDeliveryDate);
+    }
+    setNotes(req.notes || '');
+
+    const items: MultiRequestItem[] = req.items.map(it => {
+      const prod = products.find(p => p.id === it.productId) || ({
+        id: it.productId,
+        name: it.productName,
+        sku: it.sku || '',
+        category: '',
+        currentStock: it.currentStock,
+        reorderLevel: it.warningLimit,
+        primaryUnit: it.unit,
+        costPrice: it.estimatedCost
+      } as unknown as Product);
+
+      return {
+        product: prod,
+        currentStock: it.currentStock,
+        warningLimit: it.warningLimit ?? null,
+        unit: it.unit || 'Piece',
+        suggestedQty: it.requestedQty,
+        requestedQty: it.requestedQty,
+        estimatedCost: it.estimatedCost || 0
+      };
+    });
+
+    setRequestItems(items);
+    setSubmitSuccessMsg(null);
     setIsRequestModalOpen(true);
   };
 
   // Open modal from Bulk Action Button
   const handleOpenBulkRequestModal = () => {
+    const targetWhId = selectedWarehouseId !== 'ALL'
+      ? selectedWarehouseId
+      : (authorizedWarehouses[0]?.id || warehouses[0]?.id || '');
+
     if (selectedProductIds.size === 0) {
-      if (filteredLowStockProducts.length > 0) {
-        openPurchaseRequestModal(filteredLowStockProducts.map(p => p.product));
+      const actionable = filteredLowStockProducts.filter(p => !p.isCovered);
+      if (actionable.length > 0) {
+        openPurchaseRequestModal(actionable.map(p => p.product));
       } else {
-        alert('No low stock items currently available to replenish.');
+        alert('All low stock items currently have active purchase requests covering their replenishment.');
       }
       return;
     }
+
     const selectedProds = products.filter(p => selectedProductIds.has(p.id));
-    openPurchaseRequestModal(selectedProds);
+    const uncoveredProds = selectedProds.filter(p => {
+      const currentStock = getProductStockInScope(p, targetWhId);
+      const limit = p.reorderLevel !== null && p.reorderLevel !== undefined ? Number(p.reorderLevel) : null;
+      const target = limit && limit > 0 ? limit * 2 : 20;
+      const rawSuggested = currentStock <= 0 ? target : Math.max(0, target - currentStock);
+      const { activeQty } = getProductActiveRequestInfo(p.id, targetWhId);
+      return !(rawSuggested > 0 && activeQty >= rawSuggested);
+    });
+
+    if (uncoveredProds.length === 0) {
+      alert('The selected products already have active purchase requests covering their replenishment requirements.');
+      return;
+    }
+
+    openPurchaseRequestModal(uncoveredProds);
   };
 
   // Open modal for single product
   const handleOpenSingleRequestModal = (product: Product) => {
+    const targetWhId = selectedWarehouseId !== 'ALL'
+      ? selectedWarehouseId
+      : (authorizedWarehouses[0]?.id || warehouses[0]?.id || '');
+    const currentStock = getProductStockInScope(product, targetWhId);
+    const limit = product.reorderLevel !== null && product.reorderLevel !== undefined ? Number(product.reorderLevel) : null;
+    const target = limit && limit > 0 ? limit * 2 : 20;
+    const rawSuggested = currentStock <= 0 ? target : Math.max(0, target - currentStock);
+    const { activeQty } = getProductActiveRequestInfo(product.id, targetWhId);
+
+    if (rawSuggested > 0 && activeQty >= rawSuggested) {
+      alert(`An active purchase request already covers the replenishment requirement for "${product.name}" in this warehouse.`);
+      return;
+    }
+
     openPurchaseRequestModal([product]);
   };
 
@@ -559,15 +686,23 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
     const currentStock = getProductStockInScope(prod, requestWarehouseId);
     const limit = prod.reorderLevel !== null && prod.reorderLevel !== undefined ? Number(prod.reorderLevel) : null;
     const target = limit && limit > 0 ? limit * 2 : 20;
-    const suggested = currentStock <= 0 ? target : Math.max(1, target - currentStock);
+    const rawSuggested = currentStock <= 0 ? target : Math.max(1, target - currentStock);
+    const { activeQty } = getProductActiveRequestInfo(prod.id, requestWarehouseId);
+
+    if (rawSuggested > 0 && activeQty >= rawSuggested) {
+      alert(`"${prod.name}" already has active purchase requests covering its required replenishment quantity (${activeQty} units).`);
+      return;
+    }
+
+    const remainingSuggested = Math.max(1, rawSuggested - activeQty);
 
     const newItem: MultiRequestItem = {
       product: prod,
       currentStock,
       warningLimit: limit,
       unit: prod.primaryUnit || 'Piece',
-      suggestedQty: suggested,
-      requestedQty: suggested > 0 ? suggested : 10,
+      suggestedQty: remainingSuggested,
+      requestedQty: remainingSuggested > 0 ? remainingSuggested : 10,
       estimatedCost: prod.costPrice || prod.purchasePrice || 0
     };
 
@@ -580,6 +715,13 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
     e.preventDefault();
     if (requestItems.length === 0) {
       alert('Please include at least one product in the purchase request.');
+      return;
+    }
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setReasonError('Replenishment Reason is required. Please provide a reason for this purchase request.');
+      reasonInputRef.current?.focus();
       return;
     }
 
@@ -596,13 +738,30 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
       return;
     }
 
+    // Duplicate request prevention check (for new requests)
+    if (!editingRequestId) {
+      for (const item of requestItems) {
+        const { activeQty } = getProductActiveRequestInfo(item.product.id, targetWh.id);
+        const currentStock = getProductStockInScope(item.product, targetWh.id);
+        const limit = item.product.reorderLevel !== null && item.product.reorderLevel !== undefined ? Number(item.product.reorderLevel) : null;
+        const target = limit && limit > 0 ? limit * 2 : 20;
+        const rawSuggested = currentStock <= 0 ? target : Math.max(0, target - currentStock);
+
+        if (rawSuggested > 0 && activeQty >= rawSuggested) {
+          alert(`Cannot submit duplicate request: "${item.product.name}" already has active purchase requests covering its replenishment requirement (${activeQty} units).`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const payload: CreatePurchaseRequestInput = {
         warehouseId: targetWh.id,
         warehouseName: targetWh.name,
         priority,
-        reason: reason.trim() || 'Inventory replenishment for low stock items',
+        reason: trimmedReason,
         requestedDeliveryDate: deliveryDate,
         notes: notes.trim(),
         items: requestItems.map(item => ({
@@ -617,14 +776,26 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         }))
       };
 
-      const created = await createPurchaseRequest(payload);
-      setSubmitSuccessMsg(
-        `Purchase Request #${created.requestNumber} created successfully with ${requestItems.length} products! Sent to Purchase Manager for review.`
-      );
+      if (editingRequestId) {
+        await updatePurchaseRequest(editingRequestId, payload);
+        setSubmitSuccessMsg(
+          `Purchase Request #${editingRequestId} updated successfully!`
+        );
+      } else {
+        const created = await createPurchaseRequest(payload);
+        setSubmitSuccessMsg(
+          `Purchase Request #${created.requestNumber} created successfully with ${requestItems.length} products! Sent to Purchase Manager for review.`
+        );
+      }
       setSelectedProductIds(new Set());
+
+      if (refreshData) {
+        await refreshData();
+      }
 
       setTimeout(() => {
         setIsRequestModalOpen(false);
+        setEditingRequestId(null);
         setIsSubmitting(false);
         setSubmitSuccessMsg(null);
       }, 1600);
@@ -903,7 +1074,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
         <div className="lg:col-span-6 bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3.5 overflow-hidden flex flex-col justify-between">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-              <h2 className="text-sm font-bold text-slate-900 tracking-tight">Recent Purchase Requests</h2>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">Pending Purchase Requests</h2>
               <p className="text-xs text-slate-400">Track replenishment orders sent to purchasing</p>
             </div>
             <button
@@ -940,7 +1111,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                     className="py-2 px-1.5 first:pt-0.5 last:pb-0.5 flex items-center justify-between gap-3 hover:bg-slate-50/80 rounded-lg transition-colors cursor-pointer group"
                     title={`Click to view details of #${req.requestNumber}`}
                   >
-                    {/* Left Details: Request Number, Badges, Product Summary, Quantity */}
+                    {/* Left Details: Request Number, Badges, Warehouse, Requester, Date, Product Summary, Quantity */}
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono font-bold text-xs text-blue-600 group-hover:text-blue-700">
@@ -955,8 +1126,20 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
 
                         <span className="text-[10px] text-slate-300">•</span>
 
+                        <span className="text-[11px] text-slate-600 font-medium truncate max-w-[120px]" title={req.warehouseName}>
+                          {req.warehouseName}
+                        </span>
+
+                        <span className="text-[10px] text-slate-300">•</span>
+
                         <span className="text-[11px] text-slate-400 font-mono">
                           {formatDate(req.createdAt)}
+                        </span>
+
+                        <span className="text-[10px] text-slate-300">•</span>
+
+                        <span className="text-[10px] text-slate-500 truncate max-w-[110px]" title={req.requesterName || 'Warehouse Manager'}>
+                          {req.requesterName || 'Warehouse Manager'}
                         </span>
                       </div>
 
@@ -979,11 +1162,24 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Right Details: Status Badge & Link Arrow */}
+                    {/* Right Details: Status Badge & Actions */}
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${getRequestStatusBadgeClass(req.status)}`}>
                         {req.status}
                       </span>
+                      {['Pending Approval', 'Pending Review', 'Clarification Requested'].includes(req.status) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditRequestModal(req);
+                          }}
+                          className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title="Edit this request"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      )}
                       <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 transition-all group-hover:translate-x-0.5" />
                     </div>
                   </div>
@@ -1070,6 +1266,22 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
               >
                 Limited ({metrics.lowStockCount})
               </button>
+              {coveredLowStockProducts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter('ON_REQUEST');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                    statusFilter === 'ON_REQUEST' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-blue-600 hover:text-blue-800'
+                  }`}
+                  title="Low stock products with active purchase requests pending fulfillment"
+                >
+                  <Clock className="w-3 h-3" />
+                  <span>On Request ({coveredLowStockProducts.length})</span>
+                </button>
+              )}
             </div>
 
             {selectedProductIds.size > 0 && (
@@ -1101,7 +1313,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
-                  <th style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }} className="px-2 py-3 text-center align-middle">
+                  <th style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }} className="px-2 py-3 text-center align-middle">
                     <input
                       type="checkbox"
                       checked={paginatedLowStock.length > 0 && paginatedLowStock.every(p => selectedProductIds.has(p.id))}
@@ -1109,7 +1321,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                     />
                   </th>
-                  <th style={{ minWidth: '200px' }} className="px-3.5 py-3">
+                  <th style={{ minWidth: '180px' }} className="px-3.5 py-3">
                     <button
                       onClick={() => {
                         setSortField('name');
@@ -1117,28 +1329,26 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       }}
                       className="flex items-center gap-1 hover:text-slate-900"
                     >
-                      <span>Product</span>
+                      <span>SKU</span>
+                      <span className="text-[10px] text-slate-400 font-normal">/ Product</span>
                       {sortField === 'name' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
                     </button>
                   </th>
-                  <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3">SKU</th>
-                  <th style={{ width: '180px', minWidth: '150px' }} className="px-3 py-3">Warehouse</th>
-                                    <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right">
+                  <th style={{ width: '160px', minWidth: '130px' }} className="px-3 py-3">Warehouse</th>
+                  <th style={{ width: '190px', minWidth: '160px' }} className="px-3 py-3 text-left">
                     <button
                       onClick={() => {
                         setSortField('stock');
                         setSortOrder(s => s === 'asc' ? 'desc' : 'asc');
                       }}
-                      className="flex items-center justify-end gap-1 hover:text-slate-900 w-full"
+                      className="flex items-center gap-1 hover:text-slate-900 w-full"
                     >
-                      <span>Available Stock</span>
+                      <span>Available Stock / Status</span>
                       {sortField === 'stock' && <span>{sortOrder === 'asc' ? '▲' : '▼'}</span>}
                     </button>
                   </th>
                   <th style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right">Warning Limit</th>
-                  <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-center">Status</th>
-                  <th style={{ width: '90px', minWidth: '80px' }} className="px-2 py-3 text-center">Priority</th>
-                  <th style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-right">
+                  <th style={{ width: '140px', minWidth: '120px' }} className="px-3 py-3 text-right">
                     <button
                       onClick={() => {
                         setSortField('suggestedQty');
@@ -1151,7 +1361,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                     </button>
                   </th>
                   <th style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right">Actions</th>
-                  </tr>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paginatedLowStock.map(p => {
@@ -1163,7 +1373,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                       className={`hover:bg-slate-50/70 transition-colors ${isSelected ? 'bg-blue-50/40' : ''}`}
                     >
                       {/* Checkbox */}
-                      <td style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }} className="px-2 py-3 text-center align-middle">
+                      <td style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }} className="px-2 py-3 text-center align-middle">
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -1172,21 +1382,23 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         />
                       </td>
 
-                      {/* Product */}
-                      <td style={{ minWidth: '200px' }} className="px-3.5 py-3 align-middle">
+                      {/* 1. SKU / Product */}
+                      <td style={{ minWidth: '180px' }} className="px-3.5 py-3 align-middle">
                         <div className="font-semibold text-slate-900 leading-snug break-words" title={p.name}>
                           {p.name}
                         </div>
-                        <span className="text-[10px] text-slate-400 block">{p.category}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="font-mono text-[11px] font-semibold text-blue-600">
+                            SKU: {p.sku}
+                          </span>
+                          {p.category && (
+                            <span className="text-[10px] text-slate-400">· {p.category}</span>
+                          )}
+                        </div>
                       </td>
 
-                      {/* SKU */}
-                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 font-mono text-[11px] font-semibold text-blue-600 align-middle">
-                        {p.sku}
-                      </td>
-
-                      {/* Warehouse */}
-                      <td style={{ width: '180px', minWidth: '150px' }} className="px-3 py-3 text-slate-700 align-middle">
+                      {/* 2. Warehouse */}
+                      <td style={{ width: '160px', minWidth: '130px' }} className="px-3 py-3 text-slate-700 align-middle">
                         <span
                           className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium truncate max-w-full"
                           title={p.warehouseName}
@@ -1195,53 +1407,26 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         </span>
                       </td>
 
-                                            {/* Available Stock */}
-                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-right align-middle">
-                        <span className={`text-xs font-mono font-bold whitespace-nowrap ${
-                          safeStock <= 0 ? 'text-rose-600 font-extrabold' : p.stockStatus === 'Limited Stock' ? 'text-amber-700' : 'text-slate-700'
-                        }`}>
-                          {formatNumber(safeStock)} {p.unit}
-                        </span>
+                      {/* 3. Available Stock / Status */}
+                      <td style={{ width: '180px', minWidth: '140px' }} className="px-3 py-3 align-middle text-left">
+                        <StockStatusBadge
+                          status={p.stockStatus}
+                          currentStock={safeStock}
+                          unit={p.unit}
+                          size="sm"
+                          align="left"
+                        />
                       </td>
 
-                      {/* Low-Stock Threshold */}
+                      {/* 4. Warning Limit */}
                       <td style={{ width: '120px', minWidth: '100px' }} className="px-3 py-3 text-right align-middle">
                         <span className="text-xs font-mono text-slate-700 font-semibold whitespace-nowrap">
                           {p.warningLimit !== null ? `${formatNumber(p.warningLimit)} ${p.unit}` : <span className="text-slate-400 italic font-normal text-[11px]">Not set</span>}
                         </span>
                       </td>
 
-                      {/* Stock Status */}
-                      <td style={{ width: '130px', minWidth: '110px' }} className="px-3 py-3 text-center align-middle">
-                        {p.stockStatus === 'Out of Stock' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-                            Out of Stock
-                          </span>
-                        ) : p.stockStatus === 'Limited Stock' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-                            Limited
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                            Active
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Priority */}
-                      <td style={{ width: '90px', minWidth: '80px' }} className="px-2 py-3 text-center align-middle">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
-                          safeStock <= 0 ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}>
-                          {safeStock <= 0 ? 'Critical' : 'High'}
-                        </span>
-                      </td>
-
-                      {/* Suggested Reorder */}
-                      <td style={{ width: '150px', minWidth: '130px' }} className="px-3 py-3 text-right font-mono font-bold text-indigo-600 align-middle">
+                      {/* 5. Suggested Reorder */}
+                      <td style={{ width: '140px', minWidth: '120px' }} className="px-3 py-3 text-right font-mono font-bold text-indigo-600 align-middle">
                         +{formatNumber(p.suggestedQty)} {p.unit}
                       </td>
 
@@ -1250,21 +1435,36 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => navigate('/products?search=' + encodeURIComponent(p.sku || p.name))}
+                            onClick={() => navigate('/inventory?search=' + encodeURIComponent(p.sku || p.name))}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                            title="View product in catalog"
+                            title="View stock in inventory"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenSingleRequestModal(p.product)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-transparent font-semibold text-[11px] transition-all cursor-pointer"
-                            title={`Create purchase request for ${p.name}`}
-                          >
-                            <Send className="w-3 h-3" />
-                            <span>Request</span>
-                          </button>
+                          {p.isCovered ? (
+                            <span
+                              onClick={() => {
+                                if (p.activeRequestId) {
+                                  navigate(`/inventory/purchase-requests?id=${p.activeRequestId}`);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] cursor-pointer hover:bg-blue-100 transition-colors"
+                              title={`Covered by active purchase request #${p.activeRequestNumber || ''}. Click to view request.`}
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                              <span>#{p.activeRequestNumber || 'On Request'}</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSingleRequestModal(p.product)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-transparent font-semibold text-[11px] transition-all cursor-pointer"
+                              title={`Create purchase request for ${p.name}`}
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>Request</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                       
@@ -1273,58 +1473,6 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                 })}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {/* Pagination Footer */}
-        {filteredLowStockProducts.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 text-xs text-slate-500">
-            <div className="flex items-center gap-3">
-              <span>
-                Showing <strong className="font-semibold text-slate-900">{(currentPage - 1) * pageSize + 1}</strong> to{' '}
-                <strong className="font-semibold text-slate-900">
-                  {Math.min(currentPage * pageSize, filteredLowStockProducts.length)}
-                </strong>{' '}
-                of <strong className="font-semibold text-slate-900">{filteredLowStockProducts.length}</strong> items
-              </span>
-              <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200">
-                <span>Per page:</span>
-                <select
-                  value={pageSize}
-                  onChange={e => {
-                    setPageSize(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="bg-white border border-slate-200 rounded-md px-2 py-0.5 text-slate-700 font-medium text-xs cursor-pointer shadow-2xs"
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium shadow-2xs cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Previous</span>
-              </button>
-              <span className="px-2.5 py-1 font-semibold text-slate-800 bg-white border border-slate-200 rounded-md text-xs shadow-2xs">
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium shadow-2xs cursor-pointer"
-              >
-                <span>Next</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
           </div>
         )}
       </div>
@@ -1401,15 +1549,15 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                 type="text"
                 required
                 data-testid="replenishment-reason-input"
-                placeholder="e.g. Stock at warning limit"
+                placeholder="e.g. Critical inventory replenishment: Items are out of stock"
                 value={reason}
                 onChange={handleReasonChange}
                 onFocus={handleReasonFocus}
-                onMouseDown={handleReasonMouseDown}
-                onMouseUp={handleReasonMouseUp}
-                onKeyDown={handleReasonKeyDown}
-                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className={`w-full px-2.5 py-1.5 bg-white border ${reasonError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300'} rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500`}
               />
+              {reasonError && (
+                <p className="text-[11px] text-rose-600 mt-1 font-medium">{reasonError}</p>
+              )}
             </div>
           </div>
 
@@ -1561,12 +1709,12 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                 {isSubmitting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Submitting Request...</span>
+                    <span>{editingRequestId ? 'Saving Changes...' : 'Submitting Request...'}</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5" />
-                    <span>Send Purchase Request</span>
+                    <span>{editingRequestId ? 'Save Changes' : 'Send Purchase Request'}</span>
                   </>
                 )}
               </button>
@@ -1663,7 +1811,7 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
             </div>
 
             {/* Modal action */}
-            <div className="flex items-center justify-start pt-3 border-t border-slate-200">
+            <div className="flex items-center justify-between pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => {
@@ -1676,6 +1824,21 @@ export const WarehouseManagerDashboardPage: React.FC = () => {
                 <span>Open in Full Requests Page</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
+
+              {['Pending Approval', 'Pending Review', 'Clarification Requested'].includes(selectedRequestDetails.status) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const reqToEdit = selectedRequestDetails;
+                    setSelectedRequestDetails(null);
+                    handleOpenEditRequestModal(reqToEdit);
+                  }}
+                  className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Request</span>
+                </button>
+              )}
             </div>
           </div>
         </Modal>

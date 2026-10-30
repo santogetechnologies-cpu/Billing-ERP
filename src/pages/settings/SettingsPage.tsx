@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   Sliders,
   QrCode,
-  Sparkles,
   Check,
   Loader2,
   AlertTriangle,
@@ -36,6 +35,7 @@ import {
   FileCheck,
   Archive,
   Send,
+  Lock,
   X
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
@@ -52,10 +52,12 @@ import {
   canConfigureSalesDispatchAlerts
 } from '../../utils/rbac';
 import { policyService } from '../../services/policyService';
+import { presenceService } from '../../services/presenceService';
+import { PrinterSettingsSection } from '../../components/settings/PrinterSettingsSection';
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, updateUserProfile } = useAuth();
   const { company, updateCompany, refreshData } = useERP();
   const { color: primaryColor, setColor: setPrimaryColor, preset: activePreset } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -79,7 +81,7 @@ export const SettingsPage: React.FC = () => {
   // Determine initial tab based on role and query parameters
   const tabParam = searchParams.get('tab');
   const resolveInitialTab = (): TabType => {
-    if ((tabParam === 'numbering' || tabParam === 'invoice_design') && canManageCompany) return 'company';
+    if ((tabParam === 'numbering' || tabParam === 'invoice_design' || tabParam === 'printers') && canManageCompany) return 'company';
     if (tabParam === 'backup' && canManageSystem) return 'system';
     if (tabParam && ['personal', 'appearance', 'notifications', 'company', 'policy', 'users', 'system'].includes(tabParam)) {
       if ((tabParam === 'company' || tabParam === 'users') && !canManageCompany) return 'personal';
@@ -90,20 +92,21 @@ export const SettingsPage: React.FC = () => {
   };
 
   const [activeSection, setActiveSection] = useState<TabType>(resolveInitialTab);
-  const [companySubTab, setCompanySubTab] = useState<'profile' | 'numbering' | 'invoice_design'>(
-    tabParam === 'numbering' ? 'numbering' : tabParam === 'invoice_design' ? 'invoice_design' : 'profile'
+  const [companySubTab, setCompanySubTab] = useState<'profile' | 'numbering' | 'invoice_design' | 'printers'>(
+    tabParam === 'numbering' ? 'numbering' : tabParam === 'invoice_design' ? 'invoice_design' : tabParam === 'printers' ? 'printers' : 'profile'
   );
 
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     const currentTab = searchParams.get('tab');
-    if (currentTab === 'numbering' || currentTab === 'invoice_design') {
+    if (currentTab === 'numbering' || currentTab === 'invoice_design' || currentTab === 'printers') {
       if (canManageCompany) {
         setActiveSection('company');
         setCompanySubTab(currentTab);
       } else {
-        setActiveSection('personal');
+        // Allow cashier or non-owner to configure workstation printers
+        setCompanySubTab('printers');
       }
     } else if (currentTab === 'backup') {
       if (canManageSystem) {
@@ -132,6 +135,9 @@ export const SettingsPage: React.FC = () => {
   // -------------------------------------------------------------------------
   const [personalName, setPersonalName] = useState(profile?.full_name || user?.user_metadata?.full_name || '');
   const [personalPhone, setPersonalPhone] = useState(profile?.phone || '');
+  const [personalAge, setPersonalAge] = useState<string>(profile?.age !== undefined && profile?.age !== null ? String(profile.age) : '');
+  const [savingPersonal, setSavingPersonal] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [personalLanguage, setPersonalLanguage] = useState('English (United States)');
   const [personalDateFormat, setPersonalDateFormat] = useState('DD/MM/YYYY');
   const [personalNumberFormat, setPersonalNumberFormat] = useState('en-IN (Lakhs/Crores - ₹)');
@@ -140,13 +146,95 @@ export const SettingsPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (profile?.full_name) setPersonalName(profile.full_name);
-    if (profile?.phone) setPersonalPhone(profile.phone);
-  }, [profile]);
+    // 1. Synchronize Full Name from authenticated user profile
+    const resolvedName = profile?.full_name || user?.user_metadata?.full_name || '';
+    setPersonalName(resolvedName);
 
-  const handleSavePersonal = (e: React.FormEvent) => {
+    // 2. Load cached profile extras (phone, age) from user-specific local storage
+    const savedLocal = user?.id ? localStorage.getItem(`universal_billing_profile_${user.id}`) : null;
+    let localPhone = '';
+    let localAge = '';
+    if (savedLocal) {
+      try {
+        const parsed = JSON.parse(savedLocal);
+        localPhone = parsed.phone || '';
+        localAge = parsed.age !== undefined && parsed.age !== null ? String(parsed.age) : '';
+      } catch {}
+    }
+
+    setPersonalPhone(profile?.phone || localPhone || '');
+    setPersonalAge(profile?.age !== undefined && profile?.age !== null ? String(profile.age) : localAge);
+
+    // 3. Load regional preferences keyed strictly by authenticated user ID
+    if (user?.id) {
+      const savedPrefs = localStorage.getItem(`universal_billing_prefs_${user.id}`);
+      if (savedPrefs) {
+        try {
+          const parsed = JSON.parse(savedPrefs);
+          if (parsed.language) setPersonalLanguage(parsed.language);
+          if (parsed.dateFormat) setPersonalDateFormat(parsed.dateFormat);
+          if (parsed.numberFormat) setPersonalNumberFormat(parsed.numberFormat);
+          if (parsed.defaultRoute) setPersonalDefaultRoute(parsed.defaultRoute);
+        } catch {}
+      } else {
+        setPersonalDefaultRoute(
+          userRole === 'Cashier' ? '/sales/pos' : userRole === 'Salesperson' ? '/sales/dashboard' : userRole === 'Warehouse Manager' ? '/inventory' : '/'
+        );
+      }
+    }
+  }, [user?.id, profile?.id, profile?.full_name, profile?.phone, profile?.age, userRole]);
+
+  // Derived presence and activity data
+  const cachedPresence = user?.id ? presenceService.getLocalPresenceCache(user.id) : null;
+  const rawLastSeen =
+    profile?.last_activity_at ||
+    profile?.last_seen_at ||
+    cachedPresence?.lastSeenAt ||
+    profile?.last_login_at;
+  const rawPresence = cachedPresence?.presenceStatus || profile?.presence_status || (profile?.status === 'Active' ? 'Active' : 'Inactive');
+  const isOnline = presenceService.isUserOnline(rawLastSeen, rawPresence);
+  const displayPresenceStatus: 'Active' | 'Inactive' = isOnline ? 'Active' : 'Inactive';
+  const displayActivityTime = rawLastSeen ? presenceService.formatActivityTime(rawLastSeen) : 'Never';
+  const formattedFullTimestamp = rawLastSeen ? new Date(rawLastSeen).toLocaleString() : 'No recorded activity';
+
+  const handleSavePersonal = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSavingPersonal(true);
+    setSaveError(null);
     try {
+      const trimmedName = personalName.trim();
+      if (!trimmedName) {
+        setSaveError('Full Name is required.');
+        setSavingPersonal(false);
+        return;
+      }
+
+      let parsedAge: number | undefined = undefined;
+      if (personalAge.trim()) {
+        const num = parseInt(personalAge.trim(), 10);
+        if (isNaN(num) || num <= 0 || num > 130) {
+          setSaveError('Please enter a valid age between 1 and 130.');
+          setSavingPersonal(false);
+          return;
+        }
+        parsedAge = num;
+      }
+
+      // Save profile updates (full_name, phone, age) safely - email & role remain untouched
+      if (user?.id) {
+        const res = await updateUserProfile({
+          full_name: trimmedName,
+          phone: personalPhone.trim(),
+          age: parsedAge
+        });
+        if (!res.success && res.error) {
+          setSaveError(res.error);
+          setSavingPersonal(false);
+          return;
+        }
+      }
+
+      // Save user regional preferences keyed strictly to user ID
       if (user?.id) {
         localStorage.setItem(`universal_billing_prefs_${user.id}`, JSON.stringify({
           language: personalLanguage,
@@ -155,11 +243,15 @@ export const SettingsPage: React.FC = () => {
           defaultRoute: personalDefaultRoute
         }));
       }
+
       setSaveSuccess('Personal profile and preferences saved successfully!');
-      setTimeout(() => setSaveSuccess(null), 3000);
-    } catch {
-      setSaveSuccess('Personal preferences saved.');
-      setTimeout(() => setSaveSuccess(null), 3000);
+      setTimeout(() => setSaveSuccess(null), 3500);
+    } catch (err: any) {
+      console.error('Error saving personal profile:', err);
+      setSaveError(err.message || 'Failed to save personal profile.');
+      setTimeout(() => setSaveError(null), 4000);
+    } finally {
+      setSavingPersonal(false);
     }
   };
 
@@ -598,124 +690,157 @@ export const SettingsPage: React.FC = () => {
       {/* SECTION 1: PERSONAL SETTINGS (Available to All Roles) */}
       {/* ------------------------------------------------------------------ */}
       {activeSection === 'personal' && (
-        <form onSubmit={handleSavePersonal} className="bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <form onSubmit={handleSavePersonal} className="bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
             <div>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                <User className="w-4 h-4 text-blue-600" />
                 Personal Profile & Workplace Preferences
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Manage your user credentials, regional date & currency formats, and initial dashboard route.
+                Manage your authenticated identity, contact details, regional date & currency formats, and initial dashboard route.
               </p>
             </div>
 
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              disabled={savingPersonal}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
             >
-              <Save className="w-3.5 h-3.5" />
-              <span>Save Preferences</span>
+              {savingPersonal ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              <span>{savingPersonal ? 'Saving Profile...' : 'Save Preferences'}</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name</label>
-              <input
-                type="text"
-                required
-                value={personalName}
-                onChange={e => setPersonalName(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              />
+          {saveError && (
+            <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-2 animate-fadeIn">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{saveError}</span>
+            </div>
+          )}
+
+          {/* Subsection 1: User Profile Details */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">User Profile & Account Identity</span>
+              <span className="text-[10px] text-slate-400 font-medium">Logged-in account details</span>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
-              <input
-                type="email"
-                disabled
-                value={user?.email || profile?.email || ''}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-500 cursor-not-allowed font-mono"
-              />
-              <span className="text-[10px] text-slate-400 mt-0.5 block">Managed by authentication provider</span>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Assigned System Role</label>
-              <div className="flex items-center gap-2 px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50">
-                <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="font-bold text-slate-800">{userRole || 'Standard Staff'}</span>
-                <span className="text-[10px] font-semibold text-amber-600 ml-auto bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                  Fixed Security Scope
-                </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {/* 1. Full Name - Editable */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Full Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={personalName}
+                  onChange={e => setPersonalName(e.target.value)}
+                  placeholder="Enter your full name"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Displayed on transactions, invoices & audit records</span>
               </div>
-              <span className="text-[10px] text-slate-400 mt-0.5 block">Role elevation requires an authorized Owner/Admin</span>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Phone / Mobile</label>
-              <input
-                type="tel"
-                value={personalPhone}
-                onChange={e => setPersonalPhone(e.target.value)}
-                placeholder="+91 98765 43210"
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
+              {/* 2. Email Address - Read-Only & Disabled */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    disabled
+                    readOnly
+                    tabIndex={-1}
+                    value={user?.email || profile?.email || ''}
+                    className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-100/70 text-slate-500 cursor-not-allowed font-mono select-none focus:outline-none"
+                  />
+                  <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Read-only • Managed by authentication provider</span>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Display Language</label>
-              <select
-                value={personalLanguage}
-                onChange={e => setPersonalLanguage(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              >
-                <option value="English (United States)">English (United States)</option>
-                <option value="English (India)">English (India)</option>
-                <option value="Hindi (हिंदी)">Hindi (हिंदी)</option>
-              </select>
-            </div>
+              {/* 3. Phone / Mobile - Editable */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Phone / Mobile</label>
+                <input
+                  type="tel"
+                  value={personalPhone}
+                  onChange={e => setPersonalPhone(e.target.value)}
+                  placeholder="+91 98765 43210"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Contact number for administrative & order notifications</span>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Date Format</label>
-              <select
-                value={personalDateFormat}
-                onChange={e => setPersonalDateFormat(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono"
-              >
-                <option value="DD/MM/YYYY">DD/MM/YYYY (Indian Standard)</option>
-                <option value="MM/DD/YYYY">MM/DD/YYYY (US Standard)</option>
-                <option value="YYYY-MM-DD">YYYY-MM-DD (ISO Format)</option>
-              </select>
-            </div>
+              {/* 4. Account Status - Read-Only Presence Badge */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Account Status</label>
+                <div className="flex items-center gap-2 px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50">
+                  <span className={`w-2 h-2 rounded-full ${displayPresenceStatus === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                  <span className={`font-bold ${displayPresenceStatus === 'Active' ? 'text-emerald-700' : 'text-slate-600'}`}>
+                    {displayPresenceStatus}
+                  </span>
+                  <span className={`text-[10px] font-semibold ml-auto px-1.5 py-0.5 rounded border ${
+                    displayPresenceStatus === 'Active'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>
+                    {displayPresenceStatus === 'Active' ? 'Online Presence' : 'Offline Presence'}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Determined by system presence & session tracking</span>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Number & Currency Format</label>
-              <select
-                value={personalNumberFormat}
-                onChange={e => setPersonalNumberFormat(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              >
-                <option value="en-IN (Lakhs/Crores - ₹)">Indian (Lakhs & Crores - ₹)</option>
-                <option value="en-US (Millions/Billions - $)">International (Millions & Billions)</option>
-              </select>
-            </div>
+              {/* 5. Last Active / Activity Time - Read-Only Real Timestamp */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Last Active / Activity Time</label>
+                <div
+                  className="flex items-center gap-2 px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-700"
+                  title={formattedFullTimestamp}
+                >
+                  <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span className="font-bold text-slate-800 truncate">{displayActivityTime}</span>
+                  {rawLastSeen && (
+                    <span className="text-[10px] text-slate-400 font-mono ml-auto hidden sm:inline truncate max-w-[120px]" title={formattedFullTimestamp}>
+                      {formattedFullTimestamp}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Recorded authentication & telemetry timestamp</span>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Default Landing Route</label>
-              <select
-                value={personalDefaultRoute}
-                onChange={e => setPersonalDefaultRoute(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono"
-              >
-                <option value="/">Main Executive Dashboard (/)</option>
-                <option value="/sales/dashboard">Sales Dashboard (/sales/dashboard)</option>
-                <option value="/sales/pos">POS Billing Counter (/sales/pos)</option>
-                <option value="/inventory">Inventory & Stock Alerts (/inventory)</option>
-                <option value="/purchases">Purchases Overview (/purchases)</option>
-                <option value="/accounting">General Ledger & Accounts (/accounting)</option>
-              </select>
+              {/* 6. Assigned System Role - Read-Only Fixed Security Scope */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Assigned System Role</label>
+                <div className="flex items-center gap-2 px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="font-bold text-slate-800">{userRole || profile?.role || 'Standard Staff'}</span>
+                  <span className="text-[10px] font-semibold text-amber-600 ml-auto bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                    Fixed Security Scope
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Role elevation requires an authorized Owner/Admin</span>
+              </div>
+
+              {/* 7. Age (Optional) - Editable */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Age (Years)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="130"
+                  value={personalAge}
+                  onChange={e => setPersonalAge(e.target.value)}
+                  placeholder="e.g. 30"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Optional personal demographic detail</span>
+              </div>
             </div>
           </div>
         </form>
@@ -736,7 +861,7 @@ export const SettingsPage: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="max-w-2xl">
             {/* Primary Accent Color Selector */}
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-4">
               <div>
@@ -793,71 +918,6 @@ export const SettingsPage: React.FC = () => {
                 <p className="text-[11px]">
                   <strong>User Isolation Guarantee:</strong> Your selected interface accent is stored uniquely for your authenticated profile (<span className="font-mono">{user?.email || 'current user'}</span>) and persists across page reloads without modifying other team members' preferences or company-wide invoice settings.
                 </p>
-              </div>
-            </div>
-
-            {/* Live Interactive UI Preview */}
-            <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
-              <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
-                Live Theme Preview
-              </h3>
-              <p className="text-xs text-slate-500">
-                Buttons, interactive chips, badges, and focus rings instantly adopt your selected color:
-              </p>
-
-              <div className="flex flex-wrap items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  style={{ backgroundColor: activePreset.primary }}
-                  className="px-3.5 py-1.5 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Primary Button</span>
-                </button>
-
-                <button
-                  type="button"
-                  style={{
-                    backgroundColor: activePreset.light,
-                    color: activePreset.primary,
-                    borderColor: activePreset.border
-                  }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
-                >
-                  Subtle Accent
-                </button>
-
-                <span
-                  style={{
-                    backgroundColor: activePreset.light,
-                    color: activePreset.primary,
-                    borderColor: activePreset.border
-                  }}
-                  className="px-2.5 py-0.5 rounded-full text-xs font-bold border font-mono"
-                >
-                  Badge Active
-                </span>
-              </div>
-
-              <div className="pt-3 border-t border-slate-100">
-                <span className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Sidebar Menu Active Highlight
-                </span>
-                <div
-                  style={{ backgroundColor: activePreset.sidebarBg }}
-                  className="p-3 rounded-lg flex items-center justify-between text-white text-xs font-semibold"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: activePreset.primary }} />
-                    <span>Selected Navigation Item</span>
-                  </div>
-                  <span
-                    style={{ backgroundColor: activePreset.sidebarBadgeBg }}
-                    className="px-2 py-0.5 rounded text-[10px] font-bold"
-                  >
-                    Active
-                  </span>
-                </div>
               </div>
             </div>
           </div>
@@ -1220,11 +1280,26 @@ export const SettingsPage: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setCompanySubTab('invoice_design')}
+              onClick={() => {
+                setCompanySubTab('invoice_design');
+                setSearchParams({ tab: 'invoice_design' });
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${companySubTab === 'invoice_design' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
             >
               Invoice Customizer & Print
+            </button>
+            <button
+              type="button"
+              id="tab-printer-settings"
+              onClick={() => {
+                setCompanySubTab('printers');
+                setSearchParams({ tab: 'printers' });
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${companySubTab === 'printers' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+            >
+              Hardware & Direct Printers
             </button>
           </div>
 
@@ -1567,6 +1642,18 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Sub-tab 4: Hardware & Direct Printers */}
+          {companySubTab === 'printers' && (
+            <PrinterSettingsSection />
+          )}
+        </div>
+      )}
+
+      {/* Direct Printer Settings for Cashier/Staff without full company settings access */}
+      {!canManageCompany && (tabParam === 'printers' || companySubTab === 'printers') && (
+        <div className="space-y-4">
+          <PrinterSettingsSection />
         </div>
       )}
 

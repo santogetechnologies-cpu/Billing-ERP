@@ -23,7 +23,9 @@ import {
   Phone,
   Mail,
   Check,
-  RotateCcw
+  RotateCcw,
+  ClipboardList,
+  History
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -34,10 +36,14 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { supabase } from '../../lib/supabase';
 import { PurchaseRequest } from '../../types';
+import { sortProductsAZ } from '../../utils/sortUtils';
+import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../../utils/schemaDetector';
+import { BulkOrderBillModal } from '../../components/purchases/BulkOrderBillModal';
 
 export interface PurchaseOrderItemRow {
   id: string;
   orderNumber: string;
+  docType?: string;
   date: string;
   expectedDelivery: string | null;
   supplierId: string | null;
@@ -47,7 +53,7 @@ export interface PurchaseOrderItemRow {
   supplierGstin?: string;
   warehouseId: string | null;
   warehouseName: string;
-  status: 'Ordered' | 'In Transit' | 'Partially Received' | 'Completed' | 'Cancelled';
+  status: 'Ordered' | 'Received' | 'Cancelled' | 'Draft';
   grandTotal: number;
   totalQty: number;
   receivedQty: number;
@@ -55,6 +61,7 @@ export interface PurchaseOrderItemRow {
   isOverdue: boolean;
   notes?: string;
   linkedRequestId?: string;
+  bulkMetadata?: any;
   items: Array<{
     id?: string;
     productId: string;
@@ -64,6 +71,7 @@ export interface PurchaseOrderItemRow {
     pendingQty: number;
     unit: string;
     rate: number;
+    discount?: number;
     taxRate?: number;
     total?: number;
   }>;
@@ -86,16 +94,39 @@ export const PurchaseOrdersPage: React.FC = () => {
   // Filters & State
   const [tabFilter, setTabFilter] = useState<string>(() => {
     const statusParam = searchParams.get('status');
-    if (!statusParam) return 'Active';
-    if (statusParam.toLowerCase() === 'active') return 'Active';
-    if (statusParam.toLowerCase() === 'all') return 'All';
+    if (!statusParam) return 'All';
+    if (statusParam.toLowerCase() === 'ordered' || statusParam.toLowerCase() === 'active') return 'Ordered';
+    if (statusParam.toLowerCase() === 'received' || statusParam.toLowerCase() === 'delivered') return 'Received';
+    if (statusParam.toLowerCase() === 'overdue') return 'Overdue';
+    if (statusParam.toLowerCase() === 'history' || statusParam.toLowerCase() === 'all') return 'History';
     return statusParam;
   });
+
+  useEffect(() => {
+    const statusParam = searchParams.get('status');
+    if (statusParam) {
+      if (statusParam.toLowerCase() === 'ordered' || statusParam.toLowerCase() === 'active') setTabFilter('Ordered');
+      else if (statusParam.toLowerCase() === 'received' || statusParam.toLowerCase() === 'delivered') setTabFilter('Received');
+      else if (statusParam.toLowerCase() === 'overdue') setTabFilter('Overdue');
+      else if (statusParam.toLowerCase() === 'history') setTabFilter('History');
+      else if (statusParam.toLowerCase() === 'all') setTabFilter('All');
+      else setTabFilter(statusParam);
+    }
+  }, [searchParams]);
   const [warehouseFilter, setWarehouseFilter] = useState<string>('All');
   const [supplierFilter, setSupplierFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [dbOrders, setDbOrders] = useState<any[]>([]);
+
+  // Bulk Order Bill / Quotation Modal State
+  const [isBulkOrderModalOpen, setIsBulkOrderModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (searchParams.get('new') === 'bulk-order' || searchParams.get('newBill') === 'true' || searchParams.get('bulk') === 'true') {
+      setIsBulkOrderModalOpen(true);
+    }
+  }, [searchParams]);
 
   // Selected Order for Modal
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrderItemRow | null>(null);
@@ -131,25 +162,34 @@ export const PurchaseOrdersPage: React.FC = () => {
   // Fetch purchase orders from database
   const fetchDbOrders = useCallback(async () => {
     const targetCompId = company?.id || '00000000-0000-0000-0000-000000000001';
-    try {
-      const { data: poData, error: poErr } = await supabase
-        .from('purchase_orders')
-        .select('*, purchase_order_items(*)')
-        .eq('company_id', targetCompId)
-        .order('created_at', { ascending: false });
+    if (!isTableMarkedMissing('purchase_orders')) {
+      try {
+        const { data: poData, error: poErr } = await supabase
+          .from('purchase_orders')
+          .select('*, purchase_order_items(*)')
+          .eq('company_id', targetCompId)
+          .order('created_at', { ascending: false });
 
-      if (!poErr && poData) {
-        setDbOrders(poData);
-        return;
+        if (!poErr && poData) {
+          setDbOrders(poData);
+          return;
+        }
+        if (poErr && isTableNotFoundError(poErr)) {
+          markTableMissing('purchase_orders');
+        }
+      } catch (err) {
+        if (isTableNotFoundError(err)) {
+          markTableMissing('purchase_orders');
+        }
       }
-    } catch {}
+    }
 
     try {
       const { data: pData } = await supabase
         .from('purchases')
-        .select('*')
+        .select('*, purchase_items(*)')
         .eq('company_id', targetCompId)
-        .eq('doc_type', 'purchase_order')
+        .in('doc_type', ['purchase_order', 'bulk_order', 'quotation'])
         .order('date', { ascending: false });
 
       if (pData) {
@@ -190,28 +230,32 @@ export const PurchaseOrdersPage: React.FC = () => {
       if (processedKeys.has(key)) return;
       processedKeys.add(key);
 
+      // Check for bulk order metadata
+      let bulkMeta: any = null;
+      if (po.notes && typeof po.notes === 'string' && po.notes.includes('<!-- UB_BULK_ORDER_META:')) {
+        try {
+          const match = po.notes.match(/<!-- UB_BULK_ORDER_META:(.*?) -->/);
+          if (match && match[1]) {
+            bulkMeta = JSON.parse(match[1]);
+          }
+        } catch {}
+      }
+
       const matchedSupp = suppliers.find(
         s => s.id === po.supplier_id || (po.supplier_name && s.name.toLowerCase() === po.supplier_name.toLowerCase())
       );
-      const supplierName = po.supplier_name || matchedSupp?.name || 'Authorized Supplier';
-      const supplierContact = matchedSupp?.phone || 'Not available';
-      const supplierEmail = matchedSupp?.email || undefined;
-      const supplierGstin = po.supplier_gstin || matchedSupp?.gstin || undefined;
-
-      const rawStatus = (po.status || 'Ordered').trim();
-      let normalizedStatus: 'Ordered' | 'In Transit' | 'Partially Received' | 'Completed' | 'Cancelled' = 'Ordered';
-      const sLower = rawStatus.toLowerCase();
-      if (sLower === 'completed' || sLower === 'delivered') normalizedStatus = 'Completed';
-      else if (sLower === 'partially received' || sLower === 'partially_received') normalizedStatus = 'Partially Received';
-      else if (sLower === 'in transit' || sLower === 'in_transit') normalizedStatus = 'In Transit';
-      else if (sLower === 'cancelled' || sLower === 'rejected') normalizedStatus = 'Cancelled';
+      const supplierName = po.supplier_name || bulkMeta?.customerName || matchedSupp?.name || 'Authorized Supplier';
+      const supplierContact = bulkMeta?.customerPhone || matchedSupp?.phone || 'Not available';
+      const supplierEmail = bulkMeta?.customerEmail || matchedSupp?.email || undefined;
+      const supplierGstin = po.supplier_gstin || bulkMeta?.customerGstin || matchedSupp?.gstin || undefined;
 
       const expDate = po.expected_delivery || po.due_date || po.expectedDelivery || null;
       const cleanExpDate = expDate ? String(expDate).split('T')[0] : null;
 
-      const itemsRaw = po.purchase_order_items || po.items || [];
+      const itemsRaw = po.purchase_order_items || po.purchase_items || po.items || [];
       let totalQty = 0;
       let receivedQty = 0;
+      let allItemsReceived = Array.isArray(itemsRaw) && itemsRaw.length > 0;
       const mappedItems: PurchaseOrderItemRow['items'] = [];
 
       if (Array.isArray(itemsRaw) && itemsRaw.length > 0) {
@@ -221,6 +265,9 @@ export const PurchaseOrdersPage: React.FC = () => {
           const pq = Math.max(0, oq - rq);
           totalQty += oq;
           receivedQty += rq;
+          if (rq < oq || oq <= 0) {
+            allItemsReceived = false;
+          }
           mappedItems.push({
             id: it.id,
             productId: it.product_id || it.productId || 'prod-custom',
@@ -230,6 +277,7 @@ export const PurchaseOrdersPage: React.FC = () => {
             pendingQty: pq,
             unit: it.unit || 'Units',
             rate: Number(it.rate || it.unitPrice || 0),
+            discount: Number(it.discount || 0),
             taxRate: Number(it.tax_rate || it.taxRate || 0),
             total: Number(it.total || oq * (it.rate || 0))
           });
@@ -237,18 +285,29 @@ export const PurchaseOrdersPage: React.FC = () => {
       } else {
         totalQty = Number(po.qty || 1);
         receivedQty = Number(po.received_qty || 0);
+        allItemsReceived = totalQty > 0 && receivedQty >= totalQty;
       }
 
       const pendingQty = Math.max(0, totalQty - receivedQty);
-      if (pendingQty === 0 && totalQty > 0 && normalizedStatus !== 'Cancelled') {
-        normalizedStatus = 'Completed';
+      const rawStatus = (bulkMeta?.orderStatus || po.status || 'Ordered').trim();
+      let normalizedStatus: 'Ordered' | 'Received' | 'Cancelled' | 'Draft' = 'Ordered';
+      const sLower = rawStatus.toLowerCase();
+      if (sLower === 'cancelled' || sLower === 'rejected') {
+        normalizedStatus = 'Cancelled';
+      } else if (sLower === 'draft') {
+        normalizedStatus = 'Draft';
+      } else if (totalQty > 0 && pendingQty === 0 && allItemsReceived) {
+        normalizedStatus = 'Received';
+      } else {
+        normalizedStatus = 'Ordered';
       }
 
-      const isOverdue = !!(cleanExpDate && cleanExpDate < today && pendingQty > 0 && normalizedStatus !== 'Completed');
+      const isOverdue = !!(cleanExpDate && cleanExpDate < today && pendingQty > 0 && normalizedStatus !== 'Received');
 
       results.push({
         id: po.id,
         orderNumber: String(orderNum),
+        docType: po.doc_type || (bulkMeta ? bulkMeta.docType : 'purchase_order'),
         date: po.date || po.created_at?.split('T')[0] || today,
         expectedDelivery: cleanExpDate,
         supplierId: po.supplier_id || matchedSupp?.id || null,
@@ -266,110 +325,20 @@ export const PurchaseOrdersPage: React.FC = () => {
         isOverdue,
         notes: po.notes || undefined,
         linkedRequestId: po.request_id || undefined,
-        items: mappedItems
+        bulkMetadata: bulkMeta,
+        items: sortProductsAZ(mappedItems)
       });
     });
 
-    // 2. Process Purchase Requests in Ordered / In Transit / Partially Received state
+    // 2. Attach linkedRequestId from Purchase Requests to matching Database Orders
     (purchaseRequests || []).forEach(req => {
       const orderNum = req.purchaseOrderNumber || req.purchaseOrderId;
-      const statusLower = (req.status || '').toLowerCase();
-      const isOrderStage =
-        statusLower === 'ordered' ||
-        statusLower === 'partially received' ||
-        (statusLower === 'completed' && req.purchaseOrderNumber);
-
-      if (!isOrderStage) return;
-
-      const orderKey = orderNum ? String(orderNum).trim().toLowerCase() : `req-${req.id}`;
-      if (processedKeys.has(orderKey)) {
-        // Order was already indexed from DB table, but attach linkedRequestId if missing
-        const existing = results.find(r => r.orderNumber.toLowerCase() === orderKey);
-        if (existing && !existing.linkedRequestId) {
-          existing.linkedRequestId = req.id;
-        }
-        return;
+      if (!orderNum) return;
+      const orderKey = String(orderNum).trim().toLowerCase();
+      const existing = results.find(r => r.orderNumber.toLowerCase() === orderKey || r.id === req.purchaseOrderId);
+      if (existing && !existing.linkedRequestId) {
+        existing.linkedRequestId = req.id;
       }
-      processedKeys.add(orderKey);
-
-      // Extract vendor name from history comments if available
-      let suppName: string | null = null;
-      if (req.history) {
-        for (const h of req.history) {
-          if (h.comments && h.comments.includes('Vendor:')) {
-            const match = h.comments.match(/Vendor:\s*([^)]+)/);
-            if (match && match[1]) {
-              suppName = match[1].trim();
-              break;
-            }
-          }
-        }
-      }
-
-      const matchedSupp = suppliers.find(
-        s => (suppName && s.name.toLowerCase() === suppName.toLowerCase())
-      );
-      const supplierName = suppName || matchedSupp?.name || 'Authorized Supplier';
-      const supplierContact = matchedSupp?.phone || 'Not available';
-
-      let totalQty = 0;
-      let receivedQty = 0;
-      const mappedItems: PurchaseOrderItemRow['items'] = [];
-
-      (req.items || []).forEach(it => {
-        const oq = Number(it.approvedQty !== null && it.approvedQty !== undefined ? it.approvedQty : it.requestedQty || 0);
-        const rq = Number(it.receivedQty || 0);
-        const pq = Math.max(0, oq - rq);
-        totalQty += oq;
-        receivedQty += rq;
-        mappedItems.push({
-          id: it.id,
-          productId: it.productId,
-          productName: it.productName,
-          orderedQty: oq,
-          receivedQty: rq,
-          pendingQty: pq,
-          unit: it.unit || 'Units',
-          rate: Number(it.estimatedCost || 0),
-          total: oq * Number(it.estimatedCost || 0)
-        });
-      });
-
-      const pendingQty = Math.max(0, totalQty - receivedQty);
-      let normalizedStatus: 'Ordered' | 'In Transit' | 'Partially Received' | 'Completed' | 'Cancelled' = 'Ordered';
-      if (statusLower === 'completed' || (totalQty > 0 && pendingQty === 0)) {
-        normalizedStatus = 'Completed';
-      } else if (receivedQty > 0 && pendingQty > 0) {
-        normalizedStatus = 'Partially Received';
-      } else if (statusLower === 'ordered') {
-        normalizedStatus = 'Ordered';
-      }
-
-      const expDate = req.requestedDeliveryDate ? req.requestedDeliveryDate.split('T')[0] : null;
-      const isOverdue = !!(expDate && expDate < today && pendingQty > 0 && normalizedStatus !== 'Completed');
-
-      results.push({
-        id: req.purchaseOrderId || `po-${req.id}`,
-        orderNumber: req.purchaseOrderNumber || `PO-${req.requestNumber.replace('PR-', '')}`,
-        date: req.createdAt ? req.createdAt.split('T')[0] : today,
-        expectedDelivery: expDate,
-        supplierId: matchedSupp?.id || null,
-        supplierName,
-        supplierContact,
-        supplierEmail: matchedSupp?.email,
-        supplierGstin: matchedSupp?.gstin,
-        warehouseId: req.warehouseId,
-        warehouseName: req.warehouseName || 'Warehouse Hub',
-        status: normalizedStatus,
-        grandTotal: mappedItems.reduce((sum, it) => sum + (it.total || 0), 0),
-        totalQty,
-        receivedQty,
-        pendingQty,
-        isOverdue,
-        notes: req.reason || `Linked to PR #${req.requestNumber}`,
-        linkedRequestId: req.id,
-        items: mappedItems
-      });
     });
 
     return results;
@@ -379,13 +348,16 @@ export const PurchaseOrdersPage: React.FC = () => {
   const filteredOrders = useMemo(() => {
     return allOrders.filter(order => {
       // Tab Status Filter
-      if (tabFilter === 'Active') {
-        // Active orders are in progress: Ordered, In Transit, or Partially Received
-        if (order.status === 'Completed' || order.status === 'Cancelled') return false;
-      } else if (tabFilter === 'Items to Deliver' || tabFilter === 'Pending') {
-        if (order.pendingQty <= 0 || order.status === 'Completed' || order.status === 'Cancelled') return false;
+      if (tabFilter === 'Ordered' || tabFilter === 'Active') {
+        if (order.status !== 'Ordered' && order.status !== 'Draft') return false;
+      } else if (tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed') {
+        if (order.status !== 'Received') return false;
       } else if (tabFilter === 'Overdue') {
-        if (!order.isOverdue || order.status === 'Completed' || order.status === 'Cancelled') return false;
+        if (!order.isOverdue || order.status !== 'Ordered') return false;
+      } else if (tabFilter === 'History' || tabFilter === 'All') {
+        return true;
+      } else if (tabFilter === 'Items to Deliver' || tabFilter === 'Pending') {
+        if (order.pendingQty <= 0 || (order.status !== 'Ordered' && order.status !== 'Draft')) return false;
       } else if (tabFilter !== 'All') {
         if (order.status.toLowerCase() !== tabFilter.toLowerCase()) return false;
       }
@@ -416,15 +388,19 @@ export const PurchaseOrdersPage: React.FC = () => {
 
   // Statistics KPI counts
   const stats = useMemo(() => {
-    const active = allOrders.filter(o => o.status !== 'Completed' && o.status !== 'Cancelled');
-    const itemsToDeliver = active.reduce((sum, o) => sum + o.pendingQty, 0);
-    const overdueCount = active.filter(o => o.isOverdue).length;
-    const completedCount = allOrders.filter(o => o.status === 'Completed').length;
+    const ordered = allOrders.filter(o => o.status === 'Ordered' || o.status === 'Draft');
+    const delivered = allOrders.filter(o => o.status === 'Received');
+    const overdueCount = ordered.filter(o => o.isOverdue).length;
+    const historyCount = allOrders.length;
+    const itemsToDeliver = ordered.reduce((sum, o) => sum + o.pendingQty, 0);
     return {
-      activeOrdersCount: active.length,
-      itemsToDeliver,
+      orderedCount: ordered.length,
+      deliveredCount: delivered.length,
       overdueCount,
-      completedCount
+      historyCount,
+      activeOrdersCount: ordered.length,
+      itemsToDeliver,
+      completedCount: delivered.length
     };
   }, [allOrders]);
 
@@ -518,7 +494,7 @@ export const PurchaseOrdersPage: React.FC = () => {
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
               <Truck className="w-5 h-5 text-blue-600" />
-              <span>Purchase Orders & Active Order Tracking</span>
+              <span>Purchase Orders</span>
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
               Monitor vendor purchase orders, track in-transit deliveries, view supplier contact details, and record inward goods receipts.
@@ -526,87 +502,193 @@ export const PurchaseOrdersPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0 self-start sm:self-auto">
           <button
+            type="button"
             onClick={handleManualRefresh}
             disabled={isRefreshing}
-            className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            className="h-9 px-3.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-2xs"
             title="Refresh order records"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
             <span>Refresh</span>
           </button>
 
-          <button
-            onClick={() => navigate('/purchases/requests')}
-            className="px-3.5 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-            <span>Pending Requests</span>
-          </button>
-
           {hasPermission(profile?.role, 'purchases', 'create') && (
-            <button
-              onClick={() => navigate('/purchases/new')}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Record Purchase Bill</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => navigate('/purchases/new?docType=purchase_order')}
+                className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                title="Create new purchase order"
+              >
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>New Order</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBulkOrderModalOpen(true)}
+                className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200/90 rounded-xl text-xs font-semibold shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                title="Create Commercial Quotation"
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <span>New Bill</span>
+              </button>
+            </>
           )}
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Active Orders"
-          value={formatNumber(stats.activeOrdersCount)}
-          subtitle="Orders currently in procurement"
-          icon={Truck}
-          iconBgColor="bg-blue-50"
-          iconTextColor="text-blue-600"
-          onClick={() => handleCardFilterClick('Active')}
-          isSelected={tabFilter === 'Active'}
-          selectedColor="blue"
-        />
-        <StatCard
-          title="Items to Deliver"
-          value={`${formatNumber(stats.itemsToDeliver)} Units`}
-          subtitle="Pending delivery across all suppliers"
-          icon={PackageCheck}
-          iconBgColor="bg-indigo-50"
-          iconTextColor="text-indigo-600"
-          onClick={() => handleCardFilterClick('Items to Deliver')}
-          isSelected={tabFilter === 'Items to Deliver'}
-          selectedColor="indigo"
-        />
-        <StatCard
-          title="Overdue Deliveries"
-          value={formatNumber(stats.overdueCount)}
-          subtitle="Orders past expected arrival date"
-          icon={AlertTriangle}
-          iconBgColor="bg-rose-50"
-          iconTextColor="text-rose-600"
+      {/* 4 Clean Navigation Buttons replacing the 4 Summary Cards */}
+      <div id="po-status-buttons-row" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* 1. Ordered Button */}
+        <button
+          type="button"
+          onClick={() => handleCardFilterClick('Ordered')}
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'Ordered' || tabFilter === 'Active'
+              ? 'bg-blue-50/90 text-blue-900 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+              : 'bg-white hover:bg-blue-50/50 text-slate-700 hover:text-blue-800 border-slate-200/90'
+          }`}
+          title="Filter to purchase orders awaiting warehouse receipt confirmation"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'Ordered' || tabFilter === 'Active' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600'
+            }`}>
+              <ClipboardList className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">Ordered</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Pending receipt</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'Ordered' || tabFilter === 'Active'
+              ? 'bg-blue-600 text-white'
+              : 'bg-blue-50 text-blue-700 border border-blue-200/60'
+          }`}>
+            {formatNumber(stats.orderedCount)}
+          </span>
+        </button>
+
+        {/* 2. Delivered Button */}
+        <button
+          type="button"
+          onClick={() => handleCardFilterClick('Received')}
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
+              ? 'bg-emerald-50/90 text-emerald-900 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+              : 'bg-white hover:bg-emerald-50/50 text-slate-700 hover:text-emerald-800 border-slate-200/90'
+          }`}
+          title="Filter to purchase orders fully received and confirmed by warehouse"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-600'
+            }`}>
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">Delivered</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Fully received</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+          }`}>
+            {formatNumber(stats.deliveredCount)}
+          </span>
+        </button>
+
+        {/* 3. Overdue Button */}
+        <button
+          type="button"
           onClick={() => handleCardFilterClick('Overdue')}
-          isSelected={tabFilter === 'Overdue'}
-          selectedColor="rose"
-        />
-        <StatCard
-          title="Completed Orders"
-          value={formatNumber(stats.completedCount)}
-          subtitle="Fully delivered and stocked"
-          icon={CheckCircle2}
-          iconBgColor="bg-emerald-50"
-          iconTextColor="text-emerald-600"
-          onClick={() => handleCardFilterClick('Completed')}
-          isSelected={tabFilter === 'Completed'}
-          selectedColor="emerald"
-        />
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'Overdue'
+              ? 'bg-rose-50/90 text-rose-900 border-rose-400 ring-2 ring-rose-500/20 shadow-xs'
+              : 'bg-white hover:bg-rose-50/50 text-slate-700 hover:text-rose-800 border-slate-200/90'
+          }`}
+          title="Filter to purchase orders past expected arrival date with outstanding quantity"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'Overdue' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600'
+            }`}>
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">Overdue</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Past expected date</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'Overdue'
+              ? 'bg-rose-600 text-white'
+              : 'bg-rose-50 text-rose-700 border border-rose-200/60'
+          }`}>
+            {formatNumber(stats.overdueCount)}
+          </span>
+        </button>
+
+        {/* 4. History Button */}
+        <button
+          type="button"
+          onClick={() => handleCardFilterClick('History')}
+          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            tabFilter === 'History' || tabFilter === 'All'
+              ? 'bg-slate-100 text-slate-900 border-slate-400 ring-2 ring-slate-400/20 shadow-xs'
+              : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-200/90'
+          }`}
+          title="View complete purchase order history across all statuses"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              tabFilter === 'History' || tabFilter === 'All' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'
+            }`}>
+              <History className="w-4 h-4" />
+            </div>
+            <div className="text-left truncate">
+              <span className="block font-bold truncate">History</span>
+              <span className="block text-[10px] text-slate-400 font-normal">All order records</span>
+            </div>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+            tabFilter === 'History' || tabFilter === 'All'
+              ? 'bg-slate-700 text-white'
+              : 'bg-slate-100 text-slate-700 border border-slate-200'
+          }`}>
+            {formatNumber(stats.historyCount)}
+          </span>
+        </button>
       </div>
 
+      {/* Return to All Orders Banner when filtered */}
+      {tabFilter !== 'All' && tabFilter !== 'History' && (
+        <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs">
+          <div className="flex items-center gap-2 text-blue-900 font-medium">
+            <Filter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>
+              Showing <strong className="font-bold capitalize">{tabFilter}</strong> orders ({filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'})
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleCardFilterClick('All')}
+            className="inline-flex items-center gap-1.5 font-bold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
+            title="Clear filter and view all orders"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Return to All Orders</span>
+          </button>
+        </div>
+      )}
+
       {/* Search & Filters Toolbar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3.5">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
         <div className="flex flex-wrap items-center gap-3">
           {/* Warehouse destination filter */}
           <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shrink-0">
@@ -654,37 +736,6 @@ export const PurchaseOrdersPage: React.FC = () => {
             />
           </div>
         </div>
-
-        {/* Tab Filter Pills */}
-        <div className="flex items-center p-1 bg-slate-100 rounded-xl overflow-x-auto">
-          {[
-            { id: 'Active', label: 'Active Orders', count: stats.activeOrdersCount, color: 'bg-blue-100 text-blue-700' },
-            { id: 'Items to Deliver', label: 'Items to Deliver', count: stats.itemsToDeliver, color: 'bg-indigo-100 text-indigo-700' },
-            { id: 'Overdue', label: 'Overdue Deliveries', count: stats.overdueCount, color: 'bg-rose-100 text-rose-700' },
-            { id: 'All', label: 'All Orders' },
-            { id: 'Ordered', label: 'Ordered' },
-            { id: 'In Transit', label: 'In Transit' },
-            { id: 'Partially Received', label: 'Partially Received' },
-            { id: 'Completed', label: 'Completed', count: stats.completedCount, color: 'bg-emerald-100 text-emerald-700' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => handleCardFilterClick(tab.id)}
-              className={`px-3 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-                tabFilter === tab.id
-                  ? 'bg-white text-blue-600 shadow-2xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label}
-              {tab.count !== undefined && tab.count > 0 && (
-                <span className={`ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${tab.color}`}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Orders Table */}
@@ -713,10 +764,10 @@ export const PurchaseOrdersPage: React.FC = () => {
                 Clear Filters
               </button>
               <button
-                onClick={() => navigate('/purchases/requests')}
+                onClick={() => navigate('/purchases/new?docType=purchase_order')}
                 className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
               >
-                View Purchase Requests
+                Create Purchase Order
               </button>
             </div>
           </div>
@@ -730,7 +781,7 @@ export const PurchaseOrdersPage: React.FC = () => {
                   <th className="py-3 px-4">Destination Hub</th>
                   <th className="py-3 px-4 text-center">Quantities (Ord / Rec / Pend)</th>
                   <th className="py-3 px-4">Expected Delivery</th>
-                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4 text-center">Delivery Status</th>
                   <th className="py-3 px-4 text-right">Order Value</th>
                   <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
@@ -739,9 +790,21 @@ export const PurchaseOrdersPage: React.FC = () => {
                 {filteredOrders.map(order => (
                   <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3 px-4">
-                      <span className="font-mono font-bold text-blue-600 block">
-                        {order.orderNumber}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono font-bold text-blue-600 block">
+                          {order.orderNumber}
+                        </span>
+                        {order.docType === 'bulk_order' && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                            Bulk Order
+                          </span>
+                        )}
+                        {order.docType === 'quotation' && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            Quotation
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
                         <Calendar className="w-3 h-3 text-slate-400" />
                         {formatDate(order.date)}
@@ -756,6 +819,11 @@ export const PurchaseOrdersPage: React.FC = () => {
                         <Phone className="w-3 h-3 text-slate-400 shrink-0" />
                         <span className="font-mono">{order.supplierContact}</span>
                       </span>
+                      {order.bulkMetadata?.customerName && order.bulkMetadata.customerName !== order.supplierName && (
+                        <span className="text-[10px] text-slate-400 block truncate max-w-[200px]">
+                          Client: {order.bulkMetadata.customerName}
+                        </span>
+                      )}
                     </td>
 
                     <td className="py-3 px-4">
@@ -801,20 +869,18 @@ export const PurchaseOrdersPage: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                          order.status === 'Completed'
+                          order.status === 'Received'
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : order.status === 'Partially Received'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                            : order.status === 'In Transit'
-                            ? 'bg-blue-100 text-blue-800 border border-blue-200'
                             : order.status === 'Cancelled'
                             ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                            : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                            : order.status === 'Draft'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                            : 'bg-blue-100 text-blue-800 border border-blue-200'
                         }`}
                       >
-                        {order.status === 'Completed' && <CheckCircle2 className="w-3 h-3" />}
-                        {order.status === 'In Transit' && <Truck className="w-3 h-3" />}
-                        {order.status === 'Partially Received' && <Clock className="w-3 h-3" />}
+                        {order.status === 'Received' && <CheckCircle2 className="w-3 h-3" />}
+                        {order.status === 'Ordered' && <Truck className="w-3 h-3" />}
+                        {order.status === 'Draft' && <FileText className="w-3 h-3" />}
                         <span>{order.status}</span>
                       </span>
                     </td>
@@ -835,7 +901,18 @@ export const PurchaseOrdersPage: React.FC = () => {
                           <Eye className="w-4 h-4" />
                         </button>
 
-                        {order.pendingQty > 0 && order.status !== 'Completed' && order.status !== 'Cancelled' && (
+                        {hasPermission(profile?.role, 'purchases', 'create') && order.status !== 'Cancelled' && (
+                          <button
+                            onClick={() => navigate(`/purchases/new?poId=${order.id}${order.linkedRequestId ? `&requestId=${order.linkedRequestId}` : ''}`)}
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Record Supplier Invoice against this Purchase Order"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>Bill</span>
+                          </button>
+                        )}
+
+                        {order.pendingQty > 0 && order.status === 'Ordered' && (
                           <button
                             onClick={() => handleOpenReceiveModal(order)}
                             className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
@@ -860,15 +937,26 @@ export const PurchaseOrdersPage: React.FC = () => {
         <Modal
           isOpen={isDetailModalOpen}
           onClose={() => setIsDetailModalOpen(false)}
-          title={`Purchase Order #${selectedOrder.orderNumber}`}
+          title={
+            selectedOrder.docType === 'bulk_order'
+              ? `Bulk Order Bill #${selectedOrder.orderNumber}`
+              : selectedOrder.docType === 'quotation'
+              ? `Commercial Quotation #${selectedOrder.orderNumber}`
+              : `Purchase Order #${selectedOrder.orderNumber}`
+          }
         >
           <div className="space-y-4 text-xs">
             {/* Order Header Summary */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
               <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Supplier</span>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  {selectedOrder.bulkMetadata ? 'Customer / Client' : 'Supplier'}
+                </span>
                 <span className="font-bold text-slate-900 text-xs mt-0.5 block">{selectedOrder.supplierName}</span>
                 <span className="text-[11px] text-slate-500 font-mono">{selectedOrder.supplierContact}</span>
+                {selectedOrder.supplierEmail && (
+                  <span className="text-[10px] text-slate-400 block">{selectedOrder.supplierEmail}</span>
+                )}
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Destination</span>
@@ -880,9 +968,54 @@ export const PurchaseOrdersPage: React.FC = () => {
                 <span className={`font-semibold text-xs mt-0.5 block ${selectedOrder.isOverdue ? 'text-rose-600 font-bold' : 'text-slate-800'}`}>
                   {selectedOrder.expectedDelivery ? formatDate(selectedOrder.expectedDelivery) : 'Standard Delivery'}
                 </span>
-                <span className="text-[11px] text-slate-500">Status: {selectedOrder.status}</span>
+                <span className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                  <span>Delivery Status:</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    selectedOrder.status === 'Received'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : selectedOrder.status === 'Cancelled'
+                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                      : selectedOrder.status === 'Draft'
+                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-blue-100 text-blue-800 border border-blue-200'
+                  }`}>
+                    {selectedOrder.status}
+                  </span>
+                </span>
               </div>
             </div>
+
+            {/* Bulk Order Financial Highlights if available */}
+            {selectedOrder.bulkMetadata && (
+              <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200/80 text-xs space-y-1.5">
+                <div className="flex justify-between items-center text-slate-700">
+                  <span>Gross Value:</span>
+                  <span className="font-mono">₹{formatNumber(selectedOrder.bulkMetadata.grossSubtotal || selectedOrder.grandTotal)}</span>
+                </div>
+                {selectedOrder.bulkMetadata.totalBulkDiscount > 0 && (
+                  <div className="flex justify-between items-center text-emerald-700 font-semibold">
+                    <span>Bulk Discount Savings ({selectedOrder.bulkMetadata.effectiveDiscountPercent}%):</span>
+                    <span className="font-mono">- ₹{formatNumber(selectedOrder.bulkMetadata.totalBulkDiscount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-slate-900 font-bold pt-1 border-t border-blue-200">
+                  <span>Grand Total:</span>
+                  <span className="font-mono text-sm text-blue-700">₹{formatNumber(selectedOrder.grandTotal)}</span>
+                </div>
+                {selectedOrder.bulkMetadata.advancePayment > 0 && (
+                  <div className="flex justify-between items-center text-emerald-800 font-medium">
+                    <span>Advance Received:</span>
+                    <span className="font-mono">₹{formatNumber(selectedOrder.bulkMetadata.advancePayment)}</span>
+                  </div>
+                )}
+                {selectedOrder.bulkMetadata.balanceDue > 0 && (
+                  <div className="flex justify-between items-center text-rose-700 font-bold">
+                    <span>Balance Due:</span>
+                    <span className="font-mono">₹{formatNumber(selectedOrder.bulkMetadata.balanceDue)}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Line items table */}
             <div>
@@ -935,7 +1068,7 @@ export const PurchaseOrdersPage: React.FC = () => {
             {selectedOrder.notes && (
               <div className="p-2.5 rounded-lg bg-blue-50/60 border border-blue-100 text-blue-900 text-xs">
                 <span className="font-bold block text-[10px] uppercase text-blue-700">Order Notes</span>
-                <p className="mt-0.5">{selectedOrder.notes}</p>
+                <p className="mt-0.5">{selectedOrder.notes.split('<!-- UB_BULK_ORDER_META:')[0]}</p>
               </div>
             )}
 
@@ -949,7 +1082,15 @@ export const PurchaseOrdersPage: React.FC = () => {
               </button>
 
               <div className="flex items-center gap-2">
-                {selectedOrder.pendingQty > 0 && selectedOrder.status !== 'Completed' && (
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Print Document</span>
+                </button>
+                {selectedOrder.pendingQty > 0 && selectedOrder.status === 'Ordered' && (
                   <button
                     type="button"
                     onClick={() => {
@@ -965,7 +1106,7 @@ export const PurchaseOrdersPage: React.FC = () => {
                 {hasPermission(profile?.role, 'purchases', 'create') && (
                   <button
                     type="button"
-                    onClick={() => navigate('/purchases/new')}
+                    onClick={() => navigate(`/purchases/new?poId=${selectedOrder.id}${selectedOrder.linkedRequestId ? `&requestId=${selectedOrder.linkedRequestId}` : ''}`)}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -1104,6 +1245,15 @@ export const PurchaseOrdersPage: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Bulk Order Bill / Quotation Modal */}
+      <BulkOrderBillModal
+        isOpen={isBulkOrderModalOpen}
+        onClose={() => setIsBulkOrderModalOpen(false)}
+        onSaved={async () => {
+          await handleManualRefresh();
+        }}
+      />
     </div>
   );
 };

@@ -23,6 +23,7 @@ import {
   Product,
   SystemUser
 } from '../../types';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { customerSupportService } from '../../services/customerSupportService';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -53,6 +54,9 @@ export const CustomerSupportModal: React.FC<CustomerSupportModalProps> = ({
   const [description, setDescription] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [followupDue, setFollowupDue] = useState<string>('');
+  const [returnQuantity, setReturnQuantity] = useState<string>('1');
+  const [returnReason, setReturnReason] = useState<string>('Defective / Damaged');
+  const [originalRef, setOriginalRef] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // View / Edit Mode state
@@ -71,12 +75,18 @@ export const CustomerSupportModal: React.FC<CustomerSupportModalProps> = ({
     setIsSubmitting(true);
     try {
       const selectedProduct = products.find(p => p.id === selectedProductId);
+      let fullDescription = description.trim();
+      if (category === 'customer_return_request') {
+        const detailsHeader = `[Return / Replacement Details: Qty ${returnQuantity || 1} | Reason: ${returnReason} | Ref: ${originalRef || 'None'}]`;
+        fullDescription = `${detailsHeader}\n${fullDescription}`;
+      }
+
       const newRecord = await customerSupportService.createSupportCase(
         {
           customerId: customer.id,
           category,
           title: title.trim(),
-          description: description.trim(),
+          description: fullDescription,
           productId: selectedProductId || null,
           assignedSalespersonId: isSalesperson ? user?.id : customer.assignedSalespersonId || null,
           followupDue: followupDue || null
@@ -94,6 +104,9 @@ export const CustomerSupportModal: React.FC<CustomerSupportModalProps> = ({
       setDescription('');
       setSelectedProductId('');
       setFollowupDue('');
+      setReturnQuantity('1');
+      setReturnReason('Defective / Damaged');
+      setOriginalRef('');
     } catch (err) {
       console.error('Failed to create customer support case:', err);
     } finally {
@@ -370,9 +383,9 @@ export const CustomerSupportModal: React.FC<CustomerSupportModalProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {[
                 { id: 'customer_complaint', label: '1. Customer Complaint', icon: ShieldAlert, color: 'text-rose-600', badge: 'High Priority' },
-                { id: 'customer_product_damage', label: '2. Product Damage & Defect', icon: AlertTriangle, color: 'text-amber-600' },
+                { id: 'customer_product_damage', label: '2. Product Damage & Defect', icon: AlertTriangle, color: 'text-amber-600', badge: 'High Priority' },
                 { id: 'customer_support_request', label: '3. Support Request', icon: HelpCircle, color: 'text-blue-600' },
-                { id: 'customer_return_request', label: '4. Return / Replacement', icon: RotateCcw, color: 'text-purple-600' },
+                { id: 'customer_return_request', label: '4. Return / Replacement', icon: RotateCcw, color: 'text-purple-600', badge: 'High Priority' },
                 { id: 'customer_followup', label: '5. Follow-up Reminder', icon: Clock, color: 'text-orange-600' },
                 { id: 'customer_update', label: '6. Customer Update', icon: UserCheck, color: 'text-emerald-600' }
               ].map(cat => {
@@ -417,13 +430,59 @@ export const CustomerSupportModal: React.FC<CustomerSupportModalProps> = ({
               className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             >
               <option value="">-- No specific product / general inquiry --</option>
-              {products.map(p => (
+              {sortProductsAZ(products).map(p => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({p.sku})
                 </option>
               ))}
             </select>
           </div>
+
+          {/* Return / Replacement Specific Inputs (Requirement 4) */}
+          {category === 'customer_return_request' && (
+            <div className="p-3 bg-purple-50/60 border border-purple-200 rounded-xl space-y-3">
+              <span className="font-bold text-purple-900 text-xs flex items-center gap-1">
+                <RotateCcw className="w-3.5 h-3.5 text-purple-600" /> Return & Replacement Specific Details
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Return Quantity</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={returnQuantity}
+                    onChange={e => setReturnQuantity(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Return Reason</label>
+                  <select
+                    value={returnReason}
+                    onChange={e => setReturnReason(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white"
+                  >
+                    <option value="Defective / Damaged">Defective / Damaged</option>
+                    <option value="Wrong Item Received">Wrong Item Received</option>
+                    <option value="Missing Item / Parts">Missing Item / Parts</option>
+                    <option value="Poor Product Quality">Poor Product Quality</option>
+                    <option value="Expired Product">Expired Product</option>
+                    <option value="Dissatisfied with Purchase">Dissatisfied with Purchase</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Original Invoice / Ref</label>
+                  <input
+                    type="text"
+                    value={originalRef}
+                    onChange={e => setOriginalRef(e.target.value)}
+                    placeholder="e.g. INV-2026-0012"
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Title */}
           <div>

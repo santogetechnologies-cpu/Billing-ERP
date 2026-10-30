@@ -1,6 +1,17 @@
-import { Product, NotificationItem, StockStatusType, Warehouse, StockBalance, SystemUser } from '../types';
+import {
+  Product,
+  NotificationItem,
+  StockStatusType,
+  Warehouse,
+  StockBalance,
+  SystemUser,
+  Batch,
+  CompanyProfile,
+  CustomerSupportPriority
+} from '../types';
 import { calculateStockStatus } from '../utils/inventoryUtils';
 import { notificationService } from './notificationService';
+import { getAppStorage } from '../utils/storageUtils';
 
 interface AlertStateItem {
   status: StockStatusType;
@@ -11,7 +22,73 @@ interface AlertStateItem {
 
 const STORAGE_PREFIX = 'erp_stock_alert_state_';
 
-import { getAppStorage } from '../utils/storageUtils';
+export interface BusinessDayConfig {
+  timezone: string;
+  closingTime: string; // e.g. "18:00"
+  closingHour: number;
+  closingMinute: number;
+  currentBusinessDate: string; // "YYYY-MM-DD"
+  isAfterClosingTime: boolean;
+}
+
+/**
+ * Derives business day closing time and current business date using the company's
+ * configured timezone and closing time. Never hardcodes an arbitrary time.
+ */
+export function getBusinessDayConfig(company?: Partial<CompanyProfile> | null): BusinessDayConfig {
+  const timezone =
+    (company as any)?.timezone ||
+    (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Asia/Kolkata') ||
+    'Asia/Kolkata';
+
+  const rawClosing =
+    (company as any)?.closingTime ||
+    (company as any)?.businessClosingTime ||
+    '18:00';
+
+  const [hStr, mStr] = String(rawClosing).split(':');
+  const closingHour = parseInt(hStr || '18', 10);
+  const closingMinute = parseInt(mStr || '0', 10);
+
+  // Extract current date and time in the configured timezone
+  const now = new Date();
+  let currentBusinessDate = now.toISOString().split('T')[0];
+  let hour = now.getHours();
+  let minute = now.getMinutes();
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(now);
+    const findPart = (t: string) => parts.find(p => p.type === t)?.value;
+    const y = findPart('year');
+    const m = findPart('month');
+    const d = findPart('day');
+    const h = findPart('hour');
+    const min = findPart('minute');
+    if (y && m && d) currentBusinessDate = `${y}-${m}-${d}`;
+    if (h) hour = parseInt(h, 10);
+    if (min) minute = parseInt(min, 10);
+  } catch {}
+
+  const isAfterClosingTime = hour > closingHour || (hour === closingHour && minute >= closingMinute);
+
+  return {
+    timezone,
+    closingTime: rawClosing,
+    closingHour,
+    closingMinute,
+    currentBusinessDate,
+    isAfterClosingTime
+  };
+}
 
 export const stockAlertService = {
   /**
@@ -58,10 +135,6 @@ export const stockAlertService = {
     });
 
     // Return only items authorized for current user
-    // - Owner and Admin receive administrative alerts (e.g. Missing Warehouse Manager Assignment)
-    // - Purchase Managers receive stock alerts across all warehouses for replenishment action
-    // - Warehouse Managers receive stock alerts strictly for their assigned warehouse(s)
-    // - Salespersons, cashiers, and unrelated staff receive 0 stock alerts
     if (currentUserRole === 'Salesperson' || currentUserRole === 'Cashier') {
       return [];
     }
@@ -75,7 +148,15 @@ export const stockAlertService = {
           return item.type === 'limited_stock' || item.type === 'out_of_stock' || item.type === 'low_stock';
         }
         if (currentUserRole === 'Warehouse Manager') {
-          return (item.type === 'limited_stock' || item.type === 'out_of_stock' || item.type === 'low_stock') && item.userId === currentUserId;
+          return (
+            (item.type === 'limited_stock' ||
+              item.type === 'out_of_stock' ||
+              item.type === 'low_stock' ||
+              item.type === 'expiring_batch' ||
+              item.type === 'expiring_batches' ||
+              item.type === 'eod_expiry') &&
+            item.userId === currentUserId
+          );
         }
         if (currentUserRole === 'Owner' || currentUserRole === 'Admin') {
           return item.type === 'system';
@@ -115,6 +196,17 @@ export const stockAlertService = {
 
   /**
    * Evaluates products across warehouses and dispatches alerts strictly to authorized managers.
+   * Enforces Out of Stock Alert and Limited Stock Alert rules:
+   * 1. Out of Stock Alert:
+   *    - Title: Out of Stock Alert
+   *    - Message: Cement (SKU: BUI-CEM-00001) is out of stock in Main Central Warehouse.
+   *    - Priority: Critical
+   *    - Action: View Product
+   * 2. Limited Stock Alert:
+   *    - Title: Limited Stock Alert
+   *    - Message: Paint (SKU: PAI-PAI-00005) has 8 Piece remaining in Main Central Warehouse. Warning limit: 10 Piece.
+   *    - Priority: High
+   *    - Action: View Product
    */
   async checkAndTriggerStockAlerts(options: {
     products: Product[];
@@ -133,6 +225,9 @@ export const stockAlertService = {
         warehouseId?: string | null;
         productId?: string | null;
         warehouseName?: string;
+        priority?: CustomerSupportPriority;
+        actionText?: string;
+        dedupKey?: string;
       },
       companyId?: string
     ) => Promise<NotificationItem>;
@@ -145,7 +240,6 @@ export const stockAlertService = {
       companyId,
       warehouses = [],
       stockBalances = [],
-      users = [],
       existingNotifications,
       createNotification,
       markAsRead,
@@ -160,26 +254,27 @@ export const stockAlertService = {
     const resolvedIds: string[] = [];
 
     // Fallback warehouse if none defined
-    const activeWarehouses = warehouses.length > 0
-      ? warehouses.filter(w => w.isActive ?? true)
-      : [{
-          id: '00000000-0000-0000-0000-000000000002',
-          name: 'Main Warehouse',
-          code: 'MAIN',
-          address: '',
-          isActive: true
-        }];
+    const activeWarehouses =
+      warehouses.length > 0
+        ? warehouses.filter(w => w.isActive ?? true)
+        : [
+            {
+              id: '00000000-0000-0000-0000-000000000002',
+              name: 'Main Central Warehouse',
+              code: 'MAIN',
+              address: '',
+              isActive: true
+            }
+          ];
 
     for (const w of activeWarehouses) {
-      // 1. Identify authorized Warehouse Managers for warehouse w
-      const targetManagerIds: string[] = Array.from(new Set([
-        ...(w.managerIds || []),
-        ...(w.managerId ? [w.managerId] : [])
-      ])).filter(Boolean);
+      // Identify authorized Warehouse Managers for warehouse w
+      const targetManagerIds: string[] = Array.from(
+        new Set([...(w.managerIds || []), ...(w.managerId ? [w.managerId] : [])])
+      ).filter(Boolean);
 
       // Safe Fallback Policy: If no manager is explicitly assigned to this warehouse,
-      // CRITICAL RULE: NEVER broadcast stock alerts to company users or staff!
-      // Group all affected products (e.g. cement, paint) into a SINGLE administrative system alert for Admins/Owners.
+      // notify authorized administrator with a single administrative alert
       if (targetManagerIds.length === 0) {
         const affectedProducts: Product[] = [];
         for (const p of products) {
@@ -200,9 +295,14 @@ export const stockAlertService = {
         }
 
         if (affectedProducts.length > 0) {
-          const productListStr = affectedProducts.map(p => p.sku ? `${p.name} (SKU: ${p.sku})` : p.name).join(', ');
+          const productListStr = affectedProducts
+            .map(p => (p.sku ? `${p.name} (SKU: ${p.sku})` : p.name))
+            .join(', ');
           const missingAlertExists = existingNotifications.some(
-            n => !n.read && n.type === 'system' && n.warehouseId === w.id && n.title === 'Missing Warehouse Manager Assignment'
+            n =>
+              n.type === 'system' &&
+              n.warehouseId === w.id &&
+              n.title === 'Missing Warehouse Manager Assignment'
           );
 
           if (!missingAlertExists) {
@@ -214,7 +314,10 @@ export const stockAlertService = {
                   type: 'system',
                   link: '/warehouses',
                   warehouseId: w.id,
-                  warehouseName: w.name
+                  warehouseName: w.name,
+                  priority: 'High',
+                  actionText: 'View Warehouses',
+                  dedupKey: `missing_manager_${w.id}`
                 },
                 companyId
               );
@@ -259,38 +362,113 @@ export const stockAlertService = {
         const prevRecord = alertState[stateKey];
         const prevStatus = prevRecord ? prevRecord.status : null;
         const unit = p.primaryUnit || 'Piece';
-        const skuLabel = p.sku ? `(SKU: ${p.sku}) ` : '';
+        const productSkuStr = p.sku ? ` (SKU: ${p.sku})` : '';
 
         // ---------------------------------------------------------------------
-        // 1. LIMITED STOCK TRANSITION (0 < whStock <= reorderLevel)
+        // 1. OUT OF STOCK TRANSITION (whStock <= 0)
+        // Rule: Trigger when available stock changes from above zero to zero.
+        // Title: Out of Stock Alert
+        // Message: Cement (SKU: BUI-CEM-00001) is out of stock in Main Central Warehouse.
+        // Priority: Critical
+        // Action: View Product
         // ---------------------------------------------------------------------
-        if (currentStatus === 'Limited Stock') {
-          if (prevStatus !== 'Limited Stock') {
-            const message = `Limited Stock: ${p.name} ${skuLabel}in Warehouse "${w.name}". Current available quantity: ${whStock} ${unit}. Minimum threshold: ${p.reorderLevel} ${unit}.`;
+        if (currentStatus === 'Out of Stock') {
+          if (prevStatus !== 'Out of Stock') {
+            const outOfStockMessage = `${p.name}${productSkuStr} is out of stock in ${w.name}.`;
 
-            // Deliver notification strictly to assigned manager(s)
             for (const managerId of targetManagerIds) {
+              const dedupKey = `out_of_stock_${w.id}_${p.id}_${managerId}`;
               const duplicateExists = existingNotifications.some(
                 n =>
-                  !n.read &&
-                  (n.type === 'limited_stock' || n.type === 'low_stock') &&
-                  (n.productId === p.id || n.title.includes(p.name)) &&
-                  (n.warehouseId === w.id || n.message.includes(w.name)) &&
-                  n.userId === managerId
+                  n.type === 'out_of_stock' &&
+                  (n.dedupKey === dedupKey ||
+                    ((n.productId === p.id || n.title.includes(p.name)) &&
+                      (n.warehouseId === w.id || n.message.includes(w.name)) &&
+                      n.userId === managerId))
               );
 
               if (!duplicateExists) {
                 try {
                   const newNotif = await createNotification(
                     {
-                      title: `Limited Stock: ${p.name}`,
-                      message,
+                      title: 'Out of Stock Alert',
+                      message: outOfStockMessage,
+                      type: 'out_of_stock',
+                      link: `/products?search=${encodeURIComponent(p.sku || p.name)}`,
+                      userId: managerId,
+                      warehouseId: w.id,
+                      productId: p.id,
+                      warehouseName: w.name,
+                      priority: 'Critical',
+                      actionText: 'View Product',
+                      dedupKey
+                    },
+                    companyId
+                  );
+                  onNewNotification?.(newNotif);
+                } catch (err) {
+                  console.error(`Failed to trigger Out of Stock notification for ${p.name}:`, err);
+                }
+              }
+            }
+
+            alertState[stateKey] = {
+              status: 'Out of Stock',
+              lastStock: whStock,
+              lastLimit: p.reorderLevel,
+              lastNotifiedAt: Date.now()
+            };
+            stateChanged = true;
+          } else {
+            if (prevRecord.lastStock !== whStock) {
+              alertState[stateKey] = {
+                ...prevRecord,
+                lastStock: whStock
+              };
+              stateChanged = true;
+            }
+          }
+        }
+
+        // ---------------------------------------------------------------------
+        // 2. LIMITED STOCK TRANSITION (0 < whStock <= reorderLevel)
+        // Rule: Trigger when stock reaches or falls below warning limit, provided stock > 0.
+        // Do not classify zero stock as limited stock.
+        // Title: Limited Stock Alert
+        // Message: Paint (SKU: PAI-PAI-00005) has 8 Piece remaining in Main Central Warehouse. Warning limit: 10 Piece.
+        // Priority: High
+        // Action: View Product
+        // ---------------------------------------------------------------------
+        else if (currentStatus === 'Limited Stock') {
+          if (prevStatus !== 'Limited Stock') {
+            const limitedStockMessage = `${p.name}${productSkuStr} has ${whStock} ${unit} remaining in ${w.name}. Warning limit: ${p.reorderLevel} ${unit}.`;
+
+            for (const managerId of targetManagerIds) {
+              const dedupKey = `limited_stock_${w.id}_${p.id}_${managerId}`;
+              const duplicateExists = existingNotifications.some(
+                n =>
+                  (n.type === 'limited_stock' || n.type === 'low_stock') &&
+                  (n.dedupKey === dedupKey ||
+                    ((n.productId === p.id || n.title.includes(p.name)) &&
+                      (n.warehouseId === w.id || n.message.includes(w.name)) &&
+                      n.userId === managerId))
+              );
+
+              if (!duplicateExists) {
+                try {
+                  const newNotif = await createNotification(
+                    {
+                      title: 'Limited Stock Alert',
+                      message: limitedStockMessage,
                       type: 'limited_stock',
                       link: `/products?search=${encodeURIComponent(p.sku || p.name)}`,
                       userId: managerId,
                       warehouseId: w.id,
                       productId: p.id,
-                      warehouseName: w.name
+                      warehouseName: w.name,
+                      priority: 'High',
+                      actionText: 'View Product',
+                      dedupKey
                     },
                     companyId
                   );
@@ -321,69 +499,12 @@ export const stockAlertService = {
         }
 
         // ---------------------------------------------------------------------
-        // 2. OUT OF STOCK TRANSITION (whStock <= 0)
-        // ---------------------------------------------------------------------
-        else if (currentStatus === 'Out of Stock') {
-          if (prevStatus !== 'Out of Stock') {
-            const message = `Out of Stock: ${p.name} ${skuLabel}in Warehouse "${w.name}". Available quantity: 0 ${unit}. Minimum threshold: ${p.reorderLevel} ${unit}.`;
-
-            for (const managerId of targetManagerIds) {
-              const duplicateExists = existingNotifications.some(
-                n =>
-                  !n.read &&
-                  n.type === 'out_of_stock' &&
-                  (n.productId === p.id || n.title.includes(p.name)) &&
-                  (n.warehouseId === w.id || n.message.includes(w.name)) &&
-                  n.userId === managerId
-              );
-
-              if (!duplicateExists) {
-                try {
-                  const newNotif = await createNotification(
-                    {
-                      title: `Out of Stock: ${p.name}`,
-                      message,
-                      type: 'out_of_stock',
-                      link: `/products?search=${encodeURIComponent(p.sku || p.name)}`,
-                      userId: managerId,
-                      warehouseId: w.id,
-                      productId: p.id,
-                      warehouseName: w.name
-                    },
-                    companyId
-                  );
-                  onNewNotification?.(newNotif);
-                } catch (err) {
-                  console.error(`Failed to trigger Out of Stock notification for ${p.name}:`, err);
-                }
-              }
-            }
-
-            alertState[stateKey] = {
-              status: 'Out of Stock',
-              lastStock: whStock,
-              lastLimit: p.reorderLevel,
-              lastNotifiedAt: Date.now()
-            };
-            stateChanged = true;
-          } else {
-            if (prevRecord.lastStock !== whStock) {
-              alertState[stateKey] = {
-                ...prevRecord,
-                lastStock: whStock
-              };
-              stateChanged = true;
-            }
-          }
-        }
-
-        // ---------------------------------------------------------------------
-        // 3. REPLENISHED BACK TO ACTIVE
+        // 3. REPLENISHED BACK TO ACTIVE (whStock > reorderLevel)
+        // When stock recovers above threshold, auto-resolve previous stock alerts
+        // and reset state to Active so future drops can notify again.
         // ---------------------------------------------------------------------
         else if (currentStatus === 'Active') {
           if (prevStatus === 'Limited Stock' || prevStatus === 'Out of Stock') {
-            // Product was replenished above threshold in this warehouse!
-            // Auto-resolve unread alerts for this product & warehouse
             const activeAlerts = existingNotifications.filter(
               n =>
                 !n.read &&
@@ -400,7 +521,11 @@ export const stockAlertService = {
             }
           }
 
-          if (prevStatus !== 'Active' || prevRecord?.lastStock !== whStock || prevRecord?.lastLimit !== p.reorderLevel) {
+          if (
+            prevStatus !== 'Active' ||
+            prevRecord?.lastStock !== whStock ||
+            prevRecord?.lastLimit !== p.reorderLevel
+          ) {
             alertState[stateKey] = {
               status: 'Active',
               lastStock: whStock,
@@ -420,5 +545,313 @@ export const stockAlertService = {
     if (stateChanged) {
       this.saveAlertState(companyId, alertState);
     }
+  },
+
+  /**
+   * Evaluates product batches approaching their expiration date (starting 30 days before expiry).
+   * Title: Product Expiring Soon
+   * Message: Medicine Antiseptic Cream, Batch [actual batch number], expires on [actual expiry date]. Please review the remaining stock.
+   * Priority: High
+   * Action: View Batch & Expiry Management
+   */
+  async checkBatchExpiryAlerts(options: {
+    batches: Batch[];
+    companyId: string;
+    warehouses?: Warehouse[];
+    users?: SystemUser[];
+    existingNotifications: NotificationItem[];
+    createNotification: (
+      notif: {
+        title: string;
+        message: string;
+        type: string;
+        link?: string;
+        userId?: string | null;
+        warehouseId?: string | null;
+        productId?: string | null;
+        warehouseName?: string;
+        priority?: CustomerSupportPriority;
+        actionText?: string;
+        dedupKey?: string;
+      },
+      companyId?: string
+    ) => Promise<NotificationItem>;
+    onNewNotification?: (notif: NotificationItem) => void;
+  }): Promise<NotificationItem[]> {
+    const {
+      batches,
+      companyId,
+      warehouses = [],
+      existingNotifications,
+      createNotification,
+      onNewNotification
+    } = options;
+
+    if (!batches || batches.length === 0) return [];
+
+    const newAlerts: NotificationItem[] = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const activeWarehouses =
+      warehouses.length > 0
+        ? warehouses.filter(w => w.isActive ?? true)
+        : [
+            {
+              id: '00000000-0000-0000-0000-000000000002',
+              name: 'Main Central Warehouse',
+              code: 'MAIN',
+              address: '',
+              isActive: true
+            }
+          ];
+
+    for (const batch of batches) {
+      if (!batch.expiryDate || (Number(batch.qty) || 0) <= 0) {
+        continue;
+      }
+
+      const expDate = new Date(batch.expiryDate);
+      if (isNaN(expDate.getTime())) continue;
+      expDate.setHours(0, 0, 0, 0);
+
+      // Rule: Do not alert for batches that have already expired as if they were merely approaching expiry
+      if (expDate < today) {
+        continue;
+      }
+
+      const diffTime = expDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      // Rule: Trigger when batch enters 30-day window
+      if (diffDays >= 0 && diffDays <= 30) {
+        // Resolve target warehouse
+        const matchingWarehouse =
+          activeWarehouses.find(w => w.id === batch.warehouseId) ||
+          activeWarehouses[0];
+
+        const targetManagerIds: string[] = Array.from(
+          new Set([
+            ...(matchingWarehouse?.managerIds || []),
+            ...(matchingWarehouse?.managerId ? [matchingWarehouse.managerId] : [])
+          ])
+        ).filter(Boolean);
+
+        const recipients = targetManagerIds.length > 0 ? targetManagerIds : [null];
+
+        for (const managerId of recipients) {
+          // Dedup key includes batch ID and expiry date:
+          // Rule: If the expiry date is changed, recalculate the alert timing using updated date
+          const dedupKey = `batch_expiry_30d_${batch.id}_${batch.expiryDate}_${managerId || 'admin'}`;
+
+          const duplicateExists = existingNotifications.some(
+            n =>
+              n.type === 'expiring_batch' &&
+              (n.dedupKey === dedupKey ||
+                (n.title === 'Product Expiring Soon' &&
+                  n.message.includes(batch.batchNumber) &&
+                  n.message.includes(batch.expiryDate) &&
+                  n.userId === (managerId || null)))
+          );
+
+          if (!duplicateExists) {
+            try {
+              const newNotif = await createNotification(
+                {
+                  title: 'Product Expiring Soon',
+                  message: `${batch.productName}, Batch ${batch.batchNumber}, expires on ${batch.expiryDate}. Please review the remaining stock.`,
+                  type: 'expiring_batch',
+                  link: `/inventory/batches?search=${encodeURIComponent(batch.batchNumber || batch.productName)}`,
+                  userId: managerId,
+                  warehouseId: matchingWarehouse?.id || null,
+                  productId: batch.productId,
+                  warehouseName: matchingWarehouse?.name,
+                  priority: 'High',
+                  actionText: 'View Batch & Expiry Management',
+                  dedupKey
+                },
+                companyId
+              );
+              newAlerts.push(newNotif);
+              onNewNotification?.(newNotif);
+            } catch (err) {
+              console.error(`Failed to trigger 30-day batch expiry alert for ${batch.batchNumber}:`, err);
+            }
+          }
+        }
+      }
+    }
+
+    return newAlerts;
+  },
+
+  /**
+   * End-of-Day Expiry Reminder
+   * At the end of each business day, checks for batches that are already in their 30-day
+   * expiry-warning window and sends a daily reminder to the responsible Warehouse Manager.
+   * - Title: End-of-Day Expiry Reminder
+   * - Message: 3 batches across your assigned warehouses are approaching expiry. Review the batch list before closing for the day.
+   * - Priority: High
+   * - Action: View Expiring Batches
+   * - Send at most one end-of-day reminder per Warehouse Manager per business date.
+   * - Do not send if count === 0.
+   */
+  async checkEndOfDayExpiryReminder(options: {
+    batches: Batch[];
+    companyId: string;
+    company?: Partial<CompanyProfile> | null;
+    warehouses?: Warehouse[];
+    users?: SystemUser[];
+    currentUserId?: string;
+    currentUserRole?: string;
+    forceDate?: string;
+    forceCheck?: boolean;
+    existingNotifications: NotificationItem[];
+    createNotification: (
+      notif: {
+        title: string;
+        message: string;
+        type: string;
+        link?: string;
+        userId?: string | null;
+        warehouseId?: string | null;
+        priority?: CustomerSupportPriority;
+        actionText?: string;
+        dedupKey?: string;
+      },
+      companyId?: string
+    ) => Promise<NotificationItem>;
+    onNewNotification?: (notif: NotificationItem) => void;
+  }): Promise<NotificationItem[]> {
+    const {
+      batches,
+      companyId,
+      company,
+      warehouses = [],
+      forceDate,
+      forceCheck,
+      existingNotifications,
+      createNotification,
+      onNewNotification
+    } = options;
+
+    if (!batches || batches.length === 0) return [];
+
+    // Derive closing time and business date from company configuration
+    const bConfig = getBusinessDayConfig(company);
+    const businessDate = forceDate || bConfig.currentBusinessDate;
+
+    // Run only if current time is at or after closing time, unless forced (for tests / CLI scheduler)
+    if (!forceCheck && !bConfig.isAfterClosingTime) {
+      return [];
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Identify all batches in the 30-day warning window that are not yet expired
+    const warningBatches = batches.filter(b => {
+      if (!b.expiryDate || (Number(b.qty) || 0) <= 0) return false;
+      const expDate = new Date(b.expiryDate);
+      if (isNaN(expDate.getTime())) return false;
+      expDate.setHours(0, 0, 0, 0);
+      if (expDate < today) return false; // Already expired
+      const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays >= 0 && diffDays <= 30;
+    });
+
+    // Rule: Do not send a reminder if there are no batches in the warning window
+    if (warningBatches.length === 0) {
+      return [];
+    }
+
+    const activeWarehouses =
+      warehouses.length > 0
+        ? warehouses.filter(w => w.isActive ?? true)
+        : [
+            {
+              id: '00000000-0000-0000-0000-000000000002',
+              name: 'Main Central Warehouse',
+              code: 'MAIN',
+              address: '',
+              isActive: true
+            }
+          ];
+
+    // Collect batches by manager across their assigned warehouses
+    const managerBatchesMap = new Map<string, Batch[]>();
+
+    for (const b of warningBatches) {
+      const targetWh =
+        activeWarehouses.find(w => w.id === b.warehouseId) || activeWarehouses[0];
+      const targetManagerIds: string[] = Array.from(
+        new Set([
+          ...(targetWh?.managerIds || []),
+          ...(targetWh?.managerId ? [targetWh.managerId] : [])
+        ])
+      ).filter(Boolean);
+
+      if (targetManagerIds.length === 0) {
+        // Fallback: unassigned manager bucket
+        const list = managerBatchesMap.get('unassigned_admin') || [];
+        list.push(b);
+        managerBatchesMap.set('unassigned_admin', list);
+      } else {
+        for (const mId of targetManagerIds) {
+          const list = managerBatchesMap.get(mId) || [];
+          list.push(b);
+          managerBatchesMap.set(mId, list);
+        }
+      }
+    }
+
+    const newReminders: NotificationItem[] = [];
+
+    for (const [managerKey, managerBatches] of managerBatchesMap.entries()) {
+      const count = managerBatches.length;
+      if (count === 0) continue;
+
+      const isUnassigned = managerKey === 'unassigned_admin';
+      const targetUserId = isUnassigned ? null : managerKey;
+      const dedupKey = `eod_expiry_${managerKey}_${businessDate}`;
+
+      // Rule: Send at most one end-of-day reminder per Warehouse Manager per business date, even if the scheduler retries
+      const alreadySent = existingNotifications.some(
+        n =>
+          n.type === 'expiring_batches' &&
+          (n.dedupKey === dedupKey ||
+            (n.title === 'End-of-Day Expiry Reminder' &&
+              n.userId === targetUserId &&
+              n.createdAt?.startsWith(businessDate)))
+      );
+
+      if (alreadySent) continue;
+
+      const batchWord = count === 1 ? 'batch' : 'batches';
+      const verbWord = count === 1 ? 'is' : 'are';
+      const message = `${count} ${batchWord} across your assigned warehouses ${verbWord} approaching expiry. Review the batch list before closing for the day.`;
+
+      try {
+        const notif = await createNotification(
+          {
+            title: 'End-of-Day Expiry Reminder',
+            message,
+            type: 'expiring_batches',
+            link: '/inventory/batches',
+            userId: targetUserId,
+            priority: 'High',
+            actionText: 'View Expiring Batches',
+            dedupKey
+          },
+          companyId
+        );
+        newReminders.push(notif);
+        onNewNotification?.(notif);
+      } catch (err) {
+        console.error(`Failed to trigger EOD reminder for manager ${managerKey}:`, err);
+      }
+    }
+
+    return newReminders;
   }
 };

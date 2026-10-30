@@ -1,4 +1,4 @@
-﻿import {
+import {
   canAccessRoute,
   hasPermission,
   ROLE_PERMISSIONS_MATRIX,
@@ -71,15 +71,14 @@ async function runTests() {
     );
   }
 
-  // Sidebar remains unchanged (no Inventory menu in sidebar for Salesperson)
+  // Sidebar includes Inventory menu for Salesperson
   const spMenus = ROLE_ALLOWED_NAV_MENUS.Salesperson;
   assert(
-    'Salesperson sidebar nav menus unchanged: strictly Dashboard, Sales, Customers',
-    spMenus.length === 3 &&
+    'Salesperson sidebar nav menus includes Dashboard, Sales, Customers, Inventory',
     spMenus.includes('Dashboard') &&
     spMenus.includes('Sales') &&
     spMenus.includes('Customers') &&
-    !spMenus.includes('Inventory')
+    spMenus.includes('Inventory')
   );
 
   // -------------------------------------------------------------
@@ -96,13 +95,13 @@ async function runTests() {
 
   const spInvFile = fs.readFileSync('src/pages/inventory/SalespersonInventoryPage.tsx', 'utf8');
   
-  // Table columns check
+  // Table columns check (Barcode, Available Stock, and Category removed per user requirements)
   assert('Table contains "Product Name" column', spInvFile.includes('Product Name'));
   assert('Table contains "Product Code / SKU" column', spInvFile.includes('Product Code / SKU'));
-  assert('Table contains "Barcode" column', spInvFile.includes('Barcode'));
-  assert('Table contains "Category" column', spInvFile.includes('Category'));
+  assert('Table excludes "Barcode" column in thead', !spInvFile.includes('>Barcode</th>'));
+  assert('Table excludes "Category" column in thead', !spInvFile.includes('>Category</th>'));
   assert('Table contains "Warehouse Stock Breakdown" column', spInvFile.includes('Warehouse Stock Breakdown'));
-  assert('Table contains "Available Stock" column', spInvFile.includes('Available Stock'));
+  assert('Table excludes "Available Stock" column in thead', !spInvFile.includes('>Available Stock</th>'));
   assert('Table contains "Unit" column', spInvFile.includes('Unit'));
   assert('Table contains "Selling Price" column', spInvFile.includes('Selling Price'));
   assert('Table contains "Stock Status" column', spInvFile.includes('Stock Status'));

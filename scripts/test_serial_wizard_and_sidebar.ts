@@ -1,4 +1,4 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 
 function runTests() {
   console.log('--- RUNNING UNIVERSAL BILLING VERIFICATION TESTS ---');
@@ -21,8 +21,9 @@ function runTests() {
   assert(!hasSerialInInventoryMenu, 'Sidebar.tsx does not contain Serial Numbers navigation item');
 
   // Verify other inventory items in sidebar are preserved
-  assert(sidebarContent.includes("name: 'Batch Tracking', path: '/inventory/batches'"), 'Batch Tracking remains in sidebar');
-  assert(sidebarContent.includes("name: 'Stock Transfers', path: '/inventory/transfers'"), 'Stock Transfers remains in sidebar');
+  assert(sidebarContent.includes("name: 'Stock Overview', path: '/inventory'"), 'Stock Overview remains in sidebar');
+  assert(!sidebarContent.includes("name: 'Stock Transfers', path: '/inventory/transfers'"), 'Stock Transfers removed from sidebar');
+  assert(!sidebarContent.includes("name: 'Stock Adjustments', path: '/inventory/adjustments'"), 'Stock Adjustments removed from sidebar');
 
   // TEST 2: NewProductPage.tsx has 6 steps with correct order
   const newProductContent = fs.readFileSync('src/pages/products/NewProductPage.tsx', 'utf8');
@@ -69,7 +70,7 @@ function runTests() {
   assert(productListContent.includes('/inventory/serials'), 'ProductListPage links to /inventory/serials when serialTracking is true');
 
   const batchPageContent = fs.readFileSync('src/pages/inventory/BatchManagementPage.tsx', 'utf8');
-  assert(batchPageContent.includes('/inventory/serials'), 'BatchManagementPage links to /inventory/serials');
+  assert(!batchPageContent.includes('/inventory/serials'), 'BatchManagementPage does not link to /inventory/serials');
 
   console.log(`\nTests Completed: ${passed} passed, ${failed} failed.`);
   if (failed > 0) {

@@ -16,6 +16,7 @@ import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { StatCard } from '../../components/common/StatCard';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
+import { compareProductsAZ } from '../../utils/sortUtils';
 
 export const StockValuationPage: React.FC = () => {
   const navigate = useNavigate();
@@ -45,8 +46,8 @@ export const StockValuationPage: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [costStatusFilter, setCostStatusFilter] = useState<'ALL' | 'HAS_COST' | 'MISSING_COST'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortField, setSortField] = useState<'value' | 'cost' | 'qty' | 'name'>('value');
-  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [sortField, setSortField] = useState<'value' | 'cost' | 'qty' | 'name'>('name');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 12;
 
@@ -181,19 +182,25 @@ export const StockValuationPage: React.FC = () => {
       return true;
     });
 
-    // Sorting
+    // Sorting: Default A-Z by product name with case-insensitivity and SKU tiebreaker
     result.sort((a, b) => {
       let comparison = 0;
       if (sortField === 'value') {
         comparison = a.totalValue - b.totalValue;
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a.product, b.product);
       } else if (sortField === 'cost') {
         comparison = a.unitCost - b.unitCost;
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a.product, b.product);
       } else if (sortField === 'qty') {
         comparison = a.valuationQty - b.valuationQty;
-      } else if (sortField === 'name') {
-        comparison = a.product.name.localeCompare(b.product.name);
+        if (comparison !== 0) return sortOrder === 'asc' ? comparison : -comparison;
+        return compareProductsAZ(a.product, b.product);
+      } else {
+        comparison = compareProductsAZ(a.product, b.product);
+        return sortOrder === 'asc' ? comparison : -comparison;
       }
-      return sortOrder === 'asc' ? comparison : -comparison;
     });
 
     return result;
@@ -216,12 +223,8 @@ export const StockValuationPage: React.FC = () => {
     return totalValuationUnits > 0 ? totalValuationValue / totalValuationUnits : 0;
   }, [totalValuationValue, totalValuationUnits]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredItems.length / pageSize) || 1;
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredItems.slice(start, start + pageSize);
-  }, [filteredItems, currentPage]);
+  // Continuous single-page list
+  const paginatedItems = filteredItems;
 
   // Export CSV
   const handleExportCSV = () => {
@@ -575,8 +578,11 @@ export const StockValuationPage: React.FC = () => {
 
                     {/* Costing Basis */}
                     <td className="py-3 px-3 text-center font-sans align-middle">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {valuationMethod}
+                      <span
+                        className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap inline-block"
+                        title={valuationMethod === 'Weighted Average' ? 'Weighted Average' : valuationMethod}
+                      >
+                        {valuationMethod === 'Weighted Average' ? 'W/A' : valuationMethod}
                       </span>
                     </td>
                   </tr>
@@ -599,42 +605,16 @@ export const StockValuationPage: React.FC = () => {
                 <td className="py-3 px-4 text-right font-black text-emerald-800 text-base">
                   {formatCurrency(totalValuationValue)}
                 </td>
-                <td className="py-3 px-3 text-center text-slate-500 text-[11px] font-sans">
-                  {valuationMethod}
+                <td
+                  className="py-3 px-3 text-center text-slate-500 text-[11px] font-sans whitespace-nowrap"
+                  title={valuationMethod === 'Weighted Average' ? 'Weighted Average' : valuationMethod}
+                >
+                  {valuationMethod === 'Weighted Average' ? 'W/A' : valuationMethod}
                 </td>
               </tr>
             </tfoot>
           </table>
         </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="p-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-            <span>
-              Showing {(currentPage - 1) * pageSize + 1} to{' '}
-              {Math.min(currentPage * pageSize, filteredItems.length)} of {filteredItems.length} entries
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                Previous
-              </button>
-              <span className="px-2 font-bold text-slate-800">
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1,9 +1,80 @@
 import { supabase } from '../lib/supabase';
-import { PurchaseInvoice, PaymentRecord, PaymentMethod } from '../types';
+import { PurchaseInvoice, PaymentRecord, PaymentMethod, BillVerificationStatus } from '../types';
 import { assertCallerPermission } from '../utils/rbac';
+import { getAppStorage } from '../utils/storageUtils';
+import { filterSupportedPurchasePayload } from '../utils/schemaDetector';
+import { notificationService } from './notificationService';
 
 const isValidUuid = (id?: string | null): boolean =>
   typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim());
+
+export interface BillMetadata {
+  purchaseOrderId?: string;
+  purchaseOrderNumber?: string;
+  purchaseRequestId?: string;
+  purchaseRequestNumber?: string;
+  supplierInvoiceNumber?: string;
+  hasDiscrepancy?: boolean;
+  discrepancyNotes?: string;
+  verificationStatus?: BillVerificationStatus;
+  verifiedBy?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
+  correctionNotes?: string;
+  correctionRequestedAt?: string;
+}
+
+const META_PREFIX = '<!-- UB_BILL_META:';
+const META_SUFFIX = ' -->';
+
+export function extractBillMetadata(notes?: string | null): { cleanNotes: string; meta: BillMetadata } {
+  if (!notes) return { cleanNotes: '', meta: {} };
+  const startIdx = notes.indexOf(META_PREFIX);
+  if (startIdx === -1) return { cleanNotes: notes, meta: {} };
+  const endIdx = notes.indexOf(META_SUFFIX, startIdx + META_PREFIX.length);
+  if (endIdx === -1) return { cleanNotes: notes, meta: {} };
+
+  try {
+    const rawJson = notes.substring(startIdx + META_PREFIX.length, endIdx);
+    const meta = JSON.parse(rawJson);
+    const cleanNotes = (notes.substring(0, startIdx) + notes.substring(endIdx + META_SUFFIX.length)).trim();
+    return { cleanNotes, meta };
+  } catch {
+    return { cleanNotes: notes, meta: {} };
+  }
+}
+
+export function injectBillMetadata(notes: string | undefined, meta: BillMetadata): string {
+  const { cleanNotes, meta: existingMeta } = extractBillMetadata(notes);
+  const merged = { ...existingMeta, ...meta };
+  const hasValues = Object.values(merged).some(v => v !== undefined && v !== null && v !== '');
+  if (!hasValues) return cleanNotes;
+  const metaString = `${META_PREFIX}${JSON.stringify(merged)}${META_SUFFIX}`;
+  return cleanNotes ? `${cleanNotes}\n${metaString}` : metaString;
+}
+
+const BILL_META_STORAGE_KEY = (cId: string) => `universal_billing_supplier_bills_meta_${cId}`;
+
+export function getBillMetaCache(companyId: string): Record<string, BillMetadata> {
+  const storage = getAppStorage();
+  if (!storage) return {};
+  try {
+    const raw = storage.getItem(BILL_META_STORAGE_KEY(companyId));
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveBillMetaCache(companyId: string, id: string, meta: BillMetadata): void {
+  const storage = getAppStorage();
+  if (!storage) return;
+  try {
+    const current = getBillMetaCache(companyId);
+    current[id] = { ...current[id], ...meta };
+    storage.setItem(BILL_META_STORAGE_KEY(companyId), JSON.stringify(current));
+  } catch {}
+}
 
 export const purchaseService = {
   // Fetch purchase invoices with line items
@@ -35,38 +106,72 @@ export const purchaseService = {
       return [];
     }
 
-    const invoices: PurchaseInvoice[] = (data || []).map(p => ({
-      id: p.id,
-      invoiceNumber: p.invoice_number,
-      docType: p.doc_type || 'purchase_invoice',
-      date: p.date,
-      dueDate: p.due_date,
-      supplierId: p.supplier_id,
-      supplierName: p.supplier_name,
-      supplierGstin: p.supplier_gstin,
-      warehouse: p.warehouse_id || '',
-      items: (p.purchase_items || []).map((item: any) => ({
-        id: item.id,
-        productId: item.product_id,
-        productName: item.product_name,
-        qty: Number(item.qty),
-        unit: item.unit,
-        rate: Number(item.rate),
-        discount: Number(item.discount || 0),
-        taxRate: Number(item.tax_rate),
-        taxAmt: Number(item.tax_amt),
-        total: Number(item.total)
-      })),
-      subtotal: Number(p.subtotal),
-      taxTotal: Number(p.tax_total),
-      freightCharges: Number(p.freight_charges || 0),
-      otherCharges: Number(p.other_charges || 0),
-      grandTotal: Number(p.grand_total),
-      paidAmount: Number(p.paid_amount || 0),
-      paymentStatus: (p.payment_status as any) || 'Unpaid',
-      notes: p.notes,
-      createdAt: p.created_at
-    }));
+    const metaCache = getBillMetaCache(finalCompanyId);
+
+    const invoices: PurchaseInvoice[] = (data || []).map(p => {
+      const { cleanNotes, meta: notesMeta } = extractBillMetadata(p.notes);
+      const cached = metaCache[p.id] || metaCache[p.invoice_number] || {};
+
+      const purchaseOrderId = p.purchase_order_id || notesMeta.purchaseOrderId || cached.purchaseOrderId || undefined;
+      const purchaseOrderNumber = p.purchase_order_number || notesMeta.purchaseOrderNumber || cached.purchaseOrderNumber || undefined;
+      const purchaseRequestId = p.purchase_request_id || notesMeta.purchaseRequestId || cached.purchaseRequestId || undefined;
+      const purchaseRequestNumber = p.purchase_request_number || notesMeta.purchaseRequestNumber || cached.purchaseRequestNumber || undefined;
+      const supplierInvoiceNumber = p.supplier_invoice_number || notesMeta.supplierInvoiceNumber || cached.supplierInvoiceNumber || undefined;
+      const hasDiscrepancy = p.has_discrepancy ?? notesMeta.hasDiscrepancy ?? cached.hasDiscrepancy ?? false;
+      const discrepancyNotes = p.discrepancy_notes || notesMeta.discrepancyNotes || cached.discrepancyNotes || undefined;
+      const verificationStatus = (p.verification_status || notesMeta.verificationStatus || cached.verificationStatus || 'Pending Review') as BillVerificationStatus;
+      const verifiedBy = p.verified_by || notesMeta.verifiedBy || cached.verifiedBy || undefined;
+      const verifiedByName = p.verified_by_name || notesMeta.verifiedByName || cached.verifiedByName || undefined;
+      const verifiedAt = p.verified_at || notesMeta.verifiedAt || cached.verifiedAt || undefined;
+      const correctionNotes = p.correction_notes || notesMeta.correctionNotes || cached.correctionNotes || undefined;
+      const correctionRequestedAt = p.correction_requested_at || notesMeta.correctionRequestedAt || cached.correctionRequestedAt || undefined;
+
+      return {
+        id: p.id,
+        invoiceNumber: p.invoice_number,
+        docType: p.doc_type || 'purchase_invoice',
+        date: p.date,
+        dueDate: p.due_date,
+        supplierId: p.supplier_id,
+        supplierName: p.supplier_name,
+        supplierGstin: p.supplier_gstin,
+        warehouse: p.warehouse_id || '',
+        items: (p.purchase_items || []).map((item: any) => ({
+          id: item.id,
+          productId: item.product_id,
+          productName: item.product_name,
+          qty: Number(item.qty),
+          unit: item.unit,
+          rate: Number(item.rate),
+          discount: Number(item.discount || 0),
+          taxRate: Number(item.tax_rate),
+          taxAmt: Number(item.tax_amt),
+          total: Number(item.total)
+        })),
+        subtotal: Number(p.subtotal),
+        taxTotal: Number(p.tax_total),
+        freightCharges: Number(p.freight_charges || 0),
+        otherCharges: Number(p.other_charges || 0),
+        grandTotal: Number(p.grand_total),
+        paidAmount: Number(p.paid_amount || 0),
+        paymentStatus: (p.payment_status as any) || 'Unpaid',
+        notes: cleanNotes,
+        createdAt: p.created_at,
+        purchaseOrderId,
+        purchaseOrderNumber,
+        purchaseRequestId,
+        purchaseRequestNumber,
+        supplierInvoiceNumber,
+        hasDiscrepancy,
+        discrepancyNotes,
+        verificationStatus,
+        verifiedBy,
+        verifiedByName,
+        verifiedAt,
+        correctionNotes,
+        correctionRequestedAt
+      };
+    });
 
     // Merge purchase returns if no specific status filter is active
     if (!params?.status || params.status === 'All') {
@@ -120,17 +225,40 @@ export const purchaseService = {
     // 0. Strict RBAC Enforcement: Only Purchase Manager, Admin, and Owner can create purchase invoices
     await assertCallerPermission('purchases', 'create');
 
-    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const finalCompanyId = isValidUuid(companyId) ? companyId! : '00000000-0000-0000-0000-000000000001';
+    const finalSupplierId = isValidUuid(invoice.supplierId) ? invoice.supplierId!.trim() : null;
+    const finalWarehouseId = isValidUuid(invoice.warehouse) ? invoice.warehouse!.trim() : null;
+    const finalPoId = isValidUuid(invoice.purchaseOrderId) ? invoice.purchaseOrderId!.trim() : null;
+    const finalPrId = isValidUuid(invoice.purchaseRequestId) ? invoice.purchaseRequestId!.trim() : null;
+
+    const initialMeta: BillMetadata = {
+      purchaseOrderId: invoice.purchaseOrderId,
+      purchaseOrderNumber: invoice.purchaseOrderNumber,
+      purchaseRequestId: invoice.purchaseRequestId,
+      purchaseRequestNumber: invoice.purchaseRequestNumber,
+      supplierInvoiceNumber: invoice.supplierInvoiceNumber,
+      hasDiscrepancy: invoice.hasDiscrepancy,
+      discrepancyNotes: invoice.discrepancyNotes,
+      verificationStatus: invoice.verificationStatus || 'Pending Review',
+      verifiedBy: invoice.verifiedBy,
+      verifiedByName: invoice.verifiedByName,
+      verifiedAt: invoice.verifiedAt,
+      correctionNotes: invoice.correctionNotes,
+      correctionRequestedAt: invoice.correctionRequestedAt
+    };
+
+    const notesWithMeta = injectBillMetadata(invoice.notes, initialMeta);
+
     const payload = {
       company_id: finalCompanyId,
-      supplier_id: invoice.supplierId,
+      supplier_id: finalSupplierId,
       supplier_name: invoice.supplierName,
       supplier_gstin: invoice.supplierGstin,
       invoice_number: invoice.invoiceNumber,
       doc_type: invoice.docType,
       date: invoice.date,
       due_date: invoice.dueDate,
-      warehouse_id: invoice.warehouse,
+      warehouse_id: finalWarehouseId,
       subtotal: invoice.subtotal,
       tax_total: invoice.taxTotal,
       freight_charges: invoice.freightCharges || 0,
@@ -138,9 +266,9 @@ export const purchaseService = {
       grandTotal: invoice.grandTotal,
       paid_amount: invoice.paidAmount || 0,
       payment_status: invoice.paymentStatus,
-      notes: invoice.notes,
+      notes: notesWithMeta,
       items: invoice.items.map(it => ({
-        product_id: it.productId,
+        product_id: isValidUuid(it.productId) ? it.productId : null,
         product_name: it.productName,
         qty: it.qty,
         unit: it.unit,
@@ -169,10 +297,30 @@ export const purchaseService = {
 
       if (!rpcError && parsedRpc && (parsedRpc.success || parsedRpc.purchase_id || parsedRpc.id)) {
         const purchaseId = parsedRpc.purchase_id || parsedRpc.id;
+        saveBillMetaCache(finalCompanyId, purchaseId, initialMeta);
+        saveBillMetaCache(finalCompanyId, invoice.invoiceNumber, initialMeta);
+
+        if (invoice.docType === 'purchase_invoice' || !invoice.docType) {
+          try {
+            await notificationService.createNotification({
+              title: `New Supplier Bill: ${invoice.invoiceNumber}`,
+              message: `${invoice.supplierName} — ₹${invoice.grandTotal.toLocaleString('en-IN')} (PO: ${invoice.purchaseOrderNumber || 'Direct'}) awaiting payment verification.`,
+              type: 'supplier_bill',
+              link: '/payments/bills?tab=pending',
+              dedupKey: `supplier_bill_${purchaseId}`,
+              actionText: 'Review Bill'
+            }, finalCompanyId);
+          } catch (notifErr) {
+            console.warn('Could not dispatch supplier bill notification:', notifErr);
+          }
+        }
+
         return {
           ...invoice,
+          ...initialMeta,
           id: purchaseId,
           invoiceNumber: parsedRpc.invoice_number || invoice.invoiceNumber,
+          notes: invoice.notes,
           createdAt: parsedRpc.created_at || new Date().toISOString()
         } as PurchaseInvoice;
       }
@@ -180,27 +328,40 @@ export const purchaseService = {
       console.warn('RPC create_purchase_invoice_atomic unavailable, using direct fallback:', e);
     }
 
-    // Direct insertion fallback
+    // Direct insertion fallback with schema-aware column filtering
+    const rawPurPayload = {
+      company_id: finalCompanyId,
+      invoice_number: invoice.invoiceNumber,
+      doc_type: invoice.docType,
+      date: invoice.date,
+      due_date: invoice.dueDate,
+      supplier_id: finalSupplierId,
+      warehouse_id: finalWarehouseId,
+      supplier_name: invoice.supplierName,
+      supplier_gstin: invoice.supplierGstin,
+      subtotal: invoice.subtotal,
+      tax_total: invoice.taxTotal,
+      freight_charges: invoice.freightCharges || 0,
+      other_charges: invoice.otherCharges || 0,
+      grand_total: invoice.grandTotal,
+      paid_amount: invoice.paidAmount || 0,
+      payment_status: invoice.paymentStatus,
+      notes: notesWithMeta,
+      purchase_order_id: finalPoId,
+      purchase_order_number: invoice.purchaseOrderNumber || null,
+      purchase_request_id: finalPrId,
+      purchase_request_number: invoice.purchaseRequestNumber || null,
+      supplier_invoice_number: invoice.supplierInvoiceNumber || null,
+      has_discrepancy: invoice.hasDiscrepancy || false,
+      discrepancy_notes: invoice.discrepancyNotes || null,
+      verification_status: invoice.verificationStatus || 'Pending Review'
+    };
+
+    const filteredPurPayload = await filterSupportedPurchasePayload(rawPurPayload);
+
     const { data: purData, error: purError } = await supabase
       .from('purchases')
-      .insert({
-        company_id: finalCompanyId,
-        invoice_number: invoice.invoiceNumber,
-        doc_type: invoice.docType,
-        date: invoice.date,
-        due_date: invoice.dueDate,
-        supplier_id: invoice.supplierId,
-        supplier_name: invoice.supplierName,
-        supplier_gstin: invoice.supplierGstin,
-        subtotal: invoice.subtotal,
-        tax_total: invoice.taxTotal,
-        freight_charges: invoice.freightCharges || 0,
-        other_charges: invoice.otherCharges || 0,
-        grand_total: invoice.grandTotal,
-        paid_amount: invoice.paidAmount || 0,
-        payment_status: invoice.paymentStatus,
-        notes: invoice.notes
-      })
+      .insert(filteredPurPayload)
       .select()
       .single();
 
@@ -213,7 +374,7 @@ export const purchaseService = {
     if (invoice.items.length > 0) {
       const itemsPayload = invoice.items.map(item => ({
         purchase_id: purData.id,
-        product_id: item.productId,
+        product_id: isValidUuid(item.productId) ? item.productId : null,
         product_name: item.productName,
         qty: item.qty,
         unit: item.unit,
@@ -226,7 +387,7 @@ export const purchaseService = {
       await supabase.from('purchase_items').insert(itemsPayload);
 
       for (const item of invoice.items) {
-        if (item.productId) {
+        if (isValidUuid(item.productId)) {
           // Increment stock
           const { data: prodData } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
           if (prodData) {
@@ -265,9 +426,31 @@ export const purchaseService = {
       }
     }
 
+    // Cache metadata in local storage
+    saveBillMetaCache(finalCompanyId, purData.id, initialMeta);
+    saveBillMetaCache(finalCompanyId, invoice.invoiceNumber, initialMeta);
+
+    // Automatically send notification to Accountant for review
+    if (invoice.docType === 'purchase_invoice' || !invoice.docType) {
+      try {
+        await notificationService.createNotification({
+          title: `New Supplier Bill: ${invoice.invoiceNumber}`,
+          message: `${invoice.supplierName} — ₹${invoice.grandTotal.toLocaleString('en-IN')} (PO: ${invoice.purchaseOrderNumber || 'Direct'}) awaiting payment verification.`,
+          type: 'supplier_bill',
+          link: '/payments/bills?tab=pending',
+          dedupKey: `supplier_bill_${purData.id}`,
+          actionText: 'Review Bill'
+        }, finalCompanyId);
+      } catch (notifErr) {
+        console.warn('Could not dispatch supplier bill notification:', notifErr);
+      }
+    }
+
     return {
       id: purData.id,
       ...invoice,
+      ...initialMeta,
+      notes: invoice.notes,
       createdAt: purData.created_at
     } as PurchaseInvoice;
   },
@@ -721,6 +904,9 @@ export const purchaseService = {
       createdAt: insertedPayment?.created_at || new Date().toISOString()
     };
 
+    const { cleanNotes: paymentCleanNotes, meta: paymentMeta } = extractBillMetadata(updatedPurRow?.notes || currentPurchase?.notes);
+    const cachedPayMeta = getBillMetaCache(finalCompanyId)[params.purchaseId] || {};
+
     const formattedPurchase: PurchaseInvoice = {
       id: params.purchaseId,
       invoiceNumber: updatedPurRow?.invoice_number || currentPurchase?.invoice_number || '',
@@ -750,8 +936,16 @@ export const purchaseService = {
       grandTotal: Number(updatedPurRow?.grand_total ?? grandTotal),
       paidAmount: newPaidAmount,
       paymentStatus: newPaymentStatus,
-      notes: updatedPurRow?.notes || currentPurchase?.notes || '',
-      createdAt: updatedPurRow?.created_at || currentPurchase?.created_at || new Date().toISOString()
+      notes: paymentCleanNotes,
+      createdAt: updatedPurRow?.created_at || currentPurchase?.created_at || new Date().toISOString(),
+      purchaseOrderId: updatedPurRow?.purchase_order_id || currentPurchase?.purchase_order_id || paymentMeta.purchaseOrderId || cachedPayMeta.purchaseOrderId,
+      purchaseOrderNumber: updatedPurRow?.purchase_order_number || currentPurchase?.purchase_order_number || paymentMeta.purchaseOrderNumber || cachedPayMeta.purchaseOrderNumber,
+      purchaseRequestId: updatedPurRow?.purchase_request_id || currentPurchase?.purchase_request_id || paymentMeta.purchaseRequestId || cachedPayMeta.purchaseRequestId,
+      purchaseRequestNumber: updatedPurRow?.purchase_request_number || currentPurchase?.purchase_request_number || paymentMeta.purchaseRequestNumber || cachedPayMeta.purchaseRequestNumber,
+      supplierInvoiceNumber: updatedPurRow?.supplier_invoice_number || currentPurchase?.supplier_invoice_number || paymentMeta.supplierInvoiceNumber || cachedPayMeta.supplierInvoiceNumber,
+      hasDiscrepancy: updatedPurRow?.has_discrepancy ?? currentPurchase?.has_discrepancy ?? paymentMeta.hasDiscrepancy ?? cachedPayMeta.hasDiscrepancy ?? false,
+      discrepancyNotes: updatedPurRow?.discrepancy_notes || currentPurchase?.discrepancy_notes || paymentMeta.discrepancyNotes || cachedPayMeta.discrepancyNotes,
+      verificationStatus: (updatedPurRow?.verification_status || currentPurchase?.verification_status || paymentMeta.verificationStatus || cachedPayMeta.verificationStatus || 'Pending Review') as any
     };
 
     return { payment: formattedPayment, updatedPurchase: formattedPurchase };

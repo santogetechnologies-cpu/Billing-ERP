@@ -19,7 +19,8 @@ import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import { StatusBadge, StockStatusBadge } from '../../components/common/StatusBadge';
+import { sortProductsAZ } from '../../utils/sortUtils';
 import { Product } from '../../types';
 import { Modal } from '../../components/common/Modal';
 
@@ -105,7 +106,7 @@ export const SalespersonInventoryPage: React.FC = () => {
   const filteredProducts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
 
-    return productsWithStockStatus.filter(p => {
+    const filtered = productsWithStockStatus.filter(p => {
       // 1. Search Query (name, SKU, code, barcode, category)
       if (q) {
         const matchName = p.name.toLowerCase().includes(q);
@@ -136,6 +137,8 @@ export const SalespersonInventoryPage: React.FC = () => {
 
       return true;
     });
+
+    return sortProductsAZ(filtered);
   }, [productsWithStockStatus, searchQuery, categoryFilter, statusFilter]);
 
   const handleStatusFilterChange = (status: 'ALL' | 'ACTIVE' | 'LIMITED' | 'OUT') => {
@@ -353,26 +356,22 @@ export const SalespersonInventoryPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="w-full overflow-hidden">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50/80 text-slate-600 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-200/80">
+            <thead className="bg-slate-50/90 text-slate-700 font-semibold uppercase text-[11px] tracking-wider border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4 min-w-[180px]">Product Name</th>
-                <th className="py-3 px-3.5 min-w-[120px]">Product Code / SKU</th>
-                <th className="py-3 px-3.5 min-w-[110px]">Barcode</th>
-                <th className="py-3 px-3.5 min-w-[100px]">Category</th>
-                <th className="py-3 px-3.5 min-w-[200px]">Warehouse Stock Breakdown</th>
-                <th className="py-3 px-3.5 text-center min-w-[110px]">Available Stock</th>
-                <th className="py-3 px-3.5 text-center min-w-[70px]">Unit</th>
-                <th className="py-3 px-3.5 text-right min-w-[110px]">Selling Price</th>
-                <th className="py-3 px-3.5 text-center min-w-[110px]">Stock Status</th>
-                <th className="py-3 px-3.5 text-center min-w-[70px]">Actions</th>
+                <th className="py-3.5 pl-5 pr-3 text-left w-[24%]">Product Name</th>
+                <th className="py-3.5 px-3 text-left w-[18%]">Product Code / SKU</th>
+                <th className="py-3.5 px-3 text-left w-[28%]">Warehouse Stock Breakdown</th>
+                <th className="py-3.5 px-3 text-right w-[13%]">Selling Price</th>
+                <th className="py-3.5 px-3 text-center w-[12%]">Stock Status</th>
+                <th className="py-3.5 pl-2 pr-5 text-center w-[5%]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
                     <Boxes className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-600 text-sm">No products found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -382,65 +381,43 @@ export const SalespersonInventoryPage: React.FC = () => {
                 </tr>
               ) : (
                 filteredProducts.map(product => {
-                  const isOutOfStock = product.computedStatus === 'Out of Stock';
-                  const isLowStock = product.computedStatus === 'Limited Stock';
-
                   return (
                     <tr
                       key={product.id}
-                      className="hover:bg-slate-50/60 transition-colors group cursor-pointer"
+                      className="hover:bg-slate-50/70 transition-colors group cursor-pointer border-b border-slate-100 last:border-b-0"
                       onClick={() => setInspectedProduct(product)}
                     >
                       {/* Product Name */}
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                      <td className="py-3.5 pl-5 pr-3 align-middle">
+                        <div className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-sm line-clamp-1">
                           {product.name}
                         </div>
                         {product.brand && (
-                          <div className="text-[10px] text-slate-400 font-normal">
+                          <div className="text-[11px] text-slate-500 font-normal mt-0.5 line-clamp-1">
                             Brand: {product.brand}
                           </div>
                         )}
                       </td>
 
                       {/* Product Code / SKU */}
-                      <td className="py-3 px-3.5">
-                        <div className="font-mono text-slate-800 font-semibold text-xs">
+                      <td className="py-3.5 px-3 align-middle">
+                        <div className="font-mono text-slate-800 font-semibold text-xs break-all">
                           {product.code || product.sku || '—'}
                         </div>
                         {product.code && product.sku && product.code !== product.sku && (
-                          <div className="text-[10px] font-mono text-slate-400">
+                          <div className="text-[11px] font-mono text-slate-400 mt-0.5 break-all">
                             SKU: {product.sku}
                           </div>
                         )}
                       </td>
 
-                      {/* Barcode */}
-                      <td className="py-3 px-3.5">
-                        {product.barcode ? (
-                          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-700 bg-slate-100/90 px-2 py-0.5 rounded border border-slate-200/70">
-                            <ScanBarcode className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span>{product.barcode}</span>
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 font-mono text-[11px]">—</span>
-                        )}
-                      </td>
-
-                      {/* Category */}
-                      <td className="py-3 px-3.5">
-                        <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700">
-                          {product.category || 'General'}
-                        </span>
-                      </td>
-
                       {/* Warehouse Stock Breakdown */}
-                      <td className="py-3 px-3.5">
+                      <td className="py-3.5 px-3 align-middle">
                         {selectedWarehouseId !== 'ALL' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-[11px] border border-blue-200/60">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium text-xs border border-blue-200/60">
                             <Building className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                            <span className="truncate max-w-[160px]">
-                              {warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Godown'}: <strong>{formatNumber(product.computedStock)}</strong>
+                            <span>
+                              {warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Godown'}: <strong className="font-mono text-blue-900 font-bold ml-1">{formatNumber(product.computedStock)}</strong>
                             </span>
                           </span>
                         ) : (() => {
@@ -452,74 +429,69 @@ export const SalespersonInventoryPage: React.FC = () => {
                             .filter(entry => entry.stock > 0);
 
                           return whBreakdown.length > 0 ? (
-                            <div className="flex flex-wrap gap-1 max-w-[260px]">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               {whBreakdown.slice(0, 3).map(({ warehouse, stock }) => (
                                 <span
                                   key={warehouse.id}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200/60"
-                                  title={warehouse.name + ': ' + formatNumber(stock) + ' ' + (product.primaryUnit || 'Units')}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/70"
+                                  title={`${warehouse.name}: ${formatNumber(stock)}`}
                                 >
-                                  <span className="truncate max-w-[75px]">{warehouse.name}:</span>
-                                  <strong className="font-mono text-slate-900">{formatNumber(stock)}</strong>
+                                  <span className="truncate max-w-[110px]">{warehouse.name}:</span>
+                                  <strong className="font-mono text-slate-900 font-bold">{formatNumber(stock)}</strong>
                                 </span>
                               ))}
                               {whBreakdown.length > 3 && (
-                                <span className="text-[10px] font-bold text-slate-500 self-center">
+                                <span className="text-[11px] font-bold text-slate-500 self-center px-1">
                                   +{whBreakdown.length - 3} more
                                 </span>
                               )}
                             </div>
+                          ) : product.computedStock > 0 ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/70">
+                              <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>Main Store:</span>
+                              <strong className="font-mono text-slate-900 font-bold">{formatNumber(product.computedStock)}</strong>
+                            </span>
                           ) : (
-                            <span className="text-[11px] text-slate-400 italic">No godown stock</span>
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 italic">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                              No stock available
+                            </span>
                           );
                         })()}
                       </td>
 
-                      {/* Available Stock Quantity */}
-                      <td className="py-3 px-3.5 text-center">
-                        <span
-                          className={`inline-flex items-center justify-center min-w-[42px] px-2.5 py-1 rounded-full font-mono font-bold text-xs ${
-                            isOutOfStock
-                              ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-200'
-                              : isLowStock
-                              ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'
-                              : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'
-                          }`}
-                        >
-                          {formatNumber(product.computedStock)}
-                        </span>
-                      </td>
-
-                      {/* Unit */}
-                      <td className="py-3 px-3.5 text-center font-medium text-slate-600">
-                        {product.primaryUnit || 'Piece'}
-                      </td>
-
                       {/* Selling Price */}
-                      <td className="py-3 px-3.5 text-right">
-                        <span className="font-bold text-slate-900 font-mono">
+                      <td className="py-3.5 px-3 text-right align-middle">
+                        <span className="font-bold text-slate-900 font-mono text-xs">
                           {formatCurrency(product.sellingPrice)}
                         </span>
                         {product.mrp && product.mrp > product.sellingPrice ? (
-                          <div className="text-[10px] text-slate-400 line-through">
+                          <div className="text-[10px] text-slate-400 line-through mt-0.5">
                             MRP {formatCurrency(product.mrp)}
                           </div>
                         ) : null}
                       </td>
 
-                      {/* Stock Status */}
-                      <td className="py-3 px-3.5 text-center">
-                        <StatusBadge status={product.computedStatus} size="sm" />
+                      {/* Stock Status - Unit Removed per user request */}
+                      <td className="py-3.5 px-3 text-center align-middle">
+                        <StockStatusBadge
+                          status={product.computedStatus}
+                          currentStock={product.computedStock}
+                          showUnit={false}
+                          size="sm"
+                          align="center"
+                        />
                       </td>
 
                       {/* Actions: View Details Only */}
-                      <td className="py-3 px-3.5 text-center">
+                      <td className="py-3.5 pl-2 pr-5 text-center align-middle">
                         <button
                           onClick={e => {
                             e.stopPropagation();
                             setInspectedProduct(product);
                           }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer inline-flex items-center justify-center"
                           title="View Product Specifications"
                         >
                           <Eye className="w-4 h-4" />
