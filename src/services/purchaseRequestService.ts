@@ -197,7 +197,55 @@ export const purchaseRequestService = {
       try {
         const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
         if (raw) {
-          const cached: PurchaseRequest[] = JSON.parse(raw);
+          let cached: PurchaseRequest[] = JSON.parse(raw);
+
+          // Verify against live database: if purchase orders have been deleted in Supabase,
+          // purge any orphaned PO references or synthetic PO-only records from cached requests
+          try {
+            const { data: dbPOs, error: dbPOErr } = await supabase
+              .from('purchases')
+              .select('id, invoice_number')
+              .eq('company_id', finalCompanyId)
+              .eq('doc_type', 'purchase_order');
+
+            if (!dbPOErr) {
+              const validPoIds = new Set((dbPOs || []).map(p => p.id));
+              const validPoNumbers = new Set((dbPOs || []).map(p => String(p.invoice_number).trim().toLowerCase()));
+
+              let hasCacheModifications = false;
+              cached = cached.filter(c => {
+                // If this was a synthetic request created purely for a PO that is now deleted, discard it
+                if (c.id.startsWith('po-') || (c.requestNumber && c.requestNumber.startsWith('PO-'))) {
+                  const poNum = (c.purchaseOrderNumber || c.requestNumber || '').trim().toLowerCase();
+                  if (!validPoNumbers.has(poNum) && !validPoIds.has(c.purchaseOrderId || '')) {
+                    hasCacheModifications = true;
+                    return false;
+                  }
+                }
+                return true;
+              }).map(c => {
+                if (c.purchaseOrderId || c.purchaseOrderNumber) {
+                  const poNum = (c.purchaseOrderNumber || '').trim().toLowerCase();
+                  const poId = c.purchaseOrderId || '';
+                  if (!validPoIds.has(poId) && !validPoNumbers.has(poNum)) {
+                    // Linked PO no longer exists in database
+                    hasCacheModifications = true;
+                    return {
+                      ...c,
+                      purchaseOrderId: undefined,
+                      purchaseOrderNumber: undefined,
+                      status: (c.status === 'Ordered' || c.status === 'Partially Received') ? 'Pending Review' : c.status
+                    };
+                  }
+                }
+                return c;
+              });
+
+              if (hasCacheModifications) {
+                storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(cached));
+              }
+            }
+          } catch {}
           const existingIds = new Set(requests.map(r => r.id));
           cached.forEach(c => {
             if (!existingIds.has(c.id)) {
