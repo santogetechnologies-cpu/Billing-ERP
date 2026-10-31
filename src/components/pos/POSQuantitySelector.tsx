@@ -1,6 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Minus } from 'lucide-react';
 import { InvoiceItem } from '../../types';
+import {
+  parseNaturalQuantityInput,
+  normalizeUniversalUnit,
+  formatUnitQuantity
+} from '../../utils/universalUnitSystem';
 
 export interface POSQuantitySelectorProps {
   item: InvoiceItem;
@@ -24,6 +29,8 @@ export const POSQuantitySelector: React.FC<POSQuantitySelectorProps> = ({
   const [inputValue, setInputValue] = useState(String(item.qty));
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const unitCode = normalizeUniversalUnit(item.unit);
+
   // Keep internal input string aligned with item.qty when not actively editing
   useEffect(() => {
     if (!isEditing) {
@@ -41,19 +48,15 @@ export const POSQuantitySelector: React.FC<POSQuantitySelectorProps> = ({
       return;
     }
 
-    const result = onSetQty(raw);
+    // Natural small-unit parse: e.g. '250g' -> 0.250 KG, '500ml' -> 0.500 LTR, '10in' -> 0.254 MTR
+    const parsed = parseNaturalQuantityInput(raw, unitCode);
+    const targetQty = parsed.qty;
+
+    const result = onSetQty(targetQty);
     if (!result.success) {
-      // Revert to last confirmed valid quantity
       setInputValue(String(item.qty));
     } else {
-      const parsed = parseFloat(raw);
-      if (!isNaN(parsed) && isFinite(parsed)) {
-        // Clean format: integers without decimal point, decimals without trailing zeros beyond needed
-        const formatted = decimalAllowed
-          ? String(Math.round(parsed * 1000) / 1000)
-          : String(Math.round(parsed));
-        setInputValue(formatted);
-      }
+      setInputValue(String(targetQty));
     }
     setIsEditing(false);
   };
@@ -61,17 +64,12 @@ export const POSQuantitySelector: React.FC<POSQuantitySelectorProps> = ({
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setIsEditing(true);
     setInputValue(String(item.qty));
-    // Select all text on focus to support immediate replacement typing or Ctrl+A
     e.currentTarget.select();
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Allow typing numbers, single decimal point if decimal permitted, and clearing
-    const val = e.target.value;
-    // Basic filter: allow empty or numeric characters (including single decimal point)
-    if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
-      setInputValue(val);
-    }
+    // Allow typing numbers, decimals, and unit suffixes (g, ml, in, cm, etc.)
+    setInputValue(e.target.value);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -95,7 +93,7 @@ export const POSQuantitySelector: React.FC<POSQuantitySelectorProps> = ({
     <div
       className={`flex items-center border rounded-lg overflow-hidden shrink-0 transition-all ${
         isEditing
-          ? 'border-indigo-500 bg-white ring-2 ring-indigo-500/20 shadow-xs'
+          ? 'border-blue-500 bg-white ring-2 ring-blue-500/20 shadow-xs'
           : isOutOfStock || isInsufficient
           ? 'border-rose-300 bg-rose-50/70'
           : 'border-slate-200 bg-slate-50 hover:border-slate-300'
@@ -104,8 +102,8 @@ export const POSQuantitySelector: React.FC<POSQuantitySelectorProps> = ({
       <button
         type="button"
         onClick={() => onUpdateQty(-1)}
-        className="p-1 hover:bg-slate-200 text-slate-600 transition-colors focus:outline-none"
-        title="Decrease quantity by 1"
+        className="p-1 hover:bg-slate-200 text-slate-600 transition-colors focus:outline-none cursor-pointer"
+        title="Decrease quantity"
         aria-label="Decrease quantity"
       >
         <Minus className="w-3 h-3" />
@@ -122,17 +120,17 @@ export const POSQuantitySelector: React.FC<POSQuantitySelectorProps> = ({
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
-        className={`w-14 px-1 py-0.5 text-center font-bold text-xs bg-transparent border-0 outline-none focus:ring-0 cursor-text select-all transition-colors ${
+        className={`w-16 px-1 py-0.5 text-center font-bold text-xs bg-transparent border-0 outline-none focus:ring-0 cursor-text select-all transition-colors ${
           isOutOfStock || isInsufficient ? 'text-rose-600 font-extrabold' : 'text-slate-900'
         }`}
-        title="Click to type quantity directly (Enter to confirm, Esc to restore)"
+        title="Type quantity or unit (e.g. 2, 250g, 500ml, 10in). Press Enter to confirm."
       />
 
       <button
         type="button"
         onClick={() => onUpdateQty(1)}
-        className="p-1 hover:bg-slate-200 text-slate-600 transition-colors focus:outline-none"
-        title="Increase quantity by 1"
+        className="p-1 hover:bg-slate-200 text-slate-600 transition-colors focus:outline-none cursor-pointer"
+        title="Increase quantity"
         aria-label="Increase quantity"
       >
         <Plus className="w-3 h-3" />

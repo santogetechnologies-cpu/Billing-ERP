@@ -32,6 +32,9 @@ import { WarehouseManagerDashboardPage } from '../warehouse/WarehouseManagerDash
 import { PurchaseManagerDashboardPage } from '../purchases/PurchaseManagerDashboardPage';
 import { AccountantDashboardPage } from '../accounting/AccountantDashboardPage';
 import { UserPresenceBadge } from '../../components/common/UserPresenceBadge';
+import { RoleQuickStartCard } from '../../components/dashboard/RoleQuickStartCard';
+import { GuidedOnboardingModal } from '../../components/onboarding/GuidedOnboardingModal';
+import { Sparkles } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -67,6 +70,7 @@ export const DashboardPage: React.FC = () => {
   } = useERP();
 
   const [dateRange, setDateRange] = useState('This Month');
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
   // Compute Live Metrics from ERPContext state
   const metrics = useMemo(() => {
@@ -301,6 +305,10 @@ export const DashboardPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel p-4.5 hover:border-slate-300/90">
         <div>
           <div className="flex items-center gap-2">
+            <GuidedOnboardingModal
+              isOpen={isOnboardingOpen}
+              onClose={() => setIsOnboardingOpen(false)}
+            />
             <h1 className="text-xl font-bold tracking-tight text-slate-900">
               Commercial Operations Dashboard
             </h1>
@@ -334,6 +342,15 @@ export const DashboardPage: React.FC = () => {
             </select>
           </div>
 
+          <button
+            onClick={() => setIsOnboardingOpen(true)}
+            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Launch Guided Onboarding Wizard"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Setup Wizard</span>
+          </button>
+
           {hasPermission(profile?.role, 'pos', 'view') && (
             <button
               onClick={() => navigate('/sales/pos')}
@@ -345,6 +362,9 @@ export const DashboardPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Per-Role Interactive Quick Start Checklist (Part B7) */}
+      <RoleQuickStartCard />
 
       {/* 8 Primary ERP Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint src",
     "preview": "vite preview",
-    "print-bridge": "node scripts/print-bridge.cjs"
+    "print-bridge": "node scripts/print-bridge.cjs",
+    "test:units": "node scripts/test-units.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
