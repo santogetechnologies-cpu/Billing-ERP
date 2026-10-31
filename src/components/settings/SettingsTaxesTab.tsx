@@ -116,3 +116,4 @@ export const SettingsTaxesTab: React.FC = () => {
     </div>
   );
 };
+

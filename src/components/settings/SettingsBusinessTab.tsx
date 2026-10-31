@@ -233,3 +233,4 @@ export const SettingsBusinessTab: React.FC = () => {
     </form>
   );
 };
+

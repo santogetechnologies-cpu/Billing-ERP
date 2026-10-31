@@ -200,3 +200,4 @@ export const SettingsStoresTab: React.FC = () => {
     </div>
   );
 };
+

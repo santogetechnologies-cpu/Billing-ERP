@@ -490,3 +490,4 @@ export const GuidedOnboardingModal: React.FC<GuidedOnboardingModalProps> = ({
     </div>
   );
 };
+

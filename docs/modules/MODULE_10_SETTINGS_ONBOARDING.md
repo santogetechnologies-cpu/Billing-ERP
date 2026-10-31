@@ -46,3 +46,4 @@ Pinned at the bottom of the sidebar, accessible via `/settings`:
 ### Role Quick Start Card ([`RoleQuickStartCard.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/dashboard/RoleQuickStartCard.tsx))
 - Dismissible interactive checklist rendered on the dashboard tailored to the logged-in user's role (Cashier, Salesperson, Accountant, Warehouse Manager, or Admin).
 - Provides instant progress tracking and 1-click launch shortcuts into primary workflows.
+
