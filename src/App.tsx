@@ -173,6 +173,7 @@ export function App() {
                 }
               />
               <Route path="sales/invoices" element={<Navigate to="/sales" replace />} />
+              <Route path="pos" element={<Navigate to="/sales/pos" replace />} />
               <Route
                 path="sales/pos"
                 element={
@@ -360,7 +361,8 @@ export function App() {
                 }
               />
 
-              {/* Inventory */}
+              {/* Inventory / Stock */}
+              <Route path="stock" element={<Navigate to="/inventory" replace />} />
               <Route
                 path="inventory"
                 element={
@@ -490,7 +492,8 @@ export function App() {
                 element={<Navigate to="/inventory/receive" replace />}
               />
 
-              {/* Customers & Suppliers */}
+              {/* Customers & Suppliers / Parties */}
+              <Route path="parties" element={<Navigate to="/customers" replace />} />
               <Route
                 path="customers"
                 element={
@@ -576,7 +579,8 @@ export function App() {
                 }
               />
 
-              {/* Accounting */}
+              {/* Accounting / Accounts */}
+              <Route path="accounts" element={<Navigate to="/accounting" replace />} />
               <Route
                 path="accounting"
                 element={
