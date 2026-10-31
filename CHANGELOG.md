@@ -162,3 +162,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Changed
 - Consolidated fragmented financial accounting pages into a unified 6-tab screen: [`src/pages/accounting/ChartOfAccountsPage.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/pages/accounting/ChartOfAccountsPage.tsx) (`Ledgers`, `Payments`, `Expenses`, `Day Book`, `Bank`, `Tax`).
 - Consolidated reports into a clean 8-tab executive analytics screen: [`src/pages/reports/ReportsPage.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/pages/reports/ReportsPage.tsx) (`Sales`, `Purchases`, `Stock`, `Profit`, `Tax`, `Statements`, `Salesperson`, `Cashier Shifts`).
+
+
+### Module 10: Settings (Admin), Guided Onboarding & Production Polish
+#### Added
+- Universal 5-Step Guided Onboarding Wizard: [`src/components/onboarding/GuidedOnboardingModal.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/onboarding/GuidedOnboardingModal.tsx) configuring business type, company GSTIN, stores, sample industry demo products, and operating mode.
+- Interactive Role Quick Start Checklist: [`src/components/dashboard/RoleQuickStartCard.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/dashboard/RoleQuickStartCard.tsx) tailored for Cashier, Salesperson, Accountant, Warehouse Manager, and Admin roles.
+- Settings In-Page Tabs:
+  - Users & Roles: [`src/components/settings/SettingsUsersTab.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/settings/SettingsUsersTab.tsx)
+  - Business Identity: [`src/components/settings/SettingsBusinessTab.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/settings/SettingsBusinessTab.tsx)
+  - Taxes & GST Slabs: [`src/components/settings/SettingsTaxesTab.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/settings/SettingsTaxesTab.tsx)
+  - Stores & Warehouses: [`src/components/settings/SettingsStoresTab.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/settings/SettingsStoresTab.tsx)
+  - Hardware Printers: [`src/components/settings/SettingsPrintersTab.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/settings/SettingsPrintersTab.tsx)
+  - Database Backup: [`src/components/settings/SettingsBackupTab.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/settings/SettingsBackupTab.tsx)
+  - Advanced & Small-Shop Mode: [`src/components/settings/SettingsAdvancedTab.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/components/settings/SettingsAdvancedTab.tsx)
+- Module documentation: [`docs/modules/MODULE_10_SETTINGS_ONBOARDING.md`](file:///c:/Users/Admin/Desktop/Billing-ERP/docs/modules/MODULE_10_SETTINGS_ONBOARDING.md).
+
+#### Changed
+- Redesigned pinned Settings screen: [`src/pages/settings/SettingsPage.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/pages/settings/SettingsPage.tsx) into the 7-tab administrative control center.
+- Integrated Guided Onboarding and Role Quick Start checklists into [`src/pages/dashboard/DashboardPage.tsx`](file:///c:/Users/Admin/Desktop/Billing-ERP/src/pages/dashboard/DashboardPage.tsx).
