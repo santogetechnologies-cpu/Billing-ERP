@@ -908,6 +908,23 @@ export function canRoleAccessNavItem(
     return allowedMenus.includes('Warehouse Details') || allowedMenus.includes('Warehouses / Godowns');
   }
 
+  // Support newly added enterprise modules
+  if (navItemName === 'Delivery Hub' || navItemName === 'Deliveries') {
+    return allowedMenus.includes('Sales') || normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
+  }
+  if (navItemName === 'HR & Payroll' || navItemName === 'Payroll') {
+    return normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Accountant';
+  }
+  if (navItemName === 'Storefront' || navItemName === 'Catalog' || navItemName === 'Storefront / Catalog') {
+    return normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
+  }
+  if (navItemName === 'Labels & Barcodes' || navItemName === 'Labels') {
+    return allowedMenus.includes('Barcode') || allowedMenus.includes('Product') || allowedMenus.includes('Inventory');
+  }
+  if (navItemName === 'Pricing & Commission' || navItemName === 'Pricing') {
+    return allowedMenus.includes('Sales') || normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Salesperson';
+  }
+
   return allowedMenus.includes(navItemName);
 }
 

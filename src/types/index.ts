@@ -43,6 +43,11 @@ export interface CompanyProfile {
   upiId: string;
   termsAndConditions: string;
   primaryColor?: string;
+  defaultWarehouseId?: string;
+  shopMode?: 'small_shop' | 'retail_supermarket' | 'wholesale_distribution' | 'mall_multicounter';
+  enableMultiTierPricing?: boolean;
+  whatsappBusinessNumber?: string;
+  whatsappOrderGreeting?: string;
 }
 
 export type UnitCategory = 'Count' | 'Weight' | 'Volume' | 'Length' | 'Area' | 'Volume Dimension' | 'Packaging' | 'Custom';
@@ -108,6 +113,15 @@ export interface Product {
   stockStatus?: StockStatusType;
   imageUrl?: string;
   createdAt: string;
+
+  // Multi-tier rates & manufacturer barcodes
+  rateA?: number;
+  rateB?: number;
+  rateC?: number;
+  rateD?: number;
+  manufacturerBarcode?: string;
+  isManufacturerBarcodeActive?: boolean;
+  maxDiscountPercent?: number;
 }
 
 export type StockStatusType = 'Active' | 'Limited Stock' | 'Out of Stock' | 'Not Set' | 'Warning' | 'in_stock' | 'low_stock' | 'out_of_stock';
@@ -246,6 +260,17 @@ export interface SalesInvoice {
   notes?: string;
   terms?: string;
   createdAt: string;
+
+  // Multi-channel delivery & price tier tracking
+  warehouseName?: string;
+  orderSource?: 'pos' | 'direct' | 'whatsapp' | 'call' | 'app' | 'salesperson_route';
+  deliveryType?: 'takeaway' | 'home_delivery' | 'store_supply';
+  deliveryAddress?: string;
+  assignedDeliveryPersonId?: string;
+  assignedDeliveryPersonName?: string;
+  deliveryStatus?: 'pending' | 'out_for_delivery' | 'delivered' | 'failed' | 'cancelled';
+  priceTierApplied?: 'Rate A' | 'Rate B' | 'Rate C' | 'Rate D' | 'Standard';
+  whatsappNotificationSent?: boolean;
 }
 
 export type PurchaseDocType =
@@ -1196,3 +1221,140 @@ export interface UpdateCustomerReturnInput {
   updatedByName?: string;
 }
 
+
+// =============================================================================
+// HR, STAFF & PAYROLL MODULE TYPES
+// =============================================================================
+export type SalaryType = 'Monthly' | 'Hourly' | 'Daily';
+export type EmploymentType = 'Full Time' | 'Part Time' | 'Contract' | 'Daily Wage';
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  code: string;
+  role: string;
+  department: string;
+  phone: string;
+  email?: string;
+  employmentType: EmploymentType;
+  salaryType: SalaryType;
+  baseSalary: number;
+  hourlyRate?: number;
+  joinDate: string;
+  bankAccount?: {
+    bankName: string;
+    accountNumber: string;
+    ifsc: string;
+  };
+  pan?: string;
+  aadhaar?: string;
+  status: 'Active' | 'On Leave' | 'Terminated';
+  allowedCasualLeaves: number;
+  allowedSickLeaves: number;
+  isActive?: boolean;
+  dailyRate?: number;
+  bankAccountNumber?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export type AttendanceStatus = 'Present' | 'Absent' | 'Half Day' | 'On Leave' | 'Holiday' | 'Overtime';
+
+export interface AttendanceRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  date: string; // YYYY-MM-DD
+  status: AttendanceStatus;
+  checkIn?: string;
+  checkOut?: string;
+  hoursWorked?: number;
+  overtimeHours?: number;
+  notes?: string;
+}
+
+export interface LeaveRequest {
+  id: string;
+  staffId: string;
+  staffName: string;
+  leaveType: 'Casual' | 'Sick' | 'Earned' | 'Unpaid';
+  startDate: string;
+  endDate: string;
+  days: number;
+  reason: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  approvedBy?: string;
+  approvedAt?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface PayrollRun {
+  id: string;
+  payrollMonth: string; // e.g. "2026-10"
+  runDate: string;
+  totalGrossSalary: number;
+  totalAllowances: number;
+  totalBonuses: number;
+  totalDeductions: number;
+  totalNetPayout: number;
+  staffCount: number;
+  status: 'Draft' | 'Approved' | 'Paid';
+  paymentAccount?: string;
+  expenseId?: string;
+  createdAt: string;
+}
+
+export interface Payslip {
+  id: string;
+  payrollRunId: string;
+  staffId: string;
+  staffName: string;
+  staffCode: string;
+  month: string;
+  baseSalary: number;
+  workingDays: number;
+  presentDays: number;
+  paidLeaves: number;
+  unpaidLeaves: number;
+  overtimePay: number;
+  bonus: number;
+  allowances: number;
+  deductions: number;
+  netPay: number;
+  status: 'Draft' | 'Paid';
+  paymentDate?: string;
+  paymentMethod?: string;
+}
+
+// =============================================================================
+// INBOUND CUSTOMER ORDERS & WHATSAPP DISPATCH
+// =============================================================================
+export interface CustomerCartItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  price: number;
+  qty: number;
+  unit: string;
+  imageUrl?: string;
+}
+
+export interface InboundCustomerOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string;
+  deliveryAddress: string;
+  channel: 'WhatsApp' | 'Phone Call' | 'Customer Portal';
+  items: InvoiceItem[];
+  subtotal: number;
+  taxTotal: number;
+  grandTotal: number;
+  status: 'Pending Confirmation' | 'Confirmed' | 'Billed' | 'Assigned for Delivery' | 'Delivered' | 'Cancelled';
+  assignedDeliveryPersonId?: string;
+  assignedDeliveryPersonName?: string;
+  paymentStatus: 'Pending' | 'Paid Online' | 'Cash on Delivery';
+  notes?: string;
+  createdAt: string;
+}

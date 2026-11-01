@@ -36,6 +36,7 @@ import { POSQuantitySelector } from '../../components/pos/POSQuantitySelector';
 import { POSHeldBillsDrawer } from '../../components/pos/POSHeldBillsDrawer';
 import { POSShiftPanel } from '../../components/pos/POSShiftPanel';
 import { InvoicePrintModal } from '../../components/invoice/InvoicePrintModal';
+import { SimplePOSView } from '../../components/pos/SimplePOSView';
 import { directPrintService } from '../../services/directPrintService';
 import {
   parseNaturalQuantityInput,
@@ -67,6 +68,7 @@ export const FastPOSPage: React.FC = () => {
 
   // In-Page Navigation Tabs (Part C)
   const [activeTab, setActiveTab] = useState<string>(() => searchParams.get('tab') || 'billing');
+  const [posMode, setPosMode] = useState<'simple' | 'advanced'>('simple');
 
   // Universal 5-Step Transaction State (Part B1)
   const [currentStep, setCurrentStep] = useState<TransactionStep>('select');
@@ -396,6 +398,65 @@ export const FastPOSPage: React.FC = () => {
     { id: 'shift', label: 'Cashier Shift', icon: Clock }
   ];
 
+  // 1-Tap Simple Counter POS Checkout
+  const handleSimpleCheckout = async (params: {
+    cart: InvoiceItem[];
+    paymentMethod: 'Cash' | 'UPI' | 'Card' | 'Credit';
+    discountPct: number;
+    tier: 'Rate A' | 'Rate B' | 'Rate C' | 'Rate D';
+    sendWhatsApp: boolean;
+  }) => {
+    setIsSubmitting(true);
+    try {
+      const customer = customers.find(c => c.id === selectedCustomerId);
+      const subtotal = params.cart.reduce((sum, item) => sum + (item.qty * item.rate), 0);
+      const discountTotal = (subtotal * params.discountPct) / 100;
+      const grandTotal = Math.max(0, subtotal - discountTotal);
+      const invoicePrefix = company.invoicePrefix || 'POS-';
+      const invoiceNumber = `${invoicePrefix}${Date.now().toString().slice(-6)}`;
+
+      const newInvoice: Omit<SalesInvoice, 'id' | 'createdAt'> = {
+        invoiceNumber,
+        docType: 'pos_invoice',
+        date: new Date().toISOString().split('T')[0],
+        dueDate: new Date().toISOString().split('T')[0],
+        customerId: selectedCustomerId,
+        customerName: customer?.name || 'Walk-in Customer',
+        customerPhone: customer?.phone || '',
+        customerGstin: customer?.gstin || '',
+        customerAddress: customer?.address || '',
+        warehouseId: selectedWarehouseId,
+        items: params.cart,
+        subtotal,
+        discountTotal,
+        taxTotal: 0,
+        cgstTotal: 0,
+        sgstTotal: 0,
+        igstTotal: 0,
+        roundOff: 0,
+        grandTotal,
+        paidAmount: grandTotal,
+        paymentStatus: 'Paid',
+        paymentMethod: params.paymentMethod,
+        priceTierApplied: params.tier,
+        notes: `Simple 1-Tap Counter POS (${profile?.fullName || 'Cashier'})`
+      };
+
+      const created = await createSalesInvoice(newInvoice);
+      setCompletedInvoice(created);
+      setCurrentStep('done');
+
+      // Attempt silent background thermal printing
+      try {
+        await directPrintService.printReceipt(created, company);
+      } catch {}
+    } catch (err: any) {
+      alert(`Error completing POS sale: ${err?.message || 'Transaction failed'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
     if (tabId === 'held') setIsHeldDrawerOpen(true);
@@ -415,7 +476,17 @@ export const FastPOSPage: React.FC = () => {
         </div>
 
         {/* Universal 5-Step Indicator (Part B1) */}
-        <POSStepIndicator currentStep={currentStep} className="shrink-0" />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPosMode(prev => prev === 'simple' ? 'advanced' : 'simple')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs font-bold shadow-2xs hover:bg-blue-100 transition-colors cursor-pointer"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+            <span>{posMode === 'simple' ? 'Switch to Full Grid' : '⚡ 1-Tap Counter POS'}</span>
+          </button>
+          <POSStepIndicator currentStep={currentStep} className="shrink-0" />
+        </div>
       </div>
 
       {/* Main Work Area */}
@@ -423,6 +494,19 @@ export const FastPOSPage: React.FC = () => {
         {activeTab === 'shift' ? (
           <div className="flex-1 overflow-y-auto p-4">
             <POSShiftPanel />
+          </div>
+        ) : posMode === 'simple' && activeTab === 'billing' && !completedInvoice ? (
+          <div className="flex-1 overflow-hidden">
+            <SimplePOSView
+              products={products}
+              customers={customers}
+              companyName={company.name}
+              companyPhone={company.phone}
+              selectedCustomerId={selectedCustomerId}
+              onSelectCustomerId={setSelectedCustomerId}
+              onCheckout={handleSimpleCheckout}
+              onSwitchToAdvanced={() => setPosMode('advanced')}
+            />
           </div>
         ) : completedInvoice ? (
           /* Step 5: DONE Success Screen (Part B1) */

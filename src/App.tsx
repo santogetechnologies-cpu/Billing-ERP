@@ -29,6 +29,9 @@ import { FastPOSPage } from './pages/sales/FastPOSPage';
 import { SalesDocumentsPage } from './pages/sales/SalesDocumentsPage';
 import { SalesReturnsPage } from './pages/sales/SalesReturnsPage';
 import { SalespersonDashboardPage } from './pages/sales/SalespersonDashboardPage';
+import { SalespersonHubPage } from './pages/sales/SalespersonHubPage';
+import { PayrollPage } from './pages/hr/PayrollPage';
+import { CustomerPortalPage } from './pages/customer/CustomerPortalPage';
 
 // Purchases
 import { PurchaseManagerDashboardPage } from './pages/purchases/PurchaseManagerDashboardPage';
@@ -127,6 +130,10 @@ export function App() {
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
+              {/* Public Customer Ordering Catalog / Portal */}
+              <Route path="/customer-portal" element={<CustomerPortalPage />} />
+              <Route path="/catalog" element={<CustomerPortalPage />} />
+
               {/* Protected ERP App Routes */}
               <Route
               path="/"
@@ -206,6 +213,15 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="sales/hub"
+                element={
+                  <ProtectedRoute requiredModule="sales">
+                    <SalespersonHubPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="salesperson-hub" element={<Navigate to="/sales/hub" replace />} />
 
               {/* Purchases */}
               <Route
@@ -706,6 +722,28 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              {/* HR & Payroll */}
+              <Route
+                path="payroll"
+                element={
+                  <ProtectedRoute requiredModule="expenses">
+                    <PayrollPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="hr/payroll" element={<Navigate to="/payroll" replace />} />
+              <Route path="hr" element={<Navigate to="/payroll" replace />} />
+
+              {/* Storefront / Customer Ordering Portal within App */}
+              <Route
+                path="storefront"
+                element={
+                  <ProtectedRoute requiredModule="pos">
+                    <CustomerPortalPage />
+                  </ProtectedRoute>
+                }
+              />
+
               <Route
                 path="settings"
                 element={

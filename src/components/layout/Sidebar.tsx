@@ -16,7 +16,10 @@ import {
   ChevronRight,
   LogOut,
   Building2,
-  UserCheck
+  Truck,
+  QrCode,
+  Store,
+  Wallet
 } from 'lucide-react';
 
 import { useERP } from '../../context/ERPContext';
@@ -39,6 +42,7 @@ export interface UniversalNavItem {
   badge?: string | number;
   badgeColor?: 'brand' | 'warning' | 'danger' | 'neutral';
   matchExact?: boolean;
+  section: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -47,7 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   onCloseMobile
 }) => {
-  const { company, heldInvoices, notifications } = useERP();
+  const { company, heldInvoices, notifications, inboundOrders } = useERP();
   const { profile, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -65,15 +69,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const heldBillsCount = heldInvoices?.length || 0;
   const unreadAlertsCount = notifications?.filter(n => !n.read)?.length || 0;
+  const pendingOrdersCount = inboundOrders?.filter(o => o.status === 'Pending Confirmation' || o.status === 'Confirmed')?.length || 0;
 
-  // The 10 Universal Main Navigation Items (Part C)
-  const universalNavItems: UniversalNavItem[] = [
+  // Complete Navigation Items grouped into 4 distinct functional sections
+  const allNavItems: UniversalNavItem[] = [
+    // Section 1: Billing & Dispatch
     {
       id: 'dashboard',
       name: 'Dashboard',
       path: '/',
       icon: LayoutDashboard,
-      matchExact: true
+      matchExact: true,
+      section: 'Billing & Dispatch'
     },
     {
       id: 'pos',
@@ -81,19 +88,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
       path: '/sales/pos',
       icon: Zap,
       badge: heldBillsCount > 0 ? heldBillsCount : undefined,
-      badgeColor: 'brand'
+      badgeColor: 'brand',
+      section: 'Billing & Dispatch'
     },
     {
       id: 'sales',
       name: 'Sales',
       path: '/sales',
-      icon: ShoppingCart
+      icon: ShoppingCart,
+      section: 'Billing & Dispatch'
     },
     {
-      id: 'purchases',
-      name: 'Purchases',
-      path: '/purchases',
-      icon: ShoppingBag
+      id: 'delivery_hub',
+      name: 'Delivery Hub',
+      path: '/sales/hub',
+      icon: Truck,
+      badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined,
+      badgeColor: 'warning',
+      section: 'Billing & Dispatch'
+    },
+
+    // Section 2: Stock & Inventory
+    {
+      id: 'products',
+      name: 'Products',
+      path: '/products',
+      icon: Package,
+      section: 'Inventory & Supply'
     },
     {
       id: 'stock',
@@ -101,42 +122,73 @@ export const Sidebar: React.FC<SidebarProps> = ({
       path: '/inventory',
       icon: Boxes,
       badge: unreadAlertsCount > 0 ? unreadAlertsCount : undefined,
-      badgeColor: 'warning'
+      badgeColor: 'warning',
+      section: 'Inventory & Supply'
     },
     {
-      id: 'products',
-      name: 'Products',
-      path: '/products',
-      icon: Package
+      id: 'purchases',
+      name: 'Purchases',
+      path: '/purchases',
+      icon: ShoppingBag,
+      section: 'Inventory & Supply'
+    },
+    {
+      id: 'barcode',
+      name: 'Labels & Barcodes',
+      path: '/barcode',
+      icon: QrCode,
+      section: 'Inventory & Supply'
+    },
+
+    // Section 3: Finance & People
+    {
+      id: 'accounts',
+      name: 'Accounts',
+      path: '/accounting',
+      icon: BookOpen,
+      section: 'Finance & Team'
+    },
+    {
+      id: 'payroll',
+      name: 'HR & Payroll',
+      path: '/payroll',
+      icon: Wallet,
+      section: 'Finance & Team'
     },
     {
       id: 'parties',
       name: 'Parties',
       path: '/customers',
-      icon: Users
+      icon: Users,
+      section: 'Finance & Team'
     },
     {
       id: 'pricing',
       name: 'Pricing & Commission',
       path: '/pricing',
-      icon: BadgePercent
+      icon: BadgePercent,
+      section: 'Finance & Team'
     },
+
+    // Section 4: Channels & Intelligence
     {
-      id: 'accounts',
-      name: 'Accounts',
-      path: '/accounting',
-      icon: BookOpen
+      id: 'storefront',
+      name: 'Storefront',
+      path: '/storefront',
+      icon: Store,
+      section: 'Channels & Reports'
     },
     {
       id: 'reports',
       name: 'Reports',
       path: '/reports',
-      icon: BarChart3
+      icon: BarChart3,
+      section: 'Channels & Reports'
     }
   ];
 
   // RBAC Filtering: Only render items permitted for logged-in role
-  const permittedNavItems = universalNavItems.filter(item =>
+  const permittedNavItems = allNavItems.filter(item =>
     canRoleAccessNavItem(profile?.role, item.name)
   );
 
@@ -156,8 +208,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (item.id === 'sales') {
-      if (cur.startsWith('/sales/pos')) return false;
+      if (cur.startsWith('/sales/pos') || cur.startsWith('/sales/hub') || cur === '/salesperson-hub') return false;
       return cur === '/sales' || cur.startsWith('/sales/');
+    }
+
+    if (item.id === 'delivery_hub') {
+      return cur === '/sales/hub' || cur.startsWith('/sales/hub') || cur === '/salesperson-hub';
+    }
+
+    if (item.id === 'payroll') {
+      return cur === '/payroll' || cur.startsWith('/payroll') || cur === '/hr' || cur.startsWith('/hr/');
+    }
+
+    if (item.id === 'storefront') {
+      return cur === '/storefront' || cur === '/catalog' || cur === '/customer-portal';
+    }
+
+    if (item.id === 'barcode') {
+      return cur === '/barcode' || cur.startsWith('/barcode');
     }
 
     if (item.id === 'purchases') {
@@ -208,6 +276,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     location.pathname.startsWith('/audit-log') ||
     location.pathname.startsWith('/taxes');
 
+  // Group permitted items by section
+  const sections = Array.from(new Set(permittedNavItems.map(i => i.section)));
+
   return (
     <>
       {/* Mobile Backdrop */}
@@ -221,25 +292,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Main Sidebar Shell */}
       <aside
         className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col bg-slate-900 border-r border-slate-800 text-slate-300 transition-all duration-300 select-none ${
-          isCollapsed ? 'w-18' : 'w-64'
+          isCollapsed ? 'w-16' : 'w-60'
         } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Brand / Store Header */}
-        <div className="h-16 flex items-center justify-between px-3.5 border-b border-slate-800/80 bg-slate-950/40 shrink-0">
+        <div className="h-14 flex items-center justify-between px-3 border-b border-slate-800/80 bg-slate-950/50 shrink-0">
           <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-base shadow-sm shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-xs shrink-0">
               {company.logo ? (
-                <img src={company.logo} alt={company.name} className="w-full h-full object-cover rounded-xl" />
+                <img src={company.logo} alt={company.name} className="w-full h-full object-cover rounded-lg" />
               ) : (
-                <Building2 className="w-5 h-5 text-white" />
+                <Building2 className="w-4.5 h-4.5 text-white" />
               )}
             </div>
             {!isCollapsed && (
               <div className="min-w-0 flex-1">
-                <h1 className="font-semibold text-sm text-white truncate leading-tight">
+                <h1 className="font-semibold text-xs text-white truncate leading-tight">
                   {company.name || 'Universal ERP'}
                 </h1>
-                <p className="text-[11px] text-slate-400 truncate">
+                <p className="text-[10px] text-slate-400 truncate">
                   {company.businessType || 'Retail & Distribution'}
                 </p>
               </div>
@@ -251,84 +322,98 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={onToggleCollapse}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden lg:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            className="hidden lg:flex p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
           </button>
         </div>
 
-        {/* Universal 10 Navigation Items List */}
-        <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1 no-scrollbar">
-          {permittedNavItems.map(item => {
-            const active = isItemActive(item);
-            const Icon = item.icon;
+        {/* Navigation Items List with Compact Height to prevent vertical scrolling */}
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-3 no-scrollbar">
+          {sections.map(sectionName => {
+            const sectionItems = permittedNavItems.filter(i => i.section === sectionName);
+            if (sectionItems.length === 0) return null;
 
             return (
-              <NavLink
-                key={item.id}
-                to={item.path}
-                title={isCollapsed ? item.name : undefined}
-                className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-150 cursor-pointer ${
-                  active
-                    ? 'bg-blue-600 text-white font-semibold shadow-xs shadow-blue-600/30'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
-                } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              >
-                <Icon
-                  className={`w-5 h-5 shrink-0 transition-colors ${
-                    active ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
-                  }`}
-                />
-
+              <div key={sectionName} className="space-y-0.5">
                 {!isCollapsed && (
-                  <span className="flex-1 truncate tracking-tight">{item.name}</span>
+                  <p className="px-2 pb-1 text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
+                    {sectionName}
+                  </p>
                 )}
+                {sectionItems.map(item => {
+                  const active = isItemActive(item);
+                  const Icon = item.icon;
 
-                {!isCollapsed && item.badge !== undefined && (
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                      active
-                        ? 'bg-white text-blue-700'
-                        : item.badgeColor === 'brand'
-                        ? 'bg-blue-500/20 text-blue-300'
-                        : item.badgeColor === 'warning'
-                        ? 'bg-amber-500/20 text-amber-300'
-                        : 'bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </NavLink>
+                  return (
+                    <NavLink
+                      key={item.id}
+                      to={item.path}
+                      title={isCollapsed ? item.name : undefined}
+                      className={`group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 cursor-pointer ${
+                        active
+                          ? 'bg-blue-600 text-white font-semibold shadow-xs shadow-blue-600/30'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                      } ${isCollapsed ? 'justify-center px-0' : ''}`}
+                    >
+                      <Icon
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          active ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                        }`}
+                      />
+
+                      {!isCollapsed && (
+                        <span className="flex-1 truncate tracking-tight text-[11px]">{item.name}</span>
+                      )}
+
+                      {!isCollapsed && item.badge !== undefined && (
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                            active
+                              ? 'bg-white text-blue-700'
+                              : item.badgeColor === 'brand'
+                              ? 'bg-blue-500/20 text-blue-300'
+                              : item.badgeColor === 'warning'
+                              ? 'bg-amber-500/20 text-amber-300'
+                              : 'bg-slate-700 text-slate-300'
+                          }`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </NavLink>
+                  );
+                })}
+              </div>
             );
           })}
         </div>
 
         {/* Pinned Bottom Area: Settings & User Profile */}
-        <div className="p-2.5 border-t border-slate-800/80 bg-slate-950/30 space-y-1 shrink-0">
-          {/* Pinned Settings Item (Part C) */}
+        <div className="p-2 border-t border-slate-800/80 bg-slate-950/40 space-y-1 shrink-0">
+          {/* Pinned Settings Item */}
           {canAccessSettings && (
             <NavLink
               to="/settings"
               title={isCollapsed ? 'Settings' : undefined}
-              className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              className={`group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 isSettingsActive
                   ? 'bg-blue-600 text-white font-semibold shadow-xs'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
               } ${isCollapsed ? 'justify-center px-0' : ''}`}
             >
               <Settings
-                className={`w-5 h-5 shrink-0 ${
+                className={`w-4 h-4 shrink-0 ${
                   isSettingsActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
                 }`}
               />
-              {!isCollapsed && <span className="flex-1 truncate">Settings</span>}
+              {!isCollapsed && <span className="flex-1 truncate text-[11px]">Settings</span>}
             </NavLink>
           )}
 
           {/* User Account / Session */}
           <div
-            className={`flex items-center gap-2.5 p-2 rounded-xl bg-slate-800/50 hover:bg-slate-800 text-slate-300 transition-colors ${
+            className={`flex items-center gap-2 p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition-colors ${
               isCollapsed ? 'justify-center' : ''
             }`}
           >
@@ -336,15 +421,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
               title="View profile"
-              className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
+              className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 text-xs font-bold shrink-0">
+              <div className="w-7 h-7 rounded-md bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 text-[11px] font-bold shrink-0">
                 {profile?.fullName ? profile.fullName.charAt(0).toUpperCase() : 'U'}
               </div>
               {!isCollapsed && (
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-white truncate">{profile?.fullName || 'User'}</p>
-                  <p className="text-[10px] text-slate-400 truncate">{profile?.role || 'Staff'}</p>
+                  <p className="text-[11px] font-medium text-white truncate leading-tight">{profile?.fullName || 'User'}</p>
+                  <p className="text-[9px] text-slate-400 truncate leading-none mt-0.5">{profile?.role || 'Staff'}</p>
                 </div>
               )}
             </button>
@@ -355,9 +440,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={handleLogout}
                 title="Sign out"
                 aria-label="Sign out"
-                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 rounded-lg transition-colors cursor-pointer"
+                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 rounded-md transition-colors cursor-pointer"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
               </button>
             )}
           </div>

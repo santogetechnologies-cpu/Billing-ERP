@@ -4,6 +4,7 @@ import {
   FileText,
   Plus,
   Printer,
+  Phone,
   Eye,
   Trash2,
   CheckCircle,
@@ -30,12 +31,13 @@ import { SalesQuotationsTab } from '../../components/sales/SalesQuotationsTab';
 import { SalesOrdersTab } from '../../components/sales/SalesOrdersTab';
 import { SalesReturnsTab } from '../../components/sales/SalesReturnsTab';
 import { SalesPaymentsReceivedTab } from '../../components/sales/SalesPaymentsReceivedTab';
+import { InboundOrdersTab } from '../../components/sales/InboundOrdersTab';
 
 export const SalesInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { profile } = useAuth();
-  const { salesInvoices, company } = useERP();
+  const { salesInvoices, company, inboundOrders } = useERP();
 
   const [activeTab, setActiveTab] = useState<string>(() => searchParams.get('tab') || 'invoices');
   const [selectedInvoiceForPrint, setSelectedInvoiceForPrint] = useState<SalesInvoice | null>(null);
@@ -59,6 +61,7 @@ export const SalesInvoicesPage: React.FC = () => {
     { id: 'quotations', label: 'Quotations', count: salesInvoices.filter(i => i.docType === 'quotation').length, icon: FileText },
     { id: 'orders', label: 'Orders', count: salesInvoices.filter(i => i.docType === 'sales_order').length, icon: ShoppingCart },
     { id: 'returns', label: 'Returns', count: salesInvoices.filter(i => i.docType === 'credit_note').length, icon: RotateCcw },
+    { id: 'inbound', label: 'Call & WhatsApp Orders', count: inboundOrders.length, icon: Phone },
     { id: 'payments', label: 'Payments Received', icon: CreditCard }
   ];
 
@@ -272,6 +275,7 @@ export const SalesInvoicesPage: React.FC = () => {
       {activeTab === 'returns' && <SalesReturnsTab />}
 
       {/* Tab 5: Payments Received */}
+      {activeTab === 'inbound' && <InboundOrdersTab />}
       {activeTab === 'payments' && <SalesPaymentsReceivedTab />}
 
       {/* Universal 5-Step Sales Document Modal */}

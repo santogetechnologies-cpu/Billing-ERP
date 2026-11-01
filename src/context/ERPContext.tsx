@@ -34,7 +34,13 @@ import {
   CreateCustomerReturnInput,
   UpdateCustomerReturnInput,
   RecordSupplierDeliveryInput,
-  SupplierDeliveryReceiptResult
+  SupplierDeliveryReceiptResult,
+  StaffMember,
+  AttendanceRecord,
+  LeaveRequest,
+  PayrollRun,
+  Payslip,
+  InboundCustomerOrder
 } from '../types';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -321,6 +327,27 @@ export interface ERPContextType {
   resetAllToDemoData: () => Promise<void>;
   seedDemoBusiness: () => Promise<void>;
   clearAllMockData: () => Promise<void>;
+
+  // HR & Payroll
+  staffMembers: StaffMember[];
+  addStaffMember: (staff: Omit<StaffMember, 'id' | 'createdAt'>) => Promise<StaffMember>;
+  updateStaffMember: (id: string, updates: Partial<StaffMember>) => Promise<void>;
+  attendanceRecords: AttendanceRecord[];
+  markAttendance: (records: Omit<AttendanceRecord, 'id'>[]) => Promise<void>;
+  getStaffAttendanceForMonth: (staffId: string, month: string) => AttendanceRecord[];
+  leaveRequests: LeaveRequest[];
+  submitLeaveRequest: (leave: Omit<LeaveRequest, 'id' | 'createdAt'>) => Promise<void>;
+  updateLeaveStatus: (id: string, status: 'Approved' | 'Rejected', notes?: string) => Promise<void>;
+  payrollRuns: PayrollRun[];
+  payslips: Payslip[];
+  runPayroll: (month: string, adjustments?: Record<string, { bonus?: number; allowances?: number; deductions?: number }>) => Promise<PayrollRun>;
+
+  // Inbound Orders & WhatsApp Dispatch
+  inboundOrders: InboundCustomerOrder[];
+  createInboundOrder: (order: Omit<InboundCustomerOrder, 'id' | 'createdAt' | 'orderNumber'>) => Promise<InboundCustomerOrder>;
+  updateInboundOrderStatus: (orderId: string, status: InboundCustomerOrder['status'], notes?: string) => Promise<void>;
+  assignOrderToSalesperson: (orderId: string, salespersonId: string, salespersonName: string) => Promise<void>;
+  updateDeliveryStatus: (invoiceId: string, status: 'pending' | 'out_for_delivery' | 'delivered' | 'failed' | 'cancelled') => Promise<void>;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -1091,16 +1118,26 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sales Invoice with Strict Stock Availability Validation
   const createSalesInvoice = async (invoiceData: Omit<SalesInvoice, 'id' | 'createdAt'>): Promise<SalesInvoice> => {
+    // Guarantee store stock always deducts from Main Store / Primary Warehouse
+    const defaultWh = warehouses.find(w => w.isDefault) || warehouses[0];
+    const effectiveWarehouseId = invoiceData.warehouseId || company.defaultWarehouseId || defaultWh?.id || 'main';
+    const effectiveWarehouseName = invoiceData.warehouseName || warehouses.find(w => w.id === effectiveWarehouseId)?.name || defaultWh?.name || 'Main Store';
+    const finalInvoiceData = {
+      ...invoiceData,
+      warehouseId: effectiveWarehouseId,
+      warehouseName: effectiveWarehouseName
+    };
+
     // 1. Authoritative Pre-validation: verify stock before sending or mutating state
-    const affectsStock = invoiceData.docType === 'tax_invoice' || invoiceData.docType === 'delivery_challan' || invoiceData.docType === 'pos_invoice';
-    if (affectsStock && invoiceData.items.length > 0) {
-      const validation = validateSaleStock(invoiceData.warehouseId, invoiceData.items);
+    const affectsStock = finalInvoiceData.docType === 'tax_invoice' || finalInvoiceData.docType === 'delivery_challan' || finalInvoiceData.docType === 'pos_invoice';
+    if (affectsStock && finalInvoiceData.items.length > 0) {
+      const validation = validateSaleStock(effectiveWarehouseId, finalInvoiceData.items);
       if (!validation.valid) {
         throw new Error(validation.errorMessage || 'No stock available — This product cannot be billed because no stock is available.');
       }
     }
 
-    const newInvoice = await salesService.createSalesInvoice(invoiceData, company.id);
+    const newInvoice = await salesService.createSalesInvoice(finalInvoiceData, company.id);
     setSalesInvoices(prev => [newInvoice, ...prev.filter(inv => inv.id !== newInvoice.id)]);
 
     // Deduct stock for completed sales in local React state & sync balances
@@ -2171,6 +2208,263 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   }, [activeCompanyId, user, profile?.full_name, profile?.role, loadAllData]);
 
+  // =========================================================================
+  // HR, ATTENDANCE & PAYROLL STATE
+  // =========================================================================
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_staff_members');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_attendance_records');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_leave_requests');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [payrollRuns, setPayrollRuns] = useState<PayrollRun[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_payroll_runs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [payslips, setPayslips] = useState<Payslip[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_payslips');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Sync HR data to localStorage
+  useEffect(() => {
+    try { localStorage.setItem('erp_staff_members', JSON.stringify(staffMembers)); } catch {}
+  }, [staffMembers]);
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_attendance_records', JSON.stringify(attendanceRecords)); } catch {}
+  }, [attendanceRecords]);
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_leave_requests', JSON.stringify(leaveRequests)); } catch {}
+  }, [leaveRequests]);
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_payroll_runs', JSON.stringify(payrollRuns)); } catch {}
+  }, [payrollRuns]);
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_payslips', JSON.stringify(payslips)); } catch {}
+  }, [payslips]);
+
+  const addStaffMember = async (staffData: Omit<StaffMember, 'id' | 'createdAt'>): Promise<StaffMember> => {
+    const newStaff: StaffMember = {
+      ...staffData,
+      id: `staff-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: new Date().toISOString()
+    };
+    setStaffMembers(prev => [newStaff, ...prev]);
+    return newStaff;
+  };
+
+  const updateStaffMember = async (id: string, updates: Partial<StaffMember>): Promise<void> => {
+    setStaffMembers(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  };
+
+  const markAttendance = async (records: Omit<AttendanceRecord, 'id'>[]): Promise<void> => {
+    const newRecords: AttendanceRecord[] = records.map(r => ({
+      ...r,
+      id: `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+    }));
+    setAttendanceRecords(prev => {
+      // Overwrite if same staff and same date exists
+      const filtered = prev.filter(p => !newRecords.some(n => n.staffId === p.staffId && n.date === p.date));
+      return [...newRecords, ...filtered];
+    });
+  };
+
+  const getStaffAttendanceForMonth = useCallback((staffId: string, month: string): AttendanceRecord[] => {
+    return attendanceRecords.filter(r => r.staffId === staffId && r.date.startsWith(month));
+  }, [attendanceRecords]);
+
+  const submitLeaveRequest = async (leaveData: Omit<LeaveRequest, 'id' | 'createdAt'>): Promise<void> => {
+    const newLeave: LeaveRequest = {
+      ...leaveData,
+      id: `leave-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: new Date().toISOString()
+    };
+    setLeaveRequests(prev => [newLeave, ...prev]);
+  };
+
+  const updateLeaveStatus = async (id: string, status: 'Approved' | 'Rejected', notes?: string): Promise<void> => {
+    setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status, notes: notes || l.notes } : l));
+  };
+
+    const runPayroll = async (
+    month: string,
+    adjustments?: Record<string, { bonus?: number; allowances?: number; deductions?: number }>
+  ): Promise<PayrollRun> => {
+    const activeStaff = staffMembers.filter(s => s.status === 'Active' || s.isActive !== false);
+    const runId = `pr-${Date.now()}`;
+
+    let totalGrossSalary = 0;
+    let totalAllowances = 0;
+    let totalBonuses = 0;
+    let totalDeductions = 0;
+    let totalNetPayout = 0;
+
+    const generatedSlips: Payslip[] = activeStaff.map(staff => {
+      const staffAtt = attendanceRecords.filter(a => a.staffId === staff.id && a.date.startsWith(month));
+      const presentDays = staffAtt.filter(a => a.status === 'Present').length;
+      const totalHours = staffAtt.reduce((sum, a) => sum + (a.hoursWorked || 8), 0);
+      const paidLeaves = staffAtt.filter(a => a.status === 'On Leave' || a.status === 'Holiday').length;
+      const unpaidLeaves = staffAtt.filter(a => a.status === 'Absent').length;
+
+      let baseSalary = staff.baseSalary;
+      if (staff.salaryType === 'Hourly') {
+        baseSalary = totalHours * (staff.hourlyRate || (staff.baseSalary / 160));
+      } else if (staff.salaryType === 'Daily') {
+        baseSalary = (presentDays + paidLeaves) * (staff.dailyRate || (staff.baseSalary / 26));
+      } else {
+        const perDayRate = staff.baseSalary / 30;
+        baseSalary = Math.max(0, staff.baseSalary - (unpaidLeaves * perDayRate));
+      }
+
+      const overtimePay = staffAtt.reduce((sum, a) => sum + ((a.overtimeHours || 0) * ((staff.hourlyRate || 100) * 1.5)), 0);
+      const adj = adjustments?.[staff.id] || {};
+      const allowances = adj.allowances || 0;
+      const bonus = adj.bonus || 0;
+      const deductions = adj.deductions || 0;
+      const netPay = Math.round(baseSalary + overtimePay + allowances + bonus - deductions);
+
+      totalGrossSalary += baseSalary;
+      totalAllowances += allowances;
+      totalBonuses += bonus;
+      totalDeductions += deductions;
+      totalNetPayout += netPay;
+
+      return {
+        id: `slip-${Date.now()}-${staff.id}`,
+        payrollRunId: runId,
+        staffId: staff.id,
+        staffName: staff.name,
+        staffCode: staff.code,
+        month,
+        baseSalary: Math.round(baseSalary),
+        workingDays: 26,
+        presentDays,
+        paidLeaves,
+        unpaidLeaves,
+        overtimePay: Math.round(overtimePay),
+        bonus,
+        allowances,
+        deductions,
+        netPay,
+        status: 'Draft',
+        paymentMethod: staff.bankAccount?.accountNumber || staff.bankAccountNumber ? 'Bank Transfer' : 'Cash'
+      };
+    });
+
+    const newRun: PayrollRun = {
+      id: runId,
+      payrollMonth: month,
+      runDate: new Date().toISOString(),
+      totalGrossSalary: Math.round(totalGrossSalary),
+      totalAllowances,
+      totalBonuses,
+      totalDeductions,
+      totalNetPayout,
+      staffCount: activeStaff.length,
+      status: 'Approved',
+      createdAt: new Date().toISOString()
+    };
+
+    setPayrollRuns(prev => [newRun, ...prev]);
+    setPayslips(prev => [...generatedSlips, ...prev]);
+
+    // Automatically post to Expenses ledger under category 'Salary'
+    try {
+      await addExpense({
+        category: 'Salary',
+        amount: totalNetPayout,
+        date: new Date().toISOString().split('T')[0],
+        paymentAccount: 'Main Cash Account',
+        description: `Staff Payroll for ${month} (${activeStaff.length} employees)`,
+        costCentre: 'HR & Operations',
+        vendor: 'Internal Staff'
+      });
+    } catch (e) {
+      console.warn('Failed to auto-post payroll to expenses:', e);
+    }
+
+    return newRun;
+  };
+
+  // =========================================================================
+  // INBOUND CUSTOMER ORDERS & DELIVERY
+  // =========================================================================
+  const [inboundOrders, setInboundOrders] = useState<InboundCustomerOrder[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_inbound_orders');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_inbound_orders', JSON.stringify(inboundOrders)); } catch {}
+  }, [inboundOrders]);
+
+  const createInboundOrder = async (orderData: Omit<InboundCustomerOrder, 'id' | 'createdAt' | 'orderNumber'>): Promise<InboundCustomerOrder> => {
+    const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+    const newOrder: InboundCustomerOrder = {
+      ...orderData,
+      id: `inb-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      orderNumber,
+      createdAt: new Date().toISOString()
+    };
+    setInboundOrders(prev => [newOrder, ...prev]);
+    return newOrder;
+  };
+
+  const updateInboundOrderStatus = async (orderId: string, status: InboundCustomerOrder['status'], notes?: string): Promise<void> => {
+    setInboundOrders(prev => prev.map(o => o.id === orderId ? { ...o, status, notes: notes || o.notes } : o));
+  };
+
+  const assignOrderToSalesperson = async (orderId: string, salespersonId: string, salespersonName: string): Promise<void> => {
+    setInboundOrders(prev => prev.map(o => o.id === orderId ? {
+      ...o,
+      assignedDeliveryPersonId: salespersonId,
+      assignedDeliveryPersonName: salespersonName,
+      status: 'Assigned for Delivery'
+    } : o));
+  };
+
+  const updateDeliveryStatus = async (invoiceId: string, status: 'pending' | 'out_for_delivery' | 'delivered' | 'failed' | 'cancelled'): Promise<void> => {
+    setSalesInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, deliveryStatus: status } : inv));
+  };
+
   const contextValue = useMemo<ERPContextType>(() => ({
     company,
     updateCompany,
@@ -2287,7 +2581,28 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedWarehouse,
     resetAllToDemoData,
     seedDemoBusiness,
-    clearAllMockData
+    clearAllMockData,
+
+    // HR & Payroll
+    staffMembers,
+    addStaffMember,
+    updateStaffMember,
+    attendanceRecords,
+    markAttendance,
+    getStaffAttendanceForMonth,
+    leaveRequests,
+    submitLeaveRequest,
+    updateLeaveStatus,
+    payrollRuns,
+    payslips,
+    runPayroll,
+
+    // Inbound Orders & Delivery
+    inboundOrders,
+    createInboundOrder,
+    updateInboundOrderStatus,
+    assignOrderToSalesperson,
+    updateDeliveryStatus
   }), [
     company,
     updateCompany,
@@ -2400,7 +2715,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedWarehouse,
     resetAllToDemoData,
     seedDemoBusiness,
-    clearAllMockData
+    clearAllMockData,
+    staffMembers,
+    attendanceRecords,
+    leaveRequests,
+    payrollRuns,
+    payslips,
+    inboundOrders
   ]);
 
   return (

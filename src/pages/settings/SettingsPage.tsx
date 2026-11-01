@@ -8,7 +8,8 @@ import {
   Store,
   Printer,
   HardDriveDownload,
-  Sliders
+  Sliders,
+  GitFork
 } from 'lucide-react';
 import { Tabs, TabItem } from '../../components/common/Tabs';
 import { SettingsUsersTab } from '../../components/settings/SettingsUsersTab';
@@ -18,6 +19,7 @@ import { SettingsStoresTab } from '../../components/settings/SettingsStoresTab';
 import { SettingsPrintersTab } from '../../components/settings/SettingsPrintersTab';
 import { SettingsBackupTab } from '../../components/settings/SettingsBackupTab';
 import { SettingsAdvancedTab } from '../../components/settings/SettingsAdvancedTab';
+import { SettingsWorkflowsTab } from '../../components/settings/SettingsWorkflowsTab';
 
 export const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -38,7 +40,8 @@ export const SettingsPage: React.FC = () => {
     { id: 'stores', label: 'Stores', icon: Store },
     { id: 'printers', label: 'Printers', icon: Printer },
     { id: 'backup', label: 'Backup', icon: HardDriveDownload },
-    { id: 'advanced', label: 'Advanced', icon: Sliders }
+    { id: 'advanced', label: 'Advanced', icon: Sliders },
+    { id: 'workflows', label: 'System Workflows & A-to-Z Guide', icon: GitFork }
   ];
 
   return (
@@ -86,6 +89,9 @@ export const SettingsPage: React.FC = () => {
 
       {/* Tab 7: Advanced & Small-Shop Mode */}
       {activeTab === 'advanced' && <SettingsAdvancedTab />}
+
+      {/* Tab 8: System Workflows & Operations Guide */}
+      {activeTab === 'workflows' && <SettingsWorkflowsTab />}
     </div>
   );
 };
