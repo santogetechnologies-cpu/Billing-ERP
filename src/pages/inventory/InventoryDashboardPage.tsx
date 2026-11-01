@@ -10,7 +10,8 @@ import {
   Layers,
   Plus,
   ShieldCheck,
-  Building
+  Building,
+  Scale
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -23,6 +24,7 @@ import { StockMovementsTab } from '../../components/stock/StockMovementsTab';
 import { StockTransfersTab } from '../../components/stock/StockTransfersTab';
 import { StockCountsTab } from '../../components/stock/StockCountsTab';
 import { StockAdjustmentsTab } from '../../components/stock/StockAdjustmentsTab';
+import { StockRepackagingTab } from '../../components/stock/StockRepackagingTab';
 import { StockAdjustmentModal } from '../../components/stock/StockAdjustmentModal';
 import { SalespersonInventoryPage } from './SalespersonInventoryPage';
 import { calculateStockStatus } from '../../utils/inventoryUtils';
@@ -30,7 +32,7 @@ import { calculateStockStatus } from '../../utils/inventoryUtils';
 const InventoryDashboardInner: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { products = [], batches = [], inventoryTransactions = [], stockTransfers = [] } = useERP();
+  const { products = [], batches = [], inventoryTransactions = [], stockTransfers = [], repackagingRuns = [] } = useERP();
 
   const [activeTab, setActiveTab] = useState<string>(() => searchParams.get('tab') || 'current');
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
@@ -71,7 +73,8 @@ const InventoryDashboardInner: React.FC = () => {
     { id: 'movements', label: 'Movements', count: inventoryTransactions.length, icon: ArrowRightLeft },
     { id: 'transfers', label: 'Transfers', count: stockTransfers.length, icon: Truck },
     { id: 'counts', label: 'Counts', icon: ClipboardCheck },
-    { id: 'adjustments', label: 'Adjustments', count: stockAdjustmentCount, icon: Layers }
+    { id: 'adjustments', label: 'Adjustments', count: stockAdjustmentCount, icon: Layers },
+    { id: 'repackaging', label: 'Repackaging & Conversion', count: repackagingRuns.length, icon: Scale }
   ];
 
   return (
@@ -135,6 +138,9 @@ const InventoryDashboardInner: React.FC = () => {
 
       {/* Tab 7: Adjustments & Loss Write-Off */}
       {activeTab === 'adjustments' && <StockAdjustmentsTab />}
+
+      {/* Tab 8: Bulk-to-Retail Repackaging & Conversion */}
+      {activeTab === 'repackaging' && <StockRepackagingTab />}
 
       {/* Universal 5-Step Stock Adjustment Modal */}
       <StockAdjustmentModal

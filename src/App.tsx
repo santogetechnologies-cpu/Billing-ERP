@@ -507,6 +507,14 @@ export function App() {
                 path="inventory/order-receive"
                 element={<Navigate to="/inventory/receive" replace />}
               />
+              <Route
+                path="inventory/conversion"
+                element={<Navigate to="/inventory?tab=repackaging" replace />}
+              />
+              <Route
+                path="inventory/repackaging"
+                element={<Navigate to="/inventory?tab=repackaging" replace />}
+              />
 
               {/* Customers & Suppliers / Parties */}
               <Route path="parties" element={<Navigate to="/customers" replace />} />

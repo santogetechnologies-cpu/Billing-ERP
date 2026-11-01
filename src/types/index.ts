@@ -1358,3 +1358,55 @@ export interface InboundCustomerOrder {
   notes?: string;
   createdAt: string;
 }
+
+// =============================================================================
+// REPACKAGING, ASSEMBLY & BULK-TO-RETAIL CONVERSION
+// =============================================================================
+export interface RepackagingOutputItem {
+  targetProductId: string;
+  targetProductName: string;
+  packSize: number; // e.g. 0.1 for 100g, 0.25 for 250g, 1 for 1kg
+  packUnit: string; // 'Pcs', 'Pkt', 'Bag'
+  outputQty: number; // number of packets produced (e.g. 200 packets)
+  costPerUnit: number; // calculated cost per packet
+  sellingPrice: number; // retail selling price per packet
+  expectedRevenue: number; // outputQty * sellingPrice
+  batchNumber?: string;
+  barcode?: string;
+  expiryDate?: string;
+}
+
+export interface ProductRepackagingRun {
+  id: string;
+  conversionNumber: string; // e.g. "CONV-2026-001"
+  date: string;
+  sourceProductId: string;
+  sourceProductName: string;
+  sourceUnit: string; // e.g. 'kg', 'Litre'
+  sourceQtyUsed: number; // e.g. 100 kg
+  sourceCostPerUnit: number; // purchase cost per kg/unit
+  sourceTotalCost: number; // sourceQtyUsed * sourceCostPerUnit
+
+  // Additional conversion overheads
+  packagingMaterialCost: number; // pouches, labels, tape, bags
+  laborAndOverheadCost: number; // packing labor & overheads
+  totalProductionCost: number; // total landed cost of the conversion batch
+
+  // Generated outputs (e.g. 100g, 250g, 1kg packets)
+  outputs: RepackagingOutputItem[];
+
+  // Revenue & Value-Add Tracking
+  totalOutputWeightOrVolume: number;
+  wasteOrLossQty: number; // shrinkage / process loss
+  wasteOrLossCost: number;
+  totalProjectedRevenue: number; // sum of expected revenue of all packed outputs
+  projectedGrossProfit: number; // totalProjectedRevenue - totalProductionCost
+  projectedMarginPercent: number;
+
+  warehouseId: string;
+  warehouseName: string;
+  notes?: string;
+  operatorName: string;
+  createdAt: string;
+}
+
