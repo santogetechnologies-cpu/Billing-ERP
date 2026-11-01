@@ -19,7 +19,8 @@ import {
   Truck,
   QrCode,
   Store,
-  Wallet
+  Wallet,
+  Scale
 } from 'lucide-react';
 
 import { useERP } from '../../context/ERPContext';
@@ -126,6 +127,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: 'Inventory & Supply'
     },
     {
+      id: 'conversion',
+      name: 'Repackaging & BOM',
+      path: '/inventory/conversion',
+      icon: Scale,
+      section: 'Inventory & Supply'
+    },
+    {
       id: 'purchases',
       name: 'Purchases',
       path: '/purchases',
@@ -226,6 +234,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     if (item.id === 'barcode') {
       return cur === '/barcode' || cur.startsWith('/barcode');
+    }
+
+    if (item.id === 'conversion') {
+      return cur === '/inventory/conversion' || cur === '/inventory/repackaging';
     }
 
     if (item.id === 'purchases') {

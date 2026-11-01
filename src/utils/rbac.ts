@@ -887,11 +887,37 @@ export function canRoleAccessNavItem(
   if (!role) return false;
   const normalizedRole = normalizeRole(role);
   if (!normalizedRole) return false;
+
+  // Owner and Admin have master access across all ERP modules
+  if (normalizedRole === 'Owner' || normalizedRole === 'Admin') {
+    return true;
+  }
+
   if (navItemName === 'User Activity' && !canAccessUserActivity(normalizedRole)) {
     return false;
   }
   const allowedMenus = ROLE_ALLOWED_NAV_MENUS[normalizedRole];
   if (!allowedMenus) return false;
+
+  // Match POS and Billing
+  if (navItemName === 'Billing (POS)' || navItemName === 'POS' || navItemName === 'Billing') {
+    return allowedMenus.includes('Sales') || normalizedRole === 'Cashier' || normalizedRole === 'Salesperson';
+  }
+
+  // Match Stock and Inventory
+  if (navItemName === 'Stock' || navItemName === 'Inventory') {
+    return allowedMenus.includes('Inventory') || allowedMenus.includes('Product');
+  }
+
+  // Match Accounts and Accounting
+  if (navItemName === 'Accounts' || navItemName === 'Accounting') {
+    return allowedMenus.includes('Accounting') || normalizedRole === 'Accountant';
+  }
+
+  // Match Parties, Customers and Suppliers
+  if (navItemName === 'Parties' || navItemName === 'Customers' || navItemName === 'Suppliers') {
+    return allowedMenus.includes('Customers') || allowedMenus.includes('Suppliers') || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier' || normalizedRole === 'Purchase Manager';
+  }
 
   // Match both 'Product' and 'Products'
   if (navItemName === 'Product' || navItemName === 'Products') {
@@ -910,19 +936,22 @@ export function canRoleAccessNavItem(
 
   // Support newly added enterprise modules
   if (navItemName === 'Delivery Hub' || navItemName === 'Deliveries') {
-    return allowedMenus.includes('Sales') || normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
+    return allowedMenus.includes('Sales') || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
   }
   if (navItemName === 'HR & Payroll' || navItemName === 'Payroll') {
-    return normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Accountant';
+    return normalizedRole === 'Accountant';
   }
   if (navItemName === 'Storefront' || navItemName === 'Catalog' || navItemName === 'Storefront / Catalog') {
-    return normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
+    return normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
   }
   if (navItemName === 'Labels & Barcodes' || navItemName === 'Labels') {
     return allowedMenus.includes('Barcode') || allowedMenus.includes('Product') || allowedMenus.includes('Inventory');
   }
   if (navItemName === 'Pricing & Commission' || navItemName === 'Pricing') {
-    return allowedMenus.includes('Sales') || normalizedRole === 'Owner' || normalizedRole === 'Admin' || normalizedRole === 'Salesperson';
+    return allowedMenus.includes('Sales') || normalizedRole === 'Salesperson';
+  }
+  if (navItemName === 'Repackaging & BOM' || navItemName === 'Conversion') {
+    return allowedMenus.includes('Inventory') || normalizedRole === 'Warehouse Manager';
   }
 
   return allowedMenus.includes(navItemName);
