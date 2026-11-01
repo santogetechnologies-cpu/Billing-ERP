@@ -115,12 +115,12 @@ export const StockRepackagingTab: React.FC = () => {
 
   // Aggregate Performance Metrics across all historical runs
   const totalBatchesProcessed = repackagingRuns.length;
-  const totalRawBulkConvertedKg = repackagingRuns.reduce((sum, r) => sum + (r.sourceQtyUsed || 0), 0);
-  const totalPacketsProduced = repackagingRuns.reduce((sum, r) => {
-    return sum + r.outputs.reduce((s, o) => s + (o.outputQty || 0), 0);
+  const totalRawBulkConvertedKg = repackagingRuns.reduce((sum: number, r: ProductRepackagingRun) => sum + (r.sourceQtyUsed || 0), 0);
+  const totalPacketsProduced = repackagingRuns.reduce((sum: number, r: ProductRepackagingRun) => {
+    return sum + r.outputs.reduce((s: number, o: RepackagingOutputItem) => s + (o.outputQty || 0), 0);
   }, 0);
-  const totalProjectedRevenueAll = repackagingRuns.reduce((sum, r) => sum + (r.totalProjectedRevenue || 0), 0);
-  const totalProductionCostAll = repackagingRuns.reduce((sum, r) => sum + (r.totalProductionCost || 0), 0);
+  const totalProjectedRevenueAll = repackagingRuns.reduce((sum: number, r: ProductRepackagingRun) => sum + (r.totalProjectedRevenue || 0), 0);
+  const totalProductionCostAll = repackagingRuns.reduce((sum: number, r: ProductRepackagingRun) => sum + (r.totalProductionCost || 0), 0);
   const totalValueAddProfit = totalProjectedRevenueAll - totalProductionCostAll;
 
   const handleAddOutputRow = () => {
@@ -381,8 +381,8 @@ export const StockRepackagingTab: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-600 dark:text-slate-300">
-                {repackagingRuns.map(run => {
-                  const packetsSum = run.outputs.reduce((s, o) => s + o.outputQty, 0);
+                {repackagingRuns.map((run: ProductRepackagingRun) => {
+                  const packetsSum = run.outputs.reduce((s: number, o: RepackagingOutputItem) => s + o.outputQty, 0);
 
                   return (
                     <tr key={run.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
@@ -400,7 +400,7 @@ export const StockRepackagingTab: React.FC = () => {
                       <td className="p-3">
                         <span className="font-bold text-indigo-600">{packetsSum} packets</span>
                         <span className="block text-[10px] text-slate-400 truncate max-w-[140px]">
-                          {run.outputs.map(o => `${o.outputQty}x ${o.packSize}${run.sourceUnit}`).join(', ')}
+                          {run.outputs.map((o: RepackagingOutputItem) => `${o.outputQty}x ${o.packSize}${run.sourceUnit}`).join(', ')}
                         </span>
                       </td>
                       <td className="p-3 font-bold text-emerald-600">

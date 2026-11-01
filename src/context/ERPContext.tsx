@@ -40,7 +40,9 @@ import {
   LeaveRequest,
   PayrollRun,
   Payslip,
-  InboundCustomerOrder
+  InboundCustomerOrder,
+  ProductRepackagingRun,
+  RepackagingOutputItem
 } from '../types';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -348,6 +350,10 @@ export interface ERPContextType {
   updateInboundOrderStatus: (orderId: string, status: InboundCustomerOrder['status'], notes?: string) => Promise<void>;
   assignOrderToSalesperson: (orderId: string, salespersonId: string, salespersonName: string) => Promise<void>;
   updateDeliveryStatus: (invoiceId: string, status: 'pending' | 'out_for_delivery' | 'delivered' | 'failed' | 'cancelled') => Promise<void>;
+
+  // Repackaging, Assembly & Bulk Conversion
+  repackagingRuns: ProductRepackagingRun[];
+  createRepackagingRun: (run: Omit<ProductRepackagingRun, 'id' | 'createdAt' | 'conversionNumber'>) => Promise<ProductRepackagingRun>;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -2465,6 +2471,105 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSalesInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, deliveryStatus: status } : inv));
   };
 
+  // =========================================================================
+  // REPACKAGING, ASSEMBLY & BULK CONVERSION STATE & METHODS
+  // =========================================================================
+  const [repackagingRuns, setRepackagingRuns] = useState<ProductRepackagingRun[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_repackaging_runs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('erp_repackaging_runs', JSON.stringify(repackagingRuns));
+    } catch {}
+  }, [repackagingRuns]);
+
+  const createRepackagingRun = async (
+    runData: Omit<ProductRepackagingRun, 'id' | 'createdAt' | 'conversionNumber'>
+  ): Promise<ProductRepackagingRun> => {
+    const conversionNumber = `CONV-${Date.now().toString().slice(-6)}`;
+    const newRun: ProductRepackagingRun = {
+      ...runData,
+      id: `conv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      conversionNumber,
+      createdAt: new Date().toISOString()
+    };
+
+    // 1. Deduct bulk source inventory
+    setProducts(prev =>
+      prev.map(p => {
+        if (p.id === runData.sourceProductId) {
+          const newStock = Math.max(0, p.currentStock - runData.sourceQtyUsed);
+          return { ...p, currentStock: newStock };
+        }
+        return p;
+      })
+    );
+
+    // 2. Increment stock or create packaged items
+    setProducts(prev => {
+      let updated = [...prev];
+      for (const out of runData.outputs) {
+        const existingIdx = updated.findIndex(
+          p => p.id === out.targetProductId || p.name.toLowerCase() === out.targetProductName.toLowerCase()
+        );
+        if (existingIdx >= 0) {
+          const existing = updated[existingIdx];
+          updated[existingIdx] = {
+            ...existing,
+            currentStock: existing.currentStock + out.outputQty,
+            costPrice: out.costPerUnit,
+            purchasePrice: out.costPerUnit,
+            sellingPrice: out.sellingPrice || existing.sellingPrice,
+            retailPrice: out.sellingPrice || existing.retailPrice,
+            barcode: out.barcode || existing.barcode
+          };
+        } else {
+          const newProd: Product = {
+            id: out.targetProductId || `prod-pack-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            name: out.targetProductName,
+            code: `PKT-${Date.now().toString().slice(-4)}`,
+            sku: `PKT-${Date.now().toString().slice(-4)}`,
+            barcode: out.barcode || `${Date.now().toString().slice(-8)}`,
+            category: 'Packaged Goods',
+            brand: company.name || 'In-House Packaged',
+            description: `Packaged from bulk ${runData.sourceProductName} (${out.packSize} ${out.packUnit})`,
+            hsn: '0000',
+            taxRate: 5,
+            purchasePrice: out.costPerUnit,
+            costPrice: out.costPerUnit,
+            sellingPrice: out.sellingPrice,
+            retailPrice: out.sellingPrice,
+            wholesalePrice: out.sellingPrice * 0.9,
+            mrp: Math.round(out.sellingPrice * 1.15),
+            minSellingPrice: out.costPerUnit,
+            openingStock: 0,
+            openingStockValue: 0,
+            currentStock: out.outputQty,
+            primaryUnit: out.packUnit || 'Pkt',
+            warehouse: runData.warehouseName || 'Main Store',
+            rack: 'A1',
+            batchTracking: true,
+            serialTracking: false,
+            expiryTracking: false,
+            isActive: true,
+            createdAt: new Date().toISOString()
+          };
+          updated.push(newProd);
+        }
+      }
+      return updated;
+    });
+
+    setRepackagingRuns(prev => [newRun, ...prev]);
+    return newRun;
+  };
+
   const contextValue = useMemo<ERPContextType>(() => ({
     company,
     updateCompany,
@@ -2602,7 +2707,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createInboundOrder,
     updateInboundOrderStatus,
     assignOrderToSalesperson,
-    updateDeliveryStatus
+    updateDeliveryStatus,
+
+    // Repackaging & Conversion
+    repackagingRuns,
+    createRepackagingRun
   }), [
     company,
     updateCompany,
@@ -2721,7 +2830,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     leaveRequests,
     payrollRuns,
     payslips,
-    inboundOrders
+    inboundOrders,
+    repackagingRuns
   ]);
 
   return (
