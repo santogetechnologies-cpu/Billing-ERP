@@ -32,7 +32,7 @@ export const ProductCategoriesTab: React.FC = () => {
     if (!newCatName.trim()) return;
     setIsAdding(true);
     try {
-      await addCustomCategory({ name: newCatName.trim(), description: 'User created category' });
+      await addCustomCategory(newCatName.trim());
       setNewCatName('');
     } catch (err) {
       console.error(err);
@@ -96,11 +96,11 @@ export const ProductCategoriesTab: React.FC = () => {
           );
         })}
 
-        {customCategories?.map(cat => {
-          const count = categoryCounts[cat.name] || 0;
+        {customCategories?.map(catName => {
+          const count = categoryCounts[catName] || 0;
           return (
             <div
-              key={cat.id}
+              key={catName}
               className="p-4 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900/50 rounded-2xl shadow-2xs hover:border-blue-300 transition-all flex flex-col justify-between"
             >
               <div>
@@ -112,7 +112,7 @@ export const ProductCategoriesTab: React.FC = () => {
                     {count} {count === 1 ? 'item' : 'items'}
                   </span>
                 </div>
-                <h4 className="font-semibold text-sm text-slate-900 dark:text-white mt-2.5">{cat.name}</h4>
+                <h4 className="font-semibold text-sm text-slate-900 dark:text-white mt-2.5">{catName}</h4>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Custom category</p>
               </div>
             </div>

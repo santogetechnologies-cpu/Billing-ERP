@@ -278,7 +278,17 @@ export const FastPOSPage: React.FC = () => {
   const handleHoldBill = () => {
     if (cart.length === 0) return;
     const customer = customers.find(c => c.id === selectedCustomerId);
-    holdInvoice(cart, customer?.name || 'Walk-in Customer', selectedCustomerId);
+    holdInvoice({
+      id: `HOLD-${Date.now()}`,
+      customerId: selectedCustomerId,
+      heldAt: new Date().toISOString(),
+      customerName: customer?.name || 'Walk-in Customer',
+      items: cart,
+      subtotal: cartSubtotal,
+      taxTotal: cartTaxTotal,
+      grandTotal,
+      note: 'Held from POS terminal'
+    });
     setCart([]);
     triggerUndo('Bill placed on hold.', () => {
       setCart(cart);
@@ -337,17 +347,7 @@ export const FastPOSPage: React.FC = () => {
 
       // Attempt silent background thermal printing via local print bridge (port 9191)
       try {
-        await directPrintService.printReceipt({
-          invoiceNumber: created.invoiceNumber,
-          date: created.date,
-          companyName: company.name,
-          customerName: created.customerName,
-          items: created.items,
-          subtotal: created.subtotal,
-          taxTotal: created.taxTotal,
-          grandTotal: created.grandTotal,
-          paymentMethod: created.paymentMethod
-        });
+        await directPrintService.printReceipt(created, company);
       } catch {}
     } catch (err: any) {
       alert(`Error saving bill: ${err?.message || 'Transaction failed'}`);

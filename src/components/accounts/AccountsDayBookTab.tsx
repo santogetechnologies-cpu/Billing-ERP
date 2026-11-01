@@ -78,7 +78,7 @@ export const AccountsDayBookTab: React.FC = () => {
           id: `exp-${e.id}`,
           time: e.createdAt ? new Date(e.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '12:00 PM',
           type: 'Expense',
-          refNumber: e.expenseNumber,
+          refNumber: e.expenseNumber || e.referenceNo || e.id.slice(0, 8),
           partyName: e.category,
           account: e.paymentAccount,
           debit: e.amount,

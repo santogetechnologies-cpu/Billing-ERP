@@ -119,7 +119,7 @@ export const StockCurrentTab: React.FC<StockCurrentTabProps> = ({ onAdjustProduc
       header: 'Selling Price',
       align: 'right',
       render: row => (
-        <span className="font-mono font-medium text-slate-800 text-xs tabular-nums">{formatCurrency(row.salePrice)}</span>
+        <span className="font-mono font-medium text-slate-800 text-xs tabular-nums">{formatCurrency(row.salePrice ?? row.sellingPrice)}</span>
       )
     },
     {

@@ -17,6 +17,7 @@ export type BusinessType =
 export interface CompanyProfile {
   id?: string;
   name: string;
+  companyName?: string;
   logo: string;
   businessType: BusinessType;
   address: string;
@@ -66,6 +67,9 @@ export interface UnitConversion {
 export interface Product {
   id: string;
   name: string;
+  salePrice?: number;
+  minStockLevel?: number;
+  supplierName?: string;
   code: string;
   sku: string;
   barcode: string;
@@ -106,7 +110,7 @@ export interface Product {
   createdAt: string;
 }
 
-export type StockStatusType = 'Active' | 'Limited Stock' | 'Out of Stock' | 'Not Set' | 'Warning';
+export type StockStatusType = 'Active' | 'Limited Stock' | 'Out of Stock' | 'Not Set' | 'Warning' | 'in_stock' | 'low_stock' | 'out_of_stock';
 
 export interface ProductDeletionEligibility {
   canDelete: boolean;
@@ -151,6 +155,9 @@ export interface Supplier {
   id: string;
   name: string;
   company: string;
+  companyName?: string;
+  state?: string;
+  paymentTerms?: string;
   phone: string;
   email: string;
   address: string;
@@ -246,7 +253,8 @@ export type PurchaseDocType =
   | 'purchase_order'
   | 'purchase_quotation'
   | 'purchase_receipt'
-  | 'purchase_return';
+  | 'purchase_return'
+  | 'standard_invoice';
 
 export type BillVerificationStatus =
   | 'Pending Review'
@@ -318,15 +326,19 @@ export type ExpenseCategory =
   | 'Bank Charges'
   | 'Insurance'
   | 'Professional Fees'
+  | 'Taxes'
+  | 'Depreciation'
+  | 'Miscellaneous'
   | 'Other';
 
 export interface Expense {
   id: string;
+  expenseNumber?: string;
   date: string;
   category: ExpenseCategory;
   amount: number;
-  tax: number;
-  vendor: string;
+  tax?: number;
+  vendor?: string;
   paymentAccount: string;
   description: string;
   costCentre: string;
@@ -409,7 +421,7 @@ export interface StockBalance {
   updatedAt?: string;
 }
 
-export type TransferStatus = 'Completed' | 'Requested' | 'Approved' | 'Sent' | 'Received' | 'Cancelled' | 'Rejected';
+export type TransferStatus = 'Completed' | 'Requested' | 'Approved' | 'Sent' | 'Received' | 'Cancelled' | 'Rejected' | 'In Transit';
 
 export interface StockTransferItem {
   id?: string;
@@ -544,7 +556,9 @@ export type PresenceStatus = 'Active' | 'Inactive';
 export interface SystemUser {
   id: string;
   name: string;
+  fullName?: string;
   email: string;
+  phone?: string;
   role: UserRole;
   status: 'Active' | 'Inactive'; // Backwards compatible account/presence status
   accountStatus: AccountStatus;
@@ -747,6 +761,7 @@ export interface NotificationItem {
 
 export interface HeldInvoice {
   id: string;
+  customerId?: string;
   heldAt: string;
   customerName: string;
   items: InvoiceItem[];

@@ -47,7 +47,7 @@ export const SettingsStoresTab: React.FC = () => {
       await addWarehouse({
         name: name.trim(),
         code: code.trim(),
-        address: address.trim() || undefined,
+        address: address.trim() || '',
         type,
         isActive: true
       });

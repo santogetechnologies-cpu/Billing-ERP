@@ -1,3 +1,38 @@
+import { Product } from '../../types';
+
+function makeSample(p: { name: string; sku: string; category: string; primaryUnit: string; currentStock: number; purchasePrice: number; sellingPrice: number; mrp: number; minStockLevel?: number; batchTracking?: boolean; serialTracking?: boolean; expiryTracking?: boolean }): Omit<Product, 'id' | 'createdAt'> {
+  return {
+    name: p.name,
+    code: p.sku,
+    sku: p.sku,
+    barcode: p.sku,
+    category: p.category,
+    brand: 'Standard',
+    description: p.name,
+    hsn: '9999',
+    taxRate: 18,
+    purchasePrice: p.purchasePrice,
+    costPrice: p.purchasePrice,
+    sellingPrice: p.sellingPrice,
+    retailPrice: p.sellingPrice,
+    wholesalePrice: p.sellingPrice,
+    mrp: p.mrp,
+    minSellingPrice: p.purchasePrice,
+    openingStock: p.currentStock,
+    openingStockValue: p.currentStock * p.purchasePrice,
+    currentStock: p.currentStock,
+    primaryUnit: p.primaryUnit,
+    warehouse: 'Main Warehouse',
+    rack: 'A1',
+    batchTracking: Boolean(p.batchTracking),
+    serialTracking: Boolean(p.serialTracking),
+    expiryTracking: Boolean(p.expiryTracking),
+    isActive: true,
+    salePrice: p.sellingPrice,
+    minStockLevel: p.minStockLevel || 10
+  };
+}
+
 import React, { useState } from 'react';
 import {
   Sparkles,
@@ -100,69 +135,69 @@ export const GuidedOnboardingModal: React.FC<GuidedOnboardingModalProps> = ({
       // 3. Create demo catalog based on business type if enabled
       if (importDemoProducts) {
         if (selectedType === 'Pharmacy') {
-          await addProduct({
+          await addProduct(makeSample({
             name: 'Paracetamol 650mg Dolo',
             sku: 'PHARM-DOLO',
             category: 'Medicines',
             primaryUnit: 'STRIP',
             currentStock: 50,
             purchasePrice: 24,
-            salePrice: 32,
+            sellingPrice: 32,
             mrp: 35,
-            hasBatchTracking: true,
-            hasExpiryTracking: true,
+            batchTracking: true,
+            expiryTracking: true,
             minStockLevel: 10
-          });
+          }));
         } else if (selectedType === 'Clothing') {
-          await addProduct({
+          await addProduct(makeSample({
             name: 'Men Slim Fit Cotton Shirt (Navy Blue - L)',
             sku: 'APP-SHIRT-NVY-L',
             category: 'Men Apparel',
             primaryUnit: 'PCS',
             currentStock: 25,
             purchasePrice: 450,
-            salePrice: 899,
+            sellingPrice: 899,
             mrp: 999,
             minStockLevel: 5
-          });
+          }));
         } else if (selectedType === 'Electronics') {
-          await addProduct({
+          await addProduct(makeSample({
             name: 'Samsung Galaxy S24 Ultra 256GB',
             sku: 'ELEC-S24U-256',
             category: 'Smartphones',
             primaryUnit: 'PCS',
             currentStock: 8,
             purchasePrice: 95000,
-            salePrice: 119999,
+            sellingPrice: 119999,
             mrp: 129999,
-            hasSerialTracking: true,
+            serialTracking: true,
             minStockLevel: 2
-          });
+          }));
         } else if (selectedType === 'Hardware') {
-          await addProduct({
+          await addProduct(makeSample({
             name: 'Vitrified Floor Tiles 600x600mm (Glossy White)',
             sku: 'HARD-TILE-600',
             category: 'Ceramics & Tiles',
             primaryUnit: 'SQF',
             currentStock: 1200,
             purchasePrice: 38,
-            salePrice: 55,
+            sellingPrice: 55,
             mrp: 65,
             minStockLevel: 200
-          });
+          }));
         } else {
           // Grocery default
-          await addProduct({
+          await addProduct(makeSample({
             name: 'Basmati Rice Premium (Loose)',
             sku: 'GROC-RICE-BSM',
             category: 'Grains & Pulses',
             primaryUnit: 'KG',
             currentStock: 250,
             purchasePrice: 65,
-            salePrice: 90,
+            sellingPrice: 90,
             mrp: 95,
             minStockLevel: 30
-          });
+          }));
         }
       }
 

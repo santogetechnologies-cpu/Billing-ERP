@@ -65,7 +65,7 @@ export const StockExpiringTab: React.FC<StockExpiringTabProps> = ({ onWriteOffBa
       'Batch #': b.batchNumber,
       'Product': b.productName,
       'SKU': b.sku,
-      'Remaining Stock': b.currentStock,
+      'Remaining Stock': (b as any).currentStock ?? b.qty,
       'Unit': b.unit,
       'Expiry Date': b.expiryDate,
       'Days Remaining': b.daysRemaining,

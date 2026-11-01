@@ -1,5 +1,5 @@
 import React from 'react';
-import { LucideIcon, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, ArrowRight } from 'lucide-react';
 
 interface StatCardProps {
   title: string;
@@ -9,7 +9,7 @@ interface StatCardProps {
     value: string;
     isPositive: boolean;
   };
-  icon: LucideIcon;
+  icon: React.ComponentType<{ className?: string; size?: number | string }>;
   iconBgColor?: string;
   iconTextColor?: string;
   onClick?: () => void;

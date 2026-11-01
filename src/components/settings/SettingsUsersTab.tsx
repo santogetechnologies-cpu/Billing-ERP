@@ -52,15 +52,20 @@ export const SettingsUsersTab: React.FC = () => {
 
     if (editingUser) {
       updateUser(editingUser.id, {
+        name: name.trim(),
         fullName: name.trim(),
         role,
         phone: phone.trim() || undefined
       });
     } else {
       addUser({
+        name: name.trim(),
         fullName: name.trim(),
         email: email.trim(),
         role,
+        status: 'Active',
+        presenceStatus: 'Inactive',
+        lastLogin: 'Never',
         phone: phone.trim() || undefined,
         accountStatus: 'Enabled'
       });

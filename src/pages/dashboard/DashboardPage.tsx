@@ -228,7 +228,7 @@ export const DashboardPage: React.FC = () => {
         id: exp.id,
         date: exp.date,
         title: exp.category,
-        party: exp.vendor,
+        party: exp.vendor || 'Operations',
         type: 'Expense',
         amount: exp.amount,
         status: 'Paid',

@@ -123,10 +123,10 @@ export const ProductListPage: React.FC = () => {
   // Table Columns for "All" tab
   const columns: Column<Product>[] = [
     {
+      key: 'name',
       header: 'Product',
-      accessor: 'name',
       sortable: true,
-      cell: (p: Product) => (
+      render: (p: Product) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
             <Package className="w-4 h-4" />
@@ -141,50 +141,50 @@ export const ProductListPage: React.FC = () => {
       )
     },
     {
+      key: 'category',
       header: 'Category',
-      accessor: 'category',
       sortable: true,
-      cell: (p: Product) => (
+      render: (p: Product) => (
         <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
           {p.category}
         </span>
       )
     },
     {
+      key: 'primaryUnit',
       header: 'Base Unit',
-      accessor: 'primaryUnit',
       sortable: true,
-      cell: (p: Product) => (
+      render: (p: Product) => (
         <span className="text-xs font-bold font-mono text-slate-700 dark:text-slate-300">
           {p.primaryUnit}
         </span>
       )
     },
     {
+      key: 'sellingPrice',
       header: 'Sale Price',
-      accessor: 'sellingPrice',
       sortable: true,
-      cell: (p: Product) => (
+      render: (p: Product) => (
         <span className="text-xs font-bold text-slate-900 dark:text-white">
           {formatCurrency(p.sellingPrice)}
         </span>
       )
     },
     {
+      key: 'taxRate',
       header: 'Tax',
-      accessor: 'taxRate',
       sortable: true,
-      cell: (p: Product) => (
+      render: (p: Product) => (
         <span className="text-xs text-slate-500 font-medium">
           {p.taxRate}%
         </span>
       )
     },
     {
+      key: 'currentStock',
       header: 'Stock Level',
-      accessor: 'currentStock',
       sortable: true,
-      cell: (p: Product) => (
+      render: (p: Product) => (
         <div>
           <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
             {formatNumber(p.currentStock)} {p.primaryUnit}
@@ -196,13 +196,14 @@ export const ProductListPage: React.FC = () => {
       )
     },
     {
+      key: 'stockStatus',
       header: 'Status',
-      accessor: (p: any) => p.stockStatus,
-      cell: (p: any) => <StatusBadge status={p.stockStatus} />
+      render: (p: any) => <StatusBadge status={p.stockStatus} />
     },
     {
+      key: 'actions',
       header: 'Actions',
-      cell: (p: Product) => (
+      render: (p: Product) => (
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -215,7 +216,7 @@ export const ProductListPage: React.FC = () => {
           <button
             type="button"
             onClick={() => handleEditProduct(p)}
-            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
             title="Edit product"
           >
             <Edit className="w-3.5 h-3.5" />
@@ -280,12 +281,10 @@ export const ProductListPage: React.FC = () => {
       {activeTab === 'all' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-hidden">
           <DataTable
-            ref={tableRef}
             data={productsWithStatus}
             columns={columns}
-            searchable
             searchPlaceholder="Search by name, SKU, or scan barcode..."
-            filterOptions={[
+            filters={[
               {
                 key: 'category',
                 label: 'Category',

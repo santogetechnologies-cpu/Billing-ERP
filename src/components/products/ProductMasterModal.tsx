@@ -167,7 +167,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
 
   const handleGenerateCodes = () => {
     if (!code) setCode(generateSKU(category, name));
-    if (!barcode) setBarcode(generateBarcode());
+    if (!barcode) setBarcode(generateBarcode(code || 'PROD'));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -185,7 +185,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
     const parsedCost = parseFloat(purchasePrice) || 0;
     const parsedStock = parseFloat(openingStock) || 0;
     const finalCode = code.trim() || generateSKU(category, trimmedName);
-    const finalBarcode = barcode.trim() || generateBarcode();
+    const finalBarcode = barcode.trim() || generateBarcode(finalCode);
 
     const productPayload: Omit<Product, 'id' | 'createdAt'> = {
       name: trimmedName,
@@ -221,7 +221,8 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
     try {
       let saved: Product;
       if (isEdit && productToEdit) {
-        saved = await updateProduct(productToEdit.id, productPayload);
+        await updateProduct(productToEdit.id, productPayload);
+        saved = { ...productToEdit, ...productPayload };
       } else {
         saved = await addProduct(productPayload);
       }
@@ -381,7 +382,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
                   <option value="Automotive">Vehicles & Automotive</option>
                   <option value="Services">Services & Labor</option>
                   {customCategories?.map(c => (
-                    <option key={c.id} value={c.name}>{c.name}</option>
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </div>

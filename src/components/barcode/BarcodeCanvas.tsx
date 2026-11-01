@@ -5,6 +5,7 @@ interface BarcodeCanvasProps {
   type?: 'Code 128' | 'EAN-13' | 'EAN-8' | 'UPC' | 'QR Code';
   width?: number | string;
   height?: number;
+  fontSize?: number;
   showText?: boolean;
   hasBorder?: boolean;
   className?: string;

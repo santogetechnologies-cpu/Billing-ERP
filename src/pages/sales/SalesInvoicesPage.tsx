@@ -5,6 +5,7 @@ import {
   Plus,
   Printer,
   Eye,
+  Trash2,
   CheckCircle,
   AlertCircle,
   Download,
@@ -86,20 +87,20 @@ export const SalesInvoicesPage: React.FC = () => {
 
   const columns: Column<SalesInvoice>[] = [
     {
+      key: 'invoiceNumber',
       header: 'Invoice #',
-      accessor: 'invoiceNumber',
       sortable: true,
-      cell: (inv: SalesInvoice) => (
+      render: (inv: SalesInvoice) => (
         <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
           {inv.invoiceNumber}
         </span>
       )
     },
     {
+      key: 'customerName',
       header: 'Customer',
-      accessor: 'customerName',
       sortable: true,
-      cell: (inv: SalesInvoice) => (
+      render: (inv: SalesInvoice) => (
         <div>
           <p className="font-semibold text-slate-900 dark:text-white truncate max-w-xs">{inv.customerName}</p>
           {inv.customerPhone && (
@@ -109,54 +110,54 @@ export const SalesInvoicesPage: React.FC = () => {
       )
     },
     {
+      key: 'date',
       header: 'Date',
-      accessor: 'date',
       sortable: true,
-      cell: (inv: SalesInvoice) => (
+      render: (inv: SalesInvoice) => (
         <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
           {formatDate(inv.date)}
         </span>
       )
     },
     {
+      key: 'items',
       header: 'Items',
-      accessor: (inv: SalesInvoice) => inv.items?.length || 0,
-      sortable: true,
-      cell: (inv: SalesInvoice) => (
+      render: (inv: SalesInvoice) => (
         <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
           {inv.items?.length || 0} lines
         </span>
       )
     },
     {
+      key: 'grandTotal',
       header: 'Grand Total',
-      accessor: 'grandTotal',
       sortable: true,
-      cell: (inv: SalesInvoice) => (
+      render: (inv: SalesInvoice) => (
         <span className="font-mono font-bold text-slate-900 dark:text-white">
           {formatCurrency(inv.grandTotal)}
         </span>
       )
     },
     {
+      key: 'paymentStatus',
       header: 'Status',
-      accessor: 'paymentStatus',
       sortable: true,
-      cell: (inv: SalesInvoice) => <StatusBadge status={inv.paymentStatus} />
+      render: (inv: SalesInvoice) => <StatusBadge status={inv.paymentStatus} />
     },
     {
+      key: 'paymentMethod',
       header: 'Payment Method',
-      accessor: 'paymentMethod',
       sortable: true,
-      cell: (inv: SalesInvoice) => (
+      render: (inv: SalesInvoice) => (
         <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
           {inv.paymentMethod || 'Cash'}
         </span>
       )
     },
     {
+      key: 'actions',
       header: 'Actions',
-      cell: (inv: SalesInvoice) => (
+      render: (inv: SalesInvoice) => (
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -164,24 +165,35 @@ export const SalesInvoicesPage: React.FC = () => {
               setSelectedInvoiceForPrint(inv);
               setIsPrintModalOpen(true);
             }}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            title="Print Invoice"
+            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            title="Print invoice"
           >
-            <Printer className="w-4 h-4" />
+            <Printer className="w-3.5 h-3.5" />
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedInvoiceForPrint(inv);
+              setIsPrintModalOpen(true);
+            }}
+            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            title="View details"
+          >
+            <Eye className="w-3.5 h-3.5" />
+          </button>
+
         </div>
       )
     }
   ];
 
-  const primaryButtonLabel =
-    activeTab === 'quotations'
-      ? '+ New Quotation'
-      : activeTab === 'orders'
-      ? '+ New Sales Order'
-      : activeTab === 'returns'
-      ? 'Billing (POS)'
-      : '+ New Invoice';
+  
+  const primaryButtonLabel = useMemo(() => {
+    if (activeTab === 'quotations') return 'New Quotation';
+    if (activeTab === 'orders') return 'New Sales Order';
+    if (activeTab === 'returns') return 'Record Return';
+    return 'New Invoice';
+  }, [activeTab]);
 
   return (
     <div className="space-y-4 animate-fadeIn">
@@ -219,12 +231,10 @@ export const SalesInvoicesPage: React.FC = () => {
       {activeTab === 'invoices' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-hidden">
           <DataTable
-            ref={tableRef}
             data={invoiceRecords}
             columns={columns}
-            searchable
             searchPlaceholder="Search invoices by #, customer, or phone..."
-            filterOptions={[
+            filters={[
               {
                 key: 'paymentStatus',
                 label: 'Payment Status',

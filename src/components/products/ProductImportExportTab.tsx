@@ -171,6 +171,7 @@ export const ProductImportExportTab: React.FC = () => {
           purchasePrice: r.costPrice,
           costPrice: r.costPrice,
           retailPrice: r.sellingPrice,
+          wholesalePrice: r.sellingPrice,
           mrp: r.sellingPrice,
           minSellingPrice: r.costPrice,
           taxRate: r.taxRate,

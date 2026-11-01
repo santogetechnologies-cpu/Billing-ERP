@@ -84,6 +84,7 @@ export const StockTransfersTab: React.FC = () => {
 
       await createStockTransfer({
         transferNumber: `TRF-${Date.now().toString().slice(-6)}`,
+        date: new Date().toISOString().split('T')[0],
         fromWarehouse,
         toWarehouse,
         items: transferLines.map(line => ({

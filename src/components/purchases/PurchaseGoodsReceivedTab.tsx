@@ -19,7 +19,7 @@ export const PurchaseGoodsReceivedTab: React.FC<PurchaseGoodsReceivedTabProps> =
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Filter to pending POs or Bills
-  const pendingOrders = purchaseInvoices.filter(p => p.docType === 'purchase_order' || p.paymentStatus !== 'Completed');
+  const pendingOrders = purchaseInvoices.filter(p => p.docType === 'purchase_order' || p.paymentStatus !== 'Paid');
 
   const filtered = pendingOrders.filter(p => {
     const s = search.toLowerCase();

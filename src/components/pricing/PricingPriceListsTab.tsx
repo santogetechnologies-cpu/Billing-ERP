@@ -23,10 +23,10 @@ export const PricingPriceListsTab: React.FC = () => {
       'SKU': p.sku || '—',
       'Product': p.name,
       'Cost Price': p.purchasePrice,
-      'Retail Price': p.salePrice,
-      'Wholesale Price': p.wholesalePrice || (p.salePrice * 0.9),
-      'Dealer Price': p.dealerPrice || (p.salePrice * 0.8),
-      'MRP': p.mrp || p.salePrice,
+      'Retail Price': p.salePrice ?? p.sellingPrice,
+      'Wholesale Price': p.wholesalePrice || ((p.salePrice ?? p.sellingPrice) * 0.9),
+      'Dealer Price': p.dealerPrice || ((p.salePrice ?? p.sellingPrice) * 0.8),
+      'MRP': p.mrp || (p.salePrice ?? p.sellingPrice),
       'Min Floor Price': p.minSellingPrice || p.purchasePrice
     }));
     exportToCSV(data, 'Price_Lists_Matrix');
@@ -56,7 +56,7 @@ export const PricingPriceListsTab: React.FC = () => {
       header: 'Retail (Counter)',
       align: 'right',
       render: row => (
-        <span className="font-mono font-semibold text-slate-900 text-xs tabular-nums">{formatCurrency(row.salePrice)}</span>
+        <span className="font-mono font-semibold text-slate-900 text-xs tabular-nums">{formatCurrency(row.salePrice ?? row.sellingPrice)}</span>
       )
     },
     {
@@ -64,7 +64,7 @@ export const PricingPriceListsTab: React.FC = () => {
       header: 'Wholesale Tier',
       align: 'right',
       render: row => {
-        const val = row.wholesalePrice || row.salePrice * 0.9;
+        const val = row.wholesalePrice || (row.salePrice ?? row.sellingPrice) * 0.9;
         return (
           <span className="font-mono text-blue-700 text-xs font-medium tabular-nums">{formatCurrency(val)}</span>
         );
@@ -75,7 +75,7 @@ export const PricingPriceListsTab: React.FC = () => {
       header: 'Dealer Tier',
       align: 'right',
       render: row => {
-        const val = row.dealerPrice || row.salePrice * 0.8;
+        const val = row.dealerPrice || (row.salePrice ?? row.sellingPrice) * 0.8;
         return (
           <span className="font-mono text-purple-700 text-xs font-semibold tabular-nums">{formatCurrency(val)}</span>
         );
@@ -86,7 +86,7 @@ export const PricingPriceListsTab: React.FC = () => {
       header: 'Statutory MRP',
       align: 'right',
       render: row => (
-        <span className="font-mono text-rose-600 text-xs tabular-nums">{formatCurrency(row.mrp || row.salePrice)}</span>
+        <span className="font-mono text-rose-600 text-xs tabular-nums">{formatCurrency(row.mrp || (row.salePrice ?? row.sellingPrice))}</span>
       )
     },
     {
