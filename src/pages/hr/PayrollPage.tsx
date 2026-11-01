@@ -14,10 +14,12 @@ import {
   FileText,
   Building,
   UserCheck,
-  Briefcase
+  Briefcase,
+  CreditCard,
+  HandCoins
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
-import { StaffMember, AttendanceStatus, AttendanceRecord, LeaveRequest, PayrollRun, Payslip } from '../../types';
+import { StaffMember, AttendanceStatus, AttendanceRecord, LeaveRequest, PayrollRun, Payslip, StaffAdvanceRecord } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { DataTable, Column } from '../../components/common/DataTable';
 import { Modal } from '../../components/common/Modal';
@@ -38,10 +40,12 @@ export const PayrollPage: React.FC = () => {
     payrollRuns,
     payslips,
     runPayroll,
-    company
+    company,
+    staffAdvances = [],
+    recordStaffAdvance
   } = useERP();
 
-  const [activeTab, setActiveTab] = useState<'staff' | 'attendance' | 'leaves' | 'payroll'>('staff');
+  const [activeTab, setActiveTab] = useState<'staff' | 'attendance' | 'leaves' | 'payroll' | 'advances'>('staff');
 
   // =========================================================================
   // TAB 1: STAFF DIRECTORY
@@ -204,6 +208,49 @@ export const PayrollPage: React.FC = () => {
   const [isRunningPayroll, setIsRunningPayroll] = useState(false);
   const [payrollSuccess, setPayrollSuccess] = useState<PayrollRun | null>(null);
 
+
+  // =========================================================================
+  // TAB 5: SALARY ADVANCES & LOANS STATE
+  // =========================================================================
+  const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [advanceStaffId, setAdvanceStaffId] = useState('');
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [advanceDate, setAdvanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [advanceMode, setAdvanceMode] = useState<'Cash' | 'Bank Transfer' | 'UPI'>('Cash');
+  const [advanceReason, setAdvanceReason] = useState('');
+
+  const handleDisburseAdvance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(advanceAmount);
+    if (!amt || amt <= 0) {
+      alert('Please enter a valid advance amount');
+      return;
+    }
+    const staff = staffMembers.find(s => s.id === advanceStaffId);
+    if (!staff) {
+      alert('Please select a staff member');
+      return;
+    }
+
+    try {
+      await recordStaffAdvance({
+        staffId: staff.id,
+        staffName: staff.name,
+        amount: amt,
+        date: advanceDate,
+        reason: advanceReason.trim() || 'Salary advance request',
+        disbursementMode: advanceMode,
+        status: 'Pending Deduction'
+      });
+      setIsAdvanceModalOpen(false);
+      setAdvanceAmount('');
+      setAdvanceReason('');
+      alert(`Advance of ${formatCurrency(amt)} successfully recorded for ${staff.name}.`);
+    } catch (err: any) {
+      alert('Failed to record advance: ' + err?.message);
+    }
+  };
+
   const handleRunPayrollAction = async () => {
     setIsRunningPayroll(true);
     try {
@@ -274,6 +321,19 @@ export const PayrollPage: React.FC = () => {
           >
             <Plus className="w-4 h-4" />
             <span>Apply Leave</span>
+          </button>
+        )}
+        {activeTab === 'advances' && (
+          <button
+            type="button"
+            onClick={() => {
+              setAdvanceStaffId(staffMembers[0]?.id || '');
+              setIsAdvanceModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Disburse Salary Advance</span>
           </button>
         )}
       </div>

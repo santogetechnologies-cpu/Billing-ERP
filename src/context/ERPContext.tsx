@@ -42,7 +42,14 @@ import {
   Payslip,
   InboundCustomerOrder,
   ProductRepackagingRun,
-  RepackagingOutputItem
+  RepackagingOutputItem,
+  ComboKitRun,
+  ComboKitComponent,
+  DebundlingRun,
+  DayEndShiftSettlement,
+  JournalVoucher,
+  JournalEntryLine,
+  StaffAdvanceRecord
 } from '../types';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -354,6 +361,24 @@ export interface ERPContextType {
   // Repackaging, Assembly & Bulk Conversion
   repackagingRuns: ProductRepackagingRun[];
   createRepackagingRun: (run: Omit<ProductRepackagingRun, 'id' | 'createdAt' | 'conversionNumber'>) => Promise<ProductRepackagingRun>;
+
+  // Combo Kitting & De-bundling
+  comboKitRuns: ComboKitRun[];
+  createComboKitRun: (run: Omit<ComboKitRun, 'id' | 'createdAt' | 'kitNumber'>) => Promise<ComboKitRun>;
+  debundlingRuns: DebundlingRun[];
+  createDebundlingRun: (run: Omit<DebundlingRun, 'id' | 'createdAt' | 'debundleNumber'>) => Promise<DebundlingRun>;
+
+  // Cash Drawer Shift Settlement & Z-Report
+  shiftSettlements: DayEndShiftSettlement[];
+  recordShiftSettlement: (settlement: Omit<DayEndShiftSettlement, 'id' | 'createdAt' | 'settlementNumber'>) => Promise<DayEndShiftSettlement>;
+
+  // Manual Double-Entry Journal Vouchers (JV)
+  journalVouchers: JournalVoucher[];
+  createJournalVoucher: (voucher: Omit<JournalVoucher, 'id' | 'createdAt' | 'voucherNumber'>) => Promise<JournalVoucher>;
+
+  // Staff Salary Advance
+  staffAdvances: StaffAdvanceRecord[];
+  recordStaffAdvance: (advance: Omit<StaffAdvanceRecord, 'id' | 'createdAt'>) => Promise<StaffAdvanceRecord>;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -2570,6 +2595,197 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newRun;
   };
 
+  // =========================================================================
+  // COMBO KITTING & DE-BUNDLING STATE
+  // =========================================================================
+  const [comboKitRuns, setComboKitRuns] = useState<ComboKitRun[]>(() => {
+    try { const s = localStorage.getItem('erp_combo_kit_runs'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [debundlingRuns, setDebundlingRuns] = useState<DebundlingRun[]>(() => {
+    try { const s = localStorage.getItem('erp_debundling_runs'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_combo_kit_runs', JSON.stringify(comboKitRuns)); } catch {}
+  }, [comboKitRuns]);
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_debundling_runs', JSON.stringify(debundlingRuns)); } catch {}
+  }, [debundlingRuns]);
+
+  const createComboKitRun = async (runData: Omit<ComboKitRun, 'id' | 'createdAt' | 'kitNumber'>): Promise<ComboKitRun> => {
+    const kitNumber = `KIT-${Date.now().toString().slice(-6)}`;
+    const newRun: ComboKitRun = {
+      ...runData,
+      id: `kit-${Date.now()}`,
+      kitNumber,
+      createdAt: new Date().toISOString()
+    };
+
+    // Deduct component stocks
+    setProducts(prev => {
+      let updated = [...prev];
+      for (const comp of runData.components) {
+        const totalQtyNeeded = comp.qty * runData.kitsProduced;
+        updated = updated.map(p => p.id === comp.productId ? { ...p, currentStock: Math.max(0, p.currentStock - totalQtyNeeded) } : p);
+      }
+
+      // Add or update combo product
+      const comboIdx = updated.findIndex(p => p.name.toLowerCase() === runData.comboProductName.toLowerCase() || p.sku === runData.comboSku);
+      if (comboIdx >= 0) {
+        const existing = updated[comboIdx];
+        updated[comboIdx] = {
+          ...existing,
+          currentStock: existing.currentStock + runData.kitsProduced,
+          costPrice: runData.costPerKit,
+          sellingPrice: runData.sellingPrice,
+          retailPrice: runData.sellingPrice
+        };
+      } else {
+        const newCombo: Product = {
+          id: `prod-combo-${Date.now()}`,
+          name: runData.comboProductName,
+          code: runData.comboSku || `KIT-${Date.now().toString().slice(-4)}`,
+          sku: runData.comboSku || `KIT-${Date.now().toString().slice(-4)}`,
+          barcode: runData.comboBarcode || `${Date.now().toString().slice(-8)}`,
+          category: 'Combo & Hampers',
+          brand: company.name || 'In-House Assembly',
+          description: `Assembled Combo Kit (${runData.components.map((c: ComboKitComponent) => c.productName).join(' + ')})`,
+          hsn: '0000',
+          taxRate: 5,
+          purchasePrice: runData.costPerKit,
+          costPrice: runData.costPerKit,
+          sellingPrice: runData.sellingPrice,
+          retailPrice: runData.sellingPrice,
+          wholesalePrice: runData.sellingPrice * 0.9,
+          mrp: Math.round(runData.sellingPrice * 1.15),
+          minSellingPrice: runData.costPerKit,
+          openingStock: 0,
+          openingStockValue: 0,
+          currentStock: runData.kitsProduced,
+          primaryUnit: 'Kit',
+          warehouse: runData.warehouseName || 'Main Store',
+          rack: 'A1',
+          batchTracking: true,
+          serialTracking: false,
+          expiryTracking: false,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        };
+        updated.push(newCombo);
+      }
+      return updated;
+    });
+
+    setComboKitRuns(prev => [newRun, ...prev]);
+    return newRun;
+  };
+
+  const createDebundlingRun = async (runData: Omit<DebundlingRun, 'id' | 'createdAt' | 'debundleNumber'>): Promise<DebundlingRun> => {
+    const debundleNumber = `DEB-${Date.now().toString().slice(-6)}`;
+    const newRun: DebundlingRun = {
+      ...runData,
+      id: `deb-${Date.now()}`,
+      debundleNumber,
+      createdAt: new Date().toISOString()
+    };
+
+    // Deduct case stock & credit loose units
+    setProducts(prev => {
+      let updated = [...prev];
+      updated = updated.map(p => p.id === runData.caseProductId ? { ...p, currentStock: Math.max(0, p.currentStock - runData.casesOpened) } : p);
+
+      const looseIdx = updated.findIndex(p => p.id === runData.looseProductId || p.name.toLowerCase() === runData.looseProductName.toLowerCase());
+      if (looseIdx >= 0) {
+        const existing = updated[looseIdx];
+        updated[looseIdx] = {
+          ...existing,
+          currentStock: existing.currentStock + runData.totalLooseUnitsProduced,
+          costPrice: runData.costPerUnit,
+          sellingPrice: runData.sellingPricePerUnit || existing.sellingPrice,
+          retailPrice: runData.sellingPricePerUnit || existing.retailPrice
+        };
+      }
+      return updated;
+    });
+
+    setDebundlingRuns(prev => [newRun, ...prev]);
+    return newRun;
+  };
+
+  // =========================================================================
+  // CASH DRAWER SHIFT SETTLEMENT (Z-REPORT) & JOURNAL VOUCHERS & ADVANCES
+  // =========================================================================
+  const [shiftSettlements, setShiftSettlements] = useState<DayEndShiftSettlement[]>(() => {
+    try { const s = localStorage.getItem('erp_shift_settlements'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [journalVouchers, setJournalVouchers] = useState<JournalVoucher[]>(() => {
+    try { const s = localStorage.getItem('erp_journal_vouchers'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [staffAdvances, setStaffAdvances] = useState<StaffAdvanceRecord[]>(() => {
+    try { const s = localStorage.getItem('erp_staff_advances'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_shift_settlements', JSON.stringify(shiftSettlements)); } catch {}
+  }, [shiftSettlements]);
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_journal_vouchers', JSON.stringify(journalVouchers)); } catch {}
+  }, [journalVouchers]);
+
+  useEffect(() => {
+    try { localStorage.setItem('erp_staff_advances', JSON.stringify(staffAdvances)); } catch {}
+  }, [staffAdvances]);
+
+  const recordShiftSettlement = async (settlementData: Omit<DayEndShiftSettlement, 'id' | 'createdAt' | 'settlementNumber'>): Promise<DayEndShiftSettlement> => {
+    const settlementNumber = `Z-${Date.now().toString().slice(-6)}`;
+    const newSettlement: DayEndShiftSettlement = {
+      ...settlementData,
+      id: `shift-${Date.now()}`,
+      settlementNumber,
+      createdAt: new Date().toISOString()
+    };
+    setShiftSettlements(prev => [newSettlement, ...prev]);
+    return newSettlement;
+  };
+
+  const createJournalVoucher = async (voucherData: Omit<JournalVoucher, 'id' | 'createdAt' | 'voucherNumber'>): Promise<JournalVoucher> => {
+    const voucherNumber = `JV-${Date.now().toString().slice(-6)}`;
+    const newVoucher: JournalVoucher = {
+      ...voucherData,
+      id: `jv-${Date.now()}`,
+      voucherNumber,
+      createdAt: new Date().toISOString()
+    };
+    setJournalVouchers(prev => [newVoucher, ...prev]);
+
+    // Double-entry ledger balance update
+    setAccounts(prevAccounts => {
+      return prevAccounts.map(acc => {
+        const line = voucherData.entries.find((e: JournalEntryLine) => e.accountId === acc.id);
+        if (!line) return acc;
+        const delta = acc.isDebit ? (line.type === 'Debit' ? line.amount : -line.amount) : (line.type === 'Credit' ? line.amount : -line.amount);
+        return {
+          ...acc,
+          balance: acc.balance + delta
+        };
+      });
+    });
+
+    return newVoucher;
+  };
+
+  const recordStaffAdvance = async (advanceData: Omit<StaffAdvanceRecord, 'id' | 'createdAt'>): Promise<StaffAdvanceRecord> => {
+    const newAdvance: StaffAdvanceRecord = {
+      ...advanceData,
+      id: `adv-${Date.now()}`,
+      createdAt: new Date().toISOString()
+    };
+    setStaffAdvances(prev => [newAdvance, ...prev]);
+    return newAdvance;
+  };
+
   const contextValue = useMemo<ERPContextType>(() => ({
     company,
     updateCompany,
@@ -2711,7 +2927,25 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Repackaging & Conversion
     repackagingRuns,
-    createRepackagingRun
+    createRepackagingRun,
+
+    // Combo Kitting & De-bundling
+    comboKitRuns,
+    createComboKitRun,
+    debundlingRuns,
+    createDebundlingRun,
+
+    // Cash Drawer Shift Settlement & Z-Report
+    shiftSettlements,
+    recordShiftSettlement,
+
+    // Manual Double-Entry Journal Vouchers (JV)
+    journalVouchers,
+    createJournalVoucher,
+
+    // Staff Salary Advance
+    staffAdvances,
+    recordStaffAdvance
   }), [
     company,
     updateCompany,
@@ -2831,7 +3065,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     payrollRuns,
     payslips,
     inboundOrders,
-    repackagingRuns
+    repackagingRuns,
+    comboKitRuns,
+    debundlingRuns,
+    shiftSettlements,
+    journalVouchers,
+    staffAdvances
   ]);
 
   return (

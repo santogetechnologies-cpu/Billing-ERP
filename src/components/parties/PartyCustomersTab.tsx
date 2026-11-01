@@ -9,7 +9,9 @@ import {
   CreditCard,
   Edit,
   Trash2,
-  FileText
+  FileText,
+  MessageCircle,
+  QrCode
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { DataTable, Column } from '../common/DataTable';
@@ -26,9 +28,31 @@ export const PartyCustomersTab: React.FC<PartyCustomersTabProps> = ({
   onEditCustomer,
   onViewStatement
 }) => {
-  const { customers = [] } = useERP();
+  const { customers = [], company } = useERP();
 
   const retailAndWholesale = customers.filter(c => c.type !== 'Dealer');
+
+  const handleSendWhatsAppReminder = (customer: Customer) => {
+    if (!customer.phone) {
+      alert(`Customer ${customer.name} does not have a phone number registered.`);
+      return;
+    }
+    const cleanPhone = customer.phone.replace(/[^0-9]/g, '');
+    const phoneWithCode = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const balance = customer.currentOutstanding || 0;
+    const storeName = company?.name || 'Our Store';
+    const upiId = company?.upiId || '';
+
+    let text = `*Payment Reminder from ${storeName}*\n\nDear *${customer.name}*,\nThis is a friendly reminder that your outstanding balance on your ledger account is *${formatCurrency(balance)}*.\n`;
+    if (upiId && balance > 0) {
+      const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(storeName)}&am=${balance}&cu=INR`;
+      text += `\n*Quick Online Pay (UPI):*\n• UPI ID: ${upiId}\n• Direct UPI Pay Link: ${upiUrl}\n`;
+    }
+    text += `\nPlease clear this payment at your earliest convenience or share the payment slip if already paid.\n\nThank you for choosing *${storeName}*!`;
+
+    const waUrl = `https://wa.me/${phoneWithCode}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+  };
 
   const handleExportCSV = () => {
     const data = retailAndWholesale.map(c => ({
@@ -153,6 +177,34 @@ export const PartyCustomersTab: React.FC<PartyCustomersTabProps> = ({
         searchKeys={['name', 'phone', 'gstin', 'email']}
         actions={row => (
           <div className="flex items-center gap-1">
+            {row.phone && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSendWhatsAppReminder(row);
+                }}
+                className={`p-1.5 rounded cursor-pointer transition-colors ${
+                  (row.currentOutstanding || 0) > 0
+                    ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-800 font-medium'
+                    : 'text-slate-400 hover:text-emerald-600 hover:bg-slate-100'
+                }`}
+                title={`Send WhatsApp Khata Reminder (${formatCurrency(row.currentOutstanding || 0)})`}
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onViewStatement && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewStatement(row);
+                }}
+                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded cursor-pointer"
+                title="View Statement & Ledgers"
+              >
+                <FileText className="w-3.5 h-3.5" />
+              </button>
+            )}
             {onEditCustomer && (
               <button
                 onClick={(e) => {

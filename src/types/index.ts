@@ -161,6 +161,7 @@ export interface Customer {
   notes?: string;
   assignedSalespersonId?: string | null;
   assignedSalespersonName?: string;
+  loyaltyPoints?: number;
   status: 'Active' | 'Inactive' | 'Blocked';
   createdAt: string;
 }
@@ -1410,3 +1411,136 @@ export interface ProductRepackagingRun {
   createdAt: string;
 }
 
+
+// =============================================================================
+// COMBO KITTING / BOM ASSEMBLY & DE-BUNDLING
+// =============================================================================
+export interface ComboKitComponent {
+  productId: string;
+  productName: string;
+  qty: number;
+  unit: string;
+  costPrice: number;
+}
+
+export interface ComboKitRun {
+  id: string;
+  kitNumber: string;
+  comboProductName: string;
+  comboSku: string;
+  comboBarcode?: string;
+  kitsProduced: number;
+  components: ComboKitComponent[];
+  totalComponentCost: number;
+  assemblyLaborCost: number;
+  packagingCost: number;
+  totalLandedCost: number;
+  costPerKit: number;
+  sellingPrice: number;
+  projectedRevenue: number;
+  grossMarginPct: number;
+  warehouseId: string;
+  warehouseName: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface DebundlingRun {
+  id: string;
+  debundleNumber: string;
+  caseProductId: string;
+  caseProductName: string;
+  casesOpened: number;
+  caseCostPrice: number;
+  totalCaseCost: number;
+  looseProductId: string;
+  looseProductName: string;
+  looseBarcode?: string;
+  unitsPerCase: number;
+  totalLooseUnitsProduced: number;
+  costPerUnit: number;
+  sellingPricePerUnit: number;
+  projectedRevenue: number;
+  grossMarginPct: number;
+  warehouseId: string;
+  warehouseName: string;
+  notes?: string;
+  createdAt: string;
+}
+
+// =============================================================================
+// CASH DRAWER DENOMINATIONS & DAY-END Z-REPORT SETTLEMENT
+// =============================================================================
+export interface CashDenominationBreakdown {
+  note2000: number;
+  note500: number;
+  note200: number;
+  note100: number;
+  note50: number;
+  note20: number;
+  note10: number;
+  coins: number;
+  totalPhysicalCash: number;
+}
+
+export interface DayEndShiftSettlement {
+  id: string;
+  settlementNumber: string; // e.g. "Z-2026-10-31"
+  cashierId: string;
+  cashierName: string;
+  shiftStartTime: string;
+  shiftEndTime: string;
+  openingCash: number;
+  cashSalesTotal: number;
+  upiSalesTotal: number;
+  cardSalesTotal: number;
+  creditSalesTotal: number;
+  cashExpensesTotal: number;
+  cashRefundsTotal: number;
+  expectedCashInDrawer: number;
+  actualCashInDrawer: number;
+  cashVariance: number; // positive = overage, negative = shortage
+  denominations: CashDenominationBreakdown;
+  notes?: string;
+  status: 'Closed & Balanced' | 'Variance Flagged';
+  createdAt: string;
+}
+
+// =============================================================================
+// MANUAL DOUBLE-ENTRY JOURNAL VOUCHERS (JV)
+// =============================================================================
+export interface JournalEntryLine {
+  accountId: string;
+  accountName: string;
+  type: 'Debit' | 'Credit';
+  amount: number;
+  particulars?: string;
+}
+
+export interface JournalVoucher {
+  id: string;
+  voucherNumber: string; // e.g. "JV-2026-001"
+  date: string;
+  narration: string;
+  entries: JournalEntryLine[];
+  totalDebit: number;
+  totalCredit: number;
+  createdBy: string;
+  createdAt: string;
+}
+
+// =============================================================================
+// STAFF SALARY ADVANCE & LOAN TRACKING
+// =============================================================================
+export interface StaffAdvanceRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  amount: number;
+  date: string;
+  reason: string;
+  disbursementMode?: 'Cash' | 'Bank Transfer' | 'UPI';
+  status: 'Pending Deduction' | 'Deducted in Payroll';
+  payrollRunId?: string;
+  createdAt: string;
+}
