@@ -22,7 +22,11 @@ import {
   Calendar,
   Wallet,
   Clock,
-  ExternalLink
+  ExternalLink,
+  CreditCard,
+  Scale,
+  Sparkles,
+  ArrowLeftRight
 } from 'lucide-react';
 
 export const SettingsWorkflowsTab: React.FC = () => {
@@ -41,8 +45,8 @@ export const SettingsWorkflowsTab: React.FC = () => {
             <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
               End-to-End System Workflows & Financial Sealing Map
             </h2>
-            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-              Exhaustive visual blueprints connecting every business event in the ERP—from 1-tap POS billing, route sales with Rate A/B/C/D tiers, and inter-godown inventory transfers to double-entry accounting, staff payroll, and multichannel WhatsApp dispatch.
+            <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
+              Exhaustive visual blueprints connecting every business event in the ERP—from 1-tap POS billing, cash drawer denomination Z-reports, route sales with Rate A/B/C/D tiers, bulk repackaging (100kg &rarr; 100g/250g/1kg), combo kitting, and godown transfers to double-entry general journal vouchers (JV), staff advances, and WhatsApp Khata reminders with UPI direct payment links.
             </p>
           </div>
 
@@ -67,11 +71,11 @@ export const SettingsWorkflowsTab: React.FC = () => {
       <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
         {[
           { id: 'all', label: 'All Operations' },
-          { id: 'pos', label: '1. POS Counter Billing' },
-          { id: 'salesperson', label: '2. Salesperson Route & Delivery' },
-          { id: 'inventory', label: '3. Inventory & Stock Transfers' },
-          { id: 'hr', label: '4. HR, Attendance & Payroll' },
-          { id: 'accounting', label: '5. Accounts & Financial Closure' },
+          { id: 'pos', label: '1. POS Counter & Shift Settlement' },
+          { id: 'salesperson', label: '2. Route Delivery & Quotations' },
+          { id: 'inventory', label: '3. Stock, Repackaging & BOM' },
+          { id: 'hr', label: '4. HR, Advances & Payroll' },
+          { id: 'accounting', label: '5. Accounts, JV & Khata' },
           { id: 'rbac', label: '6. Role Access Matrix (RBAC)' }
         ].map(filter => (
           <button
@@ -101,10 +105,10 @@ export const SettingsWorkflowsTab: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                  1. POS Counter Billing Life Cycle (Small Shop & Multi-Counter Mall)
+                  1. POS Counter Billing & Cash Drawer Day-End Sealing Life Cycle
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Dual-mode cashier checkout supporting both 1-Tap quick touch and advanced grid search.
+                  Dual-mode cashier checkout (Touch + Grid) sealed with physical currency denomination breakdown and thermal Day-End Z-Reports.
                 </p>
               </div>
             </div>
@@ -171,35 +175,31 @@ export const SettingsWorkflowsTab: React.FC = () => {
             ))}
           </div>
 
-          {/* POS Financial Sealing Summary Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
-            <table className="w-full text-left divide-y divide-slate-200 dark:divide-slate-800">
-              <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold">
-                <tr>
-                  <th className="p-2.5">POS Mode</th>
-                  <th className="p-2.5">Target Business</th>
-                  <th className="p-2.5">Stock Deduction Point</th>
-                  <th className="p-2.5">Tender Options</th>
-                  <th className="p-2.5">Tax Calculation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-600 dark:text-slate-300">
-                <tr>
-                  <td className="p-2.5 font-bold text-blue-600">⚡ 1-Tap Counter POS</td>
-                  <td className="p-2.5">30–50 Item Kirana, Bakeries, Quick Kiosks</td>
-                  <td className="p-2.5">Main Warehouse (Store Inventory)</td>
-                  <td className="p-2.5">Cash, UPI, Khata (Credit)</td>
-                  <td className="p-2.5">Inclusive GST / Tax-free quick tender</td>
-                </tr>
-                <tr>
-                  <td className="p-2.5 font-bold text-indigo-600">🖥️ Advanced Grid POS</td>
-                  <td className="p-2.5">Supermarkets, Malls, Multi-Counter Stores</td>
-                  <td className="p-2.5">Assigned Counter Godown or Main Store</td>
-                  <td className="p-2.5">Cash, Card, UPI, Split, Credit</td>
-                  <td className="p-2.5">Detailed CGST, SGST, IGST tax breakdown</td>
-                </tr>
-              </tbody>
-            </table>
+          {/* Cash Drawer Denomination & Z-Report Sub-Panel */}
+          <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/20 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-bold text-xs">
+                <Printer className="w-4 h-4" />
+                <span>Shift Closure, Cash Drawer Denominations & Thermal Z-Report</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                End-of-Day Sealing
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
+              <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">Physical Currency Counter</span>
+                <span className="text-slate-500">Cashier enters physical note counts (₹2000, ₹500, ₹200, ₹100, ₹50, ₹20, ₹10, and coins) to compute actual cash in drawer.</span>
+              </div>
+              <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">Live Variance Detection</span>
+                <span className="text-slate-500">Automatically compares expected system cash against physical drawer cash. Flags cash shortages or overages with audit timestamps.</span>
+              </div>
+              <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">Thermal Z-Report Slip</span>
+                <span className="text-slate-500">1-Click prints official Day-End Z-Report with cashier signature lines, revenue breakdowns (Cash, UPI, Card), and archives shift data.</span>
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -216,15 +216,15 @@ export const SettingsWorkflowsTab: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                  2. Salesperson Dual Route Supply & Home Delivery Workflow
+                  2. Salesperson Route Supply, Quotations & Customer Delivery Hub
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Field operations supporting both nearby B2B store supply with 4 tiered rates and home customer dispatch.
+                  Route supply with custom customer pricing tiers, 1-click quotation conversion, and inbound home delivery management.
                 </p>
               </div>
             </div>
             <Link
-              to="/sales/hub"
+              to="/sales/delivery"
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
             >
               Open Delivery Hub <ExternalLink className="w-3.5 h-3.5" />
@@ -245,11 +245,15 @@ export const SettingsWorkflowsTab: React.FC = () => {
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
-                  <span><strong>Up to 100% Discount Slider:</strong> Salesperson can offer negotiated percentage discount on the spot.</span>
+                  <span><strong>Up to 100% Discount Slider:</strong> Salesperson can offer negotiated percentage discount on the spot with margin protection.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
-                  <span><strong>1-Click WhatsApp Invoice Dispatch:</strong> Instantly sends formatted order summary to store owner's WhatsApp number.</span>
+                  <span><strong>1-Click Quotation &rarr; Tax Invoice:</strong> Convert field estimates/quotations directly into approved tax invoices with stock deduction.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+                  <span><strong>1-Click WhatsApp Khata Reminder:</strong> Sends outstanding receivable notices directly to customer WhatsApp with store UPI pay links.</span>
                 </li>
               </ul>
             </div>
@@ -280,7 +284,7 @@ export const SettingsWorkflowsTab: React.FC = () => {
       )}
 
       {/* ===================================================================== */}
-      {/* WORKFLOW 3: INVENTORY, GODOWNS & BARCODE LABELS */}
+      {/* WORKFLOW 3: INVENTORY, GODOWNS & REPACKAGING / BOM */}
       {/* ===================================================================== */}
       {(activeWorkflow === 'all' || activeWorkflow === 'inventory') && (
         <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-2xs">
@@ -291,21 +295,30 @@ export const SettingsWorkflowsTab: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                  3. Inventory, Godowns & Barcode Labels Operations
+                  3. Inventory, Godowns, Bulk Repackaging & BOM Assembly
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Stock integrity guarantee: Supplier Receiving → Main Godown → Counter Transfers → Shelf Barcoding.
+                  Stock integrity guarantee: Supplier Receiving &rarr; Godown Transfers &rarr; Bulk-to-Retail Repackaging &rarr; Barcoding.
                 </p>
               </div>
             </div>
-            <Link
-              to="/inventory"
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
-            >
-              Open Inventory <ExternalLink className="w-3.5 h-3.5" />
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/inventory/conversion"
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors"
+              >
+                Open Repackaging Hub <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+              <Link
+                to="/inventory"
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
+              >
+                Open Inventory <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
 
+          {/* Standard Godown Pipeline */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-2">
               <h4 className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -338,6 +351,42 @@ export const SettingsWorkflowsTab: React.FC = () => {
               </p>
             </div>
           </div>
+
+          {/* Product Transformation, Repackaging & BOM Sub-Section */}
+          <div className="p-4 rounded-xl border border-purple-200 dark:border-purple-900/40 bg-purple-50/40 dark:bg-purple-950/20 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-purple-800 dark:text-purple-300 font-bold text-xs">
+                <Scale className="w-4 h-4" />
+                <span>Product Transformation, Assembly & Repackaging Modes</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                Landed Cost & Yield Sealing
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <span className="font-bold text-purple-700 dark:text-purple-400 block">Mode 1: Bulk-to-Retail Repackaging</span>
+                <p className="text-slate-500 dark:text-slate-400">
+                  Example: 100kg Sugar bag converted into 100g, 250g, 500g, and 1kg retail packs. Features live weight balance verification, shrinkage/wastage reconciliation, packaging pouch costs, labor overhead, and 1-click thermal barcode label printing.
+                </p>
+              </div>
+
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <span className="font-bold text-blue-700 dark:text-blue-400 block">Mode 2: Combo Kitting / Gift Hampers (BOM)</span>
+                <p className="text-slate-500 dark:text-slate-400">
+                  Multi-item assembly where child components (e.g. 2L Oil + 5kg Basmati + 500g Ghee + Basket) are consumed from inventory and combined into a single Combo SKU with calculated landed cost and expected gross margin yield.
+                </p>
+              </div>
+
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <span className="font-bold text-emerald-700 dark:text-emerald-400 block">Mode 3: Master Case De-bundling</span>
+                <p className="text-slate-500 dark:text-slate-400">
+                  Unbox wholesale master cartons (e.g. 1 Carton of 24 Cans) into loose retail units with proportional unit cost allocation, ensuring inventory counts match physical shelf displays.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
@@ -353,10 +402,10 @@ export const SettingsWorkflowsTab: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                  4. Staff Directory, Daily Attendance & Automated Payroll
+                  4. Staff Directory, Daily Attendance, Advances & Automated Payroll
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Full employee lifecycle: Full-time/part-time, monthly/hourly/daily wages, leave approvals, payslips, and auto-posting to Accounts.
+                  Full employee lifecycle: Wages structure, leave approvals, salary advance disbursements, and auto-deduction in monthly payroll.
                 </p>
               </div>
             </div>
@@ -368,29 +417,35 @@ export const SettingsWorkflowsTab: React.FC = () => {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-[11px]">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-[11px]">
             <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/50 space-y-1.5">
               <span className="font-bold text-slate-800 dark:text-slate-200 block">1. Staff Setup</span>
               <p className="text-slate-500 dark:text-slate-400">
-                Register employee code, department, bank account details, employment type, and salary structure (Monthly, Daily wage, or Hourly).
+                Register employee code, department, bank account details, and wage type (Monthly, Daily, or Hourly).
               </p>
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/50 space-y-1.5">
               <span className="font-bold text-slate-800 dark:text-slate-200 block">2. Daily Attendance</span>
               <p className="text-slate-500 dark:text-slate-400">
-                1-tap "Mark All Present" shortcut. Tracks Present, Absent, Half Day, Holiday, and Overtime hours worked.
+                1-tap "Mark All Present". Tracks Present, Absent, Half Day, Holiday, and Overtime hours worked.
               </p>
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/50 space-y-1.5">
               <span className="font-bold text-slate-800 dark:text-slate-200 block">3. Leave Management</span>
               <p className="text-slate-500 dark:text-slate-400">
-                Submit and review Casual, Sick, Earned, or Unpaid leaves with manager approval. Paid leaves protect salary deductions.
+                Review Casual, Sick, Earned, or Unpaid leaves. Approved paid leaves protect salary deductions.
               </p>
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/50 space-y-1.5">
-              <span className="font-bold text-slate-800 dark:text-slate-200 block">4. Payroll Execution</span>
+              <span className="font-bold text-purple-700 dark:text-purple-400 block">4. Salary Advances & Loans</span>
               <p className="text-slate-500 dark:text-slate-400">
-                Computes net payout with overtime, bonuses, allowances, and unpaid leave deductions. Generates payslips and auto-posts expense to Accounts ledger.
+                Disburse emergency advances via Cash Drawer, Bank Transfer, or UPI. Advances are tracked with Pending Recovery status.
+              </p>
+            </div>
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/50 space-y-1.5">
+              <span className="font-bold text-emerald-700 dark:text-emerald-400 block">5. Payroll Execution</span>
+              <p className="text-slate-500 dark:text-slate-400">
+                Computes net payout with overtime and allowances, automatically deducts active salary advances, and auto-posts expense to Accounts.
               </p>
             </div>
           </div>
@@ -409,10 +464,10 @@ export const SettingsWorkflowsTab: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                  5. Double-Entry Accounting & Financial Sealing Architecture
+                  5. Double-Entry Accounting, General Journal Vouchers (JV) & Khata Sealing
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Real-time synchronization between sales, purchases, payroll, day books, trial balance, and balance sheet.
+                  Real-time synchronization between sales, purchases, payroll, manual journal vouchers, trial balance, and WhatsApp Khata reminders.
                 </p>
               </div>
             </div>
@@ -428,7 +483,7 @@ export const SettingsWorkflowsTab: React.FC = () => {
             <h4 className="font-bold text-xs text-slate-900 dark:text-white">
               Financial Integrity & Ledger Auto-Posting Rules
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-[11px]">
               <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
                 <span className="font-bold text-emerald-600 block mb-1">Sales Invoices & POS</span>
                 <span className="text-slate-500">Debits Cash/Bank/Receivables and Credits Sales Revenue + GST Tax Payables (CGST/SGST/IGST).</span>
@@ -439,7 +494,11 @@ export const SettingsWorkflowsTab: React.FC = () => {
               </div>
               <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
                 <span className="font-bold text-purple-600 block mb-1">Monthly Payroll Runs</span>
-                <span className="text-slate-500">Debits Salaries & Wages Expense Account and Credits Cash / Bank Account for total net salary payout.</span>
+                <span className="text-slate-500">Debits Salaries & Wages Expense Account, offsets staff advance deductions, and credits Net Payout.</span>
+              </div>
+              <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                <span className="font-bold text-indigo-600 block mb-1">Manual Journal Vouchers (JV)</span>
+                <span className="text-slate-500">Manual double-entry transfers (Debit Account &harr; Credit Account) for depreciation, write-offs, and adjustments.</span>
               </div>
             </div>
           </div>
@@ -473,6 +532,7 @@ export const SettingsWorkflowsTab: React.FC = () => {
                   <th className="p-2.5">Billing & POS</th>
                   <th className="p-2.5">Delivery Hub</th>
                   <th className="p-2.5">Stock & Transfers</th>
+                  <th className="p-2.5">Repackaging & BOM</th>
                   <th className="p-2.5">HR & Payroll</th>
                   <th className="p-2.5">Financial Ledgers</th>
                   <th className="p-2.5">Sidebar Height & Scroll</th>
@@ -481,6 +541,7 @@ export const SettingsWorkflowsTab: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-600 dark:text-slate-300">
                 <tr>
                   <td className="p-2.5 font-bold text-slate-900 dark:text-white">Owner / Admin</td>
+                  <td className="p-2.5 text-emerald-600 font-bold">Full Access</td>
                   <td className="p-2.5 text-emerald-600 font-bold">Full Access</td>
                   <td className="p-2.5 text-emerald-600 font-bold">Full Access</td>
                   <td className="p-2.5 text-emerald-600 font-bold">Full Access</td>
@@ -495,12 +556,14 @@ export const SettingsWorkflowsTab: React.FC = () => {
                   <td className="p-2.5 text-amber-600">Stock View Only</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
+                  <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 font-mono text-[10px] text-emerald-600 font-bold">3 items only (~150px, No scroll)</td>
                 </tr>
                 <tr>
                   <td className="p-2.5 font-bold text-purple-600">Cashier</td>
                   <td className="p-2.5 text-emerald-600 font-bold">Fast POS & Inbound</td>
                   <td className="p-2.5 text-emerald-600 font-bold">Dispatch Assignment</td>
+                  <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
@@ -511,8 +574,9 @@ export const SettingsWorkflowsTab: React.FC = () => {
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
+                  <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-emerald-600 font-bold">Run Payroll & Slips</td>
-                  <td className="p-2.5 text-emerald-600 font-bold">P&L, Trial Bal, Daybook</td>
+                  <td className="p-2.5 text-emerald-600 font-bold">JV, P&L, Trial Bal, Daybook</td>
                   <td className="p-2.5 font-mono text-[10px] text-emerald-600 font-bold">5 items only (~220px, No scroll)</td>
                 </tr>
                 <tr>
@@ -520,6 +584,7 @@ export const SettingsWorkflowsTab: React.FC = () => {
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-emerald-600 font-bold">Transfers, GRN, Labels</td>
+                  <td className="p-2.5 text-emerald-600 font-bold">Repackaging, BOM Kits</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 text-slate-400">Restricted</td>
                   <td className="p-2.5 font-mono text-[10px] text-emerald-600 font-bold">4 items only (~180px, No scroll)</td>
