@@ -306,6 +306,8 @@ export interface PurchaseInvoice {
     taxRate: number;
     taxAmt: number;
     total: number;
+    isUnregistered?: boolean;
+    isTemporary?: boolean;
   }[];
   subtotal: number;
   taxTotal: number;

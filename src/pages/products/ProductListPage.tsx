@@ -4,14 +4,12 @@ import {
   Package,
   Edit,
   Trash2,
-  ScanBarcode,
   Boxes,
   Eye,
   Plus,
   Tag,
   DollarSign,
   FileSpreadsheet,
-  Printer,
   Search,
   Filter,
   CheckCircle2,
@@ -31,7 +29,6 @@ import { ProductMasterModal } from '../../components/products/ProductMasterModal
 import { ProductCategoriesTab } from '../../components/products/ProductCategoriesTab';
 import { ProductPriceListsTab } from '../../components/products/ProductPriceListsTab';
 import { ProductImportExportTab } from '../../components/products/ProductImportExportTab';
-import { ProductLabelsTab } from '../../components/products/ProductLabelsTab';
 import { ProductDeleteModal } from '../../components/products/ProductDeleteModal';
 import { directPrintService } from '../../services/directPrintService';
 
@@ -58,22 +55,16 @@ export const ProductListPage: React.FC = () => {
 
     const action = searchParams.get('action');
     if (action === 'new') {
-      setProductToEdit(null);
-      setIsMasterModalOpen(true);
-      // Clean query param
-      const next = new URLSearchParams(searchParams);
-      next.delete('action');
-      setSearchParams(next, { replace: true });
+      navigate('/products/initial-stock', { replace: true });
     }
   }, [searchParams]);
 
-  // Tab definitions (Part C: Products: All · Categories · Price lists (view) · Import/Export · Labels)
+  // Tab definitions (Products: All · Categories · Price lists (view) · Import/Export)
   const tabs: TabItem[] = [
     { id: 'all', label: 'All Products', count: products.length, icon: Package },
     { id: 'categories', label: 'Categories', icon: Tag },
     { id: 'pricing', label: 'Price Lists (View)', icon: DollarSign },
-    { id: 'import_export', label: 'Import / Export', icon: FileSpreadsheet },
-    { id: 'labels', label: 'Labels & Barcodes', icon: ScanBarcode }
+    { id: 'import_export', label: 'Import / Export', icon: FileSpreadsheet }
   ];
 
   const handleTabChange = (tabId: string) => {
@@ -81,6 +72,10 @@ export const ProductListPage: React.FC = () => {
     const next = new URLSearchParams(searchParams);
     next.set('tab', tabId);
     setSearchParams(next, { replace: true });
+  };
+
+  const handleViewProduct = (product: Product) => {
+    setSelectedProductView(product);
   };
 
   const handleEditProduct = (product: Product) => {
@@ -207,11 +202,11 @@ export const ProductListPage: React.FC = () => {
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => handleDirectPrintBarcode(p)}
+            onClick={() => handleViewProduct(p)}
             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-            title="Silent print barcode label"
+            title="View product details"
           >
-            <Printer className="w-3.5 h-3.5" />
+            <Eye className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
@@ -258,10 +253,7 @@ export const ProductListPage: React.FC = () => {
         {/* ONE Primary Button per page (Part B1) */}
         <button
           type="button"
-          onClick={() => {
-            setProductToEdit(null);
-            setIsMasterModalOpen(true);
-          }}
+          onClick={() => navigate('/products/initial-stock')}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -316,14 +308,16 @@ export const ProductListPage: React.FC = () => {
       {/* Tab 4: Import / Export */}
       {activeTab === 'import_export' && <ProductImportExportTab />}
 
-      {/* Tab 5: Labels & Barcodes */}
-      {activeTab === 'labels' && <ProductLabelsTab />}
-
-      {/* Product Master Modal (Progressive Disclosure) */}
+      {/* Product Master Modal (View Details / Edit / Create) */}
       <ProductMasterModal
-        isOpen={isMasterModalOpen}
-        onClose={() => setIsMasterModalOpen(false)}
-        productToEdit={productToEdit}
+        isOpen={isMasterModalOpen || Boolean(selectedProductView)}
+        onClose={() => {
+          setIsMasterModalOpen(false);
+          setProductToEdit(null);
+          setSelectedProductView(null);
+        }}
+        productToEdit={selectedProductView || productToEdit}
+        readOnly={Boolean(selectedProductView)}
         onSaved={saved => {
           setToastMessage(`Product "${saved.name}" saved successfully.`);
         }}

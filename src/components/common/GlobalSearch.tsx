@@ -71,7 +71,7 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ isOpen, onClose }) =
       }> = [
         { type: 'Quick Action', title: 'Create New Sales Invoice', subtitle: 'Fast billing & tax invoice', link: '/sales/new', icon: FileText },
         { type: 'Quick Action', title: 'Open POS Fast Billing Counter', subtitle: 'Touch & barcode counter', link: '/sales/pos', icon: ScanBarcode },
-        { type: 'Quick Action', title: 'Add New Product Master', subtitle: 'Pricing, SKU & inventory', link: '/products/new', icon: Package },
+        { type: 'Quick Action', title: 'Add New Product Master', subtitle: 'Pricing, SKU & inventory', link: '/products/initial-stock', icon: Package },
         { type: 'Quick Action', title: 'Add New Customer', subtitle: 'Credit terms & profile', link: '/customers', icon: Users },
         { type: 'Quick Action', title: 'View General Ledger', subtitle: 'Accounting debits & credits', link: '/accounting/ledger', icon: Receipt },
         { type: 'Quick Action', title: 'Barcode Label Designer', subtitle: 'Generate & print labels', link: '/barcode', icon: ScanBarcode }

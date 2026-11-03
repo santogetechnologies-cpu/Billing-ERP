@@ -146,7 +146,9 @@ export const purchaseService = {
           discount: Number(item.discount || 0),
           taxRate: Number(item.tax_rate),
           taxAmt: Number(item.tax_amt),
-          total: Number(item.total)
+          total: Number(item.total),
+          isUnregistered: !item.product_id || String(item.product_id).startsWith('unregistered-'),
+          isTemporary: !item.product_id || String(item.product_id).startsWith('unregistered-')
         })),
         subtotal: Number(p.subtotal),
         taxTotal: Number(p.tax_total),

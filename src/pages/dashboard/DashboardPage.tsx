@@ -372,7 +372,7 @@ export const DashboardPage: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => navigate('/products?action=new')}
+          onClick={() => navigate('/products/initial-stock')}
           className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer font-semibold text-xs"
         >
           <Package className="w-5 h-5 text-blue-600" />

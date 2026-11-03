@@ -33,14 +33,15 @@ import { BarcodeCanvas } from '../../components/barcode/BarcodeCanvas';
 import { barcodeService } from '../../services/barcodeService';
 import { directPrintService, PrinterConfig } from '../../services/directPrintService';
 import { supabase } from '../../lib/supabase';
-import { hasPermission, canManageBarcodeOverride } from '../../utils/rbac';
+import { hasPermission, canManageBarcodeOverride, normalizeRole } from '../../utils/rbac';
+import { ProductLabelsTab } from '../../components/products/ProductLabelsTab';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import { Modal } from '../../components/common/Modal';
 import { Product } from '../../types';
 import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../../utils/schemaDetector';
 import { sortProductsAZ } from '../../utils/sortUtils';
 
-export const BarcodePage: React.FC = () => {
+const WarehouseBarcodePageContent: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { products, company, updateProduct, refreshData } = useERP();
@@ -947,7 +948,7 @@ export const BarcodePage: React.FC = () => {
                 </h2>
                 {hasPermission(userRole, 'products', 'create') && (
                   <button
-                    onClick={() => navigate('/products/new')}
+                    onClick={() => navigate('/products/initial-stock')}
                     className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
@@ -2142,4 +2143,20 @@ export const BarcodePage: React.FC = () => {
       )}
     </div>
   );
+};
+
+
+export const BarcodePage: React.FC = () => {
+  const { profile } = useAuth();
+  const normalizedRole = normalizeRole(profile?.role);
+
+  if (normalizedRole === 'Purchase Manager') {
+    return (
+      <div className="space-y-6">
+        <ProductLabelsTab />
+      </div>
+    );
+  }
+
+  return <WarehouseBarcodePageContent />;
 };

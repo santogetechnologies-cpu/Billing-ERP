@@ -1,4 +1,4 @@
-﻿import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { assertCallerPermission } from '../utils/rbac';
 import { getAppStorage } from '../utils/storageUtils';
 
@@ -182,5 +182,90 @@ export const categoryService = {
     }
 
     return trimmed;
+  },
+
+  /**
+   * Updates an existing custom category's name.
+   */
+  async updateCategory(oldName: string, newName: string, companyId?: string): Promise<string> {
+    await assertCallerPermission('products', 'edit');
+
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const trimmedOld = (oldName || '').trim();
+    const trimmedNew = (newName || '').trim();
+
+    if (!trimmedNew) {
+      throw new Error('Category name cannot be empty.');
+    }
+
+    // 1. Update in Supabase product_categories
+    try {
+      await supabase
+        .from('product_categories')
+        .update({ name: trimmedNew })
+        .eq('company_id', finalCompanyId)
+        .ilike('name', trimmedOld);
+    } catch (err) {
+      console.warn('Database error while updating custom category:', err);
+    }
+
+    // 2. Update local storage
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const list: string[] = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const updated = list.map(c => (c.toLowerCase() === trimmedOld.toLowerCase() ? trimmedNew : c));
+            storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+          }
+        }
+      } catch {}
+    }
+
+    return trimmedNew;
+  },
+
+  /**
+   * Deletes a custom category. Default/system categories are protected.
+   */
+  async deleteCategory(name: string, companyId?: string): Promise<boolean> {
+    await assertCallerPermission('products', 'delete');
+
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const trimmed = (name || '').trim();
+
+    if (isBaseCategory(trimmed)) {
+      throw new Error('Default system categories cannot be deleted.');
+    }
+
+    // 1. Delete from Supabase
+    try {
+      await supabase
+        .from('product_categories')
+        .delete()
+        .eq('company_id', finalCompanyId)
+        .ilike('name', trimmed);
+    } catch (err) {
+      console.warn('Database error while deleting custom category:', err);
+    }
+
+    // 2. Delete from local storage
+    const storage = getAppStorage();
+    if (storage) {
+      try {
+        const raw = storage.getItem(STORAGE_KEY(finalCompanyId));
+        if (raw) {
+          const list: string[] = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const updated = list.filter(c => c.toLowerCase() !== trimmed.toLowerCase());
+            storage.setItem(STORAGE_KEY(finalCompanyId), JSON.stringify(updated));
+          }
+        }
+      } catch {}
+    }
+
+    return true;
   }
 };

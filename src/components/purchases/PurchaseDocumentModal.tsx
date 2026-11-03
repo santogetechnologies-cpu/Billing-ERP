@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   ShoppingBag,
@@ -17,6 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Product, PurchaseInvoice, PurchaseDocType } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import { normalizeUniversalUnit } from '../../utils/universalUnitSystem';
+import { UNIVERSAL_BUILTIN_UNITS } from '../../data/unitsData';
 
 interface PurchaseDocumentModalProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
     suppliers,
     warehouses,
     company,
+    units,
     createPurchaseInvoice
   } = useERP();
 
@@ -49,6 +51,53 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [savedDocument, setSavedDocument] = useState<PurchaseInvoice | null>(null);
+
+  // Quick Add Item Modal State (Temporary / Unregistered PO-Only Item)
+  const [isAddNewItemModalOpen, setIsAddNewItemModalOpen] = useState(false);
+  const [newItemError, setNewItemError] = useState<string | null>(null);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemQty, setNewItemQty] = useState('1');
+  const [newItemUnit, setNewItemUnit] = useState('Piece');
+
+  // Units list
+  const unitList = useMemo(() => {
+    const defaultUnits = ['Piece', 'Box', 'Kg', 'Gram', 'Ltr', 'Ml', 'Meter', 'Packet', 'Set', 'Dozen', 'Pair', 'Roll'];
+    const builtinNames = (UNIVERSAL_BUILTIN_UNITS || []).map(u => u.name);
+    const customNames = (units || []).map(u => u.name);
+    return Array.from(new Set([...defaultUnits, ...builtinNames, ...customNames])).filter(Boolean);
+  }, [units]);
+
+  const handleCreateAndAddUnregisteredItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedName = newItemName.trim();
+    if (!trimmedName) {
+      setNewItemError('Product / Item Name is required.');
+      return;
+    }
+
+    const qty = parseFloat(newItemQty);
+    if (isNaN(qty) || qty <= 0) {
+      setNewItemError('Valid quantity greater than 0 is required.');
+      return;
+    }
+
+    const unregisteredItem = {
+      productId: `unregistered-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      productName: trimmedName,
+      qty,
+      unit: newItemUnit.trim() || 'Piece',
+      rate: 0,
+      discount: 0,
+      taxRate: 0,
+      taxAmt: 0,
+      total: 0,
+      isUnregistered: true,
+      isTemporary: true
+    };
+
+    setItems(prev => [unregisteredItem, ...prev]);
+    setIsAddNewItemModalOpen(false);
+  };
 
   useEffect(() => {
     if (suppliers.length > 0 && !supplierId) {
@@ -291,6 +340,25 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                 </select>
               </div>
 
+              {/* Small Action Button below Dropdown */}
+              <div className="flex items-center gap-2 justify-start pt-0.5 pb-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewItemError(null);
+                    setNewItemName('');
+                    setNewItemQty('1');
+                    setNewItemUnit('Piece');
+                    setIsAddNewItemModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-800/80 rounded-lg transition-colors cursor-pointer shadow-2xs active:scale-95"
+                  title="Add temporary or unregistered product to this purchase order only"
+                >
+                  <Plus className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 stroke-[2.5]" />
+                  <span>+ Add New Item</span>
+                </button>
+              </div>
+
               {/* Items List */}
               <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 max-h-56 overflow-y-auto">
                 {items.length === 0 ? (
@@ -301,7 +369,14 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                   items.map((item, idx) => (
                     <div key={idx} className="p-2.5 flex items-center justify-between gap-3 text-xs">
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-900 dark:text-white truncate">{item.productName}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-semibold text-slate-900 dark:text-white truncate">{item.productName}</p>
+                          {(item.isUnregistered || (item.productId && item.productId.startsWith('unregistered-')) || !item.productId) && (
+                            <span className="px-1.5 py-0.2 text-[9px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded">
+                              PO Only
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] text-slate-400 font-mono">
                           {formatCurrency(item.rate)} × {item.qty} {item.unit} (+{item.taxRate}% tax)
                         </p>
@@ -426,6 +501,128 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
           </form>
         )}
       </div>
+
+      {/* Small Modal for "+ Add New Item" (Temporary / Unregistered Item) */}
+      {isAddNewItemModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-md my-auto overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-purple-50/60 dark:bg-purple-950/30">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shadow-2xs">
+                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Add New Item (PO Only)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Temporary item for this order — not saved in Product Master
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddNewItemModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleCreateAndAddUnregisteredItem} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto flex-1 text-xs">
+              {newItemError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{newItemError}</span>
+                </div>
+              )}
+
+              {/* 1. Product / Item Name (Required) */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Product / Item Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Special Order Gear Bearing"
+                  value={newItemName}
+                  onChange={e => setNewItemName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
+                  autoFocus
+                />
+              </div>
+
+              {/* 2. Quantity & Unit - Side by side in one row */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Quantity <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    required
+                    placeholder="1"
+                    value={newItemQty}
+                    onChange={e => setNewItemQty(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Unit <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <select
+                    value={newItemUnit}
+                    onChange={e => setNewItemUnit(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                  >
+                    {unitList.map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 3. Estimated Line Total - Directly below Quantity and Unit */}
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-xs">
+                <span className="text-slate-500">Estimated Line Total:</span>
+                <span className="font-mono font-bold text-purple-600 dark:text-purple-400 text-sm">
+                  {formatCurrency(0)}
+                </span>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                <span className="text-[10px] text-slate-400">
+                  Not saved in Product Master
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddNewItemModalOpen(false)}
+                    className="px-3.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newItemName.trim() || !newItemQty || parseFloat(newItemQty) <= 0}
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95"
+                  >
+                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Add to Order</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

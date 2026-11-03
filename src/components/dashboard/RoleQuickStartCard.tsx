@@ -85,7 +85,7 @@ export const RoleQuickStartCard: React.FC = () => {
       : [
           // Admin / Owner default
           { id: 'ad1', label: '1. Configure Store Profile & Taxes', desc: 'Set company name, GSTIN, and receipt header', actionPath: '/settings?tab=business' },
-          { id: 'ad2', label: '2. Add Products & Initial Inventory', desc: 'Create items with universal units and barcodes', actionPath: '/products' },
+          { id: 'ad2', label: '2. Add Products & Initial Inventory', desc: 'Create items with universal units and barcodes', actionPath: '/products/initial-stock' },
           { id: 'ad3', label: '3. Connect Thermal Printer', desc: 'Configure 80mm/58mm silent receipt printing', actionPath: '/settings?tab=printers' },
           { id: 'ad4', label: '4. Run First Test Sale in POS', desc: 'Finish a bill in under 2 minutes', actionPath: '/sales/pos' }
         ];

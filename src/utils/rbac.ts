@@ -205,7 +205,7 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     accounting: ALL_DENIED,
     taxes: ALL_DENIED,
     reports: ALL_DENIED,
-    barcode: ALL_DENIED,
+    barcode: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
     users: ALL_DENIED,
     audit: ALL_DENIED
   },
@@ -453,17 +453,23 @@ export function canAccessHeaderProfile(role?: UserRole | string | null): boolean
 export function canManageProducts(role?: UserRole | string | null): boolean {
   if (!role) return false;
   const normalized = normalizeRole(role);
-  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+  if (normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager') {
+    return true;
+  }
+  return hasPermission(normalized, 'products', 'create') || hasPermission(normalized, 'products', 'edit');
 }
 
 /**
  * Validates whether the role can manage initial stock and stock bundles.
- * Restricted to Owner, Admin, and Purchase Manager. Strictly denied for Warehouse Manager.
+ * Restricted to Owner, Admin, and Purchase Manager, or any role with product create permission.
  */
 export function canManageInitialStock(role?: UserRole | string | null): boolean {
   if (!role) return false;
   const normalized = normalizeRole(role);
-  return normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager';
+  if (normalized === 'Owner' || normalized === 'Admin' || normalized === 'Purchase Manager') {
+    return true;
+  }
+  return hasPermission(normalized, 'products', 'create');
 }
 
 /**
@@ -630,7 +636,7 @@ export function canAccessRoute(
 
   // Prevent Purchase Manager from accessing Warehouse Manager's Barcode Management page or purchase barcode routes
   if (normalizedRole === 'Purchase Manager') {
-    if (cleanPath === '/barcode' || cleanPath.startsWith('/barcode/') || cleanPath.startsWith('/purchases/barcode')) {
+    if (cleanPath.startsWith('/purchases/barcode')) {
       return false;
     }
 
@@ -859,6 +865,8 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Warehouses / Godowns',
     'Warehouse Details',
     'Expenses',
+    'Barcodes & Labels',
+    'Barcode',
     'Settings'
   ],
   'Warehouse Manager': [

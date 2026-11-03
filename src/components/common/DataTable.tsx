@@ -26,7 +26,8 @@ export interface Column<T> {
 }
 
 export interface DataTableRef {
-  exportCSV: () => void;
+  exportCSV: (selectedOnly?: boolean) => void;
+  exportSelectedCSV?: () => void;
 }
 
 interface DataTableProps<T> {
@@ -214,10 +215,14 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   // Export as CSV
-  const exportCSV = () => {
+  const exportCSV = (selectedOnly: boolean = false) => {
+    const isSelectedOnly = typeof selectedOnly === 'boolean' ? selectedOnly : false;
     const activeCols = columns.filter(c => visibleColumns.has(c.key));
     const headers = activeCols.map(c => `"${c.header.replace(/"/g, '""')}"`).join(',');
-    const rows = sortedData.map(row => {
+    const targetData = isSelectedOnly
+      ? data.filter(r => selectedIds.has(r.id || JSON.stringify(r)))
+      : sortedData;
+    const rows = targetData.map(row => {
       return activeCols
         .map(c => {
           const val = row[c.key];
@@ -238,7 +243,10 @@ export function DataTable<T extends Record<string, any>>({
 
   useEffect(() => {
     if (tableRef) {
-      tableRef.current = { exportCSV };
+      tableRef.current = {
+        exportCSV: (selectedOnly?: boolean) => exportCSV(Boolean(selectedOnly)),
+        exportSelectedCSV: () => exportCSV(true)
+      };
     }
   });
 
@@ -354,14 +362,14 @@ export function DataTable<T extends Record<string, any>>({
                 {showExportMenu && (
                   <div className="absolute right-0 mt-1 w-40 glass-dropdown rounded-lg py-1 text-xs z-30">
                     <button
-                      onClick={exportCSV}
+                      onClick={() => exportCSV(false)}
                       className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                     >
                       <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                       <span>Export CSV</span>
                     </button>
                     <button
-                      onClick={exportCSV}
+                      onClick={() => exportCSV(false)}
                       className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                     >
                       <FileText className="w-4 h-4 text-blue-600" />
@@ -395,7 +403,7 @@ export function DataTable<T extends Record<string, any>>({
                 bulkActions(selectedRowsList)
               ) : (
                 <button
-                  onClick={exportCSV}
+                  onClick={() => exportCSV(true)}
                   className="px-2.5 py-1 bg-white border border-blue-200 rounded text-blue-700 hover:bg-blue-50 font-medium"
                 >
                   Export Selected

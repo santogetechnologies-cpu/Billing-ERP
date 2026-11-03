@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Package,
+  Eye,
   Sparkles,
   ChevronDown,
   ChevronUp,
@@ -36,13 +37,15 @@ interface ProductMasterModalProps {
   onClose: () => void;
   productToEdit?: Product | null;
   onSaved?: (product: Product) => void;
+  readOnly?: boolean;
 }
 
 export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
   isOpen,
   onClose,
   productToEdit,
-  onSaved
+  onSaved,
+  readOnly = false
 }) => {
   const {
     company,
@@ -264,14 +267,25 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <Package className="w-5 h-5" />
+              {readOnly ? <Eye className="w-5 h-5" /> : <Package className="w-5 h-5" />}
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                {isEdit ? 'Edit Product' : 'Add New Product'}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                  {readOnly ? 'Product Details' : isEdit ? 'Edit Product' : 'Add New Product'}
+                </h2>
+                {readOnly && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                    View-Only
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {savedProduct ? 'Next best actions' : 'From loose grocery to electric vehicles'}
+                {readOnly
+                  ? (productToEdit?.sku ? `SKU: ${productToEdit.sku}` : 'Product master information')
+                  : savedProduct
+                  ? 'Next best actions'
+                  : 'From loose grocery to electric vehicles'}
               </p>
             </div>
           </div>
@@ -338,7 +352,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
           </div>
         ) : (
           /* Form Entry (The Essentials by default) */
-          <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-5 space-y-4">
+          <form onSubmit={readOnly ? e => { e.preventDefault(); onClose(); } : handleSave} className="flex-1 overflow-y-auto p-5 space-y-4">
             {errorMsg && (
               <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -347,7 +361,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
             )}
 
             {/* 1. The Essentials (Visible by default) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <fieldset disabled={readOnly} className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-0 p-0 m-0">
               {/* Product Name */}
               <div className="sm:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -483,13 +497,15 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                     Product Code / SKU
                   </label>
-                  <button
-                    type="button"
-                    onClick={handleGenerateCodes}
-                    className="text-[11px] text-blue-600 hover:text-blue-700 font-medium cursor-pointer"
-                  >
-                    Auto-generate
-                  </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={handleGenerateCodes}
+                      className="text-[11px] text-blue-600 hover:text-blue-700 font-medium cursor-pointer"
+                    >
+                      Auto-generate
+                    </button>
+                  )}
                 </div>
                 <input
                   type="text"
@@ -512,7 +528,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
                   className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-            </div>
+            </fieldset>
 
             {/* 2. Progressive Disclosure Toggle: "More Options" (Part F) */}
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
@@ -526,7 +542,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
               </button>
 
               {showMoreOptions && (
-                <div className="space-y-4 pt-3 animate-fadeIn">
+                <fieldset disabled={readOnly} className="space-y-4 pt-3 animate-fadeIn border-0 p-0 m-0">
                   {/* Tracking Switches Card */}
                   <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-3">
                     <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -702,33 +718,45 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
                       className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                     />
                   </div>
-                </div>
+                </fieldset>
               )}
             </div>
 
             {/* Modal Footer with ONE Primary Action Button (Part B1) */}
             <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {isSubmitting ? (
-                  <span>Saving Product...</span>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>{isEdit ? 'Update Product' : 'Save Product'}</span>
-                  </>
-                )}
-              </button>
+              {readOnly ? (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmitting ? (
+                      <span>Saving Product...</span>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>{isEdit ? 'Update Product' : 'Save Product'}</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           </form>
         )}

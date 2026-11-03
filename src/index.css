@@ -144,6 +144,12 @@ aside *::-webkit-scrollbar:horizontal,
   scrollbar-width: none !important;
 }
 
+/* Screen hidden utility for print containers */
+.print-only,
+#barcode-print-container {
+  display: none;
+}
+
 /* Print Styles for Invoices, Barcodes and Reports */
 @media print {
   @page {
@@ -292,15 +298,37 @@ aside *::-webkit-scrollbar:horizontal,
   body.barcode-printing-active aside,
   body.barcode-printing-active header,
   body.barcode-printing-active nav,
+  body.printing-barcodes aside,
+  body.printing-barcodes header,
+  body.printing-barcodes nav,
   body:has(#barcode-printable-sheet) aside,
   body:has(#barcode-printable-sheet) header,
-  body:has(#barcode-printable-sheet) nav {
+  body:has(#barcode-printable-sheet) nav,
+  body:has(#barcode-print-container) aside,
+  body:has(#barcode-print-container) header,
+  body:has(#barcode-print-container) nav {
     display: none !important;
   }
 
   body.barcode-printing-active .barcode-screen-only,
-  body:has(#barcode-printable-sheet) .barcode-screen-only {
+  body.printing-barcodes .barcode-screen-only,
+  body:has(#barcode-printable-sheet) .barcode-screen-only,
+  body:has(#barcode-print-container) .barcode-screen-only,
+  body.printing-barcodes .no-print,
+  body:has(#barcode-print-container) .no-print {
     display: none !important;
+  }
+
+  body.printing-barcodes main,
+  body.printing-barcodes main > div,
+  body.printing-barcodes .space-y-4,
+  body:has(#barcode-print-container) main,
+  body:has(#barcode-print-container) main > div,
+  body:has(#barcode-print-container) .space-y-4 {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
   }
 
   /* Reset barcode parent grid layouts during print */
@@ -312,6 +340,7 @@ aside *::-webkit-scrollbar:horizontal,
   }
 
   /* Barcode Printable Sheet Wrapper */
+  #barcode-print-container,
   #barcode-printable-sheet,
   .barcode-printable-area {
     display: block !important;
@@ -325,6 +354,7 @@ aside *::-webkit-scrollbar:horizontal,
   }
 
   /* Flex-based printable sticker sheet for perfect multi-page pagination */
+  .barcode-print-grid,
   .barcode-printable-grid {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -363,26 +393,54 @@ aside *::-webkit-scrollbar:horizontal,
   }
 
   /* Individual barcode label styling in print */
+  .barcode-sticker-tag,
   .barcode-label-item {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
-    overflow: visible !important;
+    overflow: hidden !important;
     box-sizing: border-box !important;
     background: #ffffff !important;
-    border: 1px solid #1e293b !important;
-    border-radius: 3px !important;
-    padding: 2.5mm 2mm !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 2mm !important;
+    padding: 2mm 2.5mm !important;
     margin-bottom: 0 !important;
     color: #000000 !important;
     box-shadow: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    flex-shrink: 0 !important;
   }
 
+  .barcode-sticker-50x25 {
+    width: 50mm !important;
+    height: 25mm !important;
+    max-width: 50mm !important;
+    max-height: 25mm !important;
+  }
+
+  .barcode-sticker-38x25 {
+    width: 38mm !important;
+    height: 25mm !important;
+    max-width: 38mm !important;
+    max-height: 25mm !important;
+  }
+
+  .barcode-sticker-100x50 {
+    width: 100mm !important;
+    height: 50mm !important;
+    max-width: 100mm !important;
+    max-height: 50mm !important;
+  }
+
+  .barcode-sticker-tag svg,
   .barcode-label-item svg {
     shape-rendering: crispEdges !important;
     print-color-adjust: exact !important;
     -webkit-print-color-adjust: exact !important;
   }
 
+  .barcode-sticker-tag rect,
   .barcode-label-item rect {
     shape-rendering: crispEdges !important;
     print-color-adjust: exact !important;

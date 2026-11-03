@@ -138,6 +138,8 @@ export interface ERPContextType {
   generateNextBatchNumber: (targetDate?: string) => Promise<string>;
   customCategories: string[];
   addCustomCategory: (name: string) => Promise<string>;
+  updateCustomCategory: (oldName: string, newName: string) => Promise<void>;
+  deleteCustomCategory: (name: string) => Promise<void>;
 
   // Customers
   customers: Customer[];
@@ -890,6 +892,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [...prev, created];
     });
     return created;
+  };
+
+  const updateCustomCategory = async (oldName: string, newName: string): Promise<void> => {
+    const updated = await categoryService.updateCategory(oldName, newName, activeCompanyId);
+    setCustomCategories(prev => prev.map(c => c.toLowerCase() === oldName.toLowerCase() ? updated : c));
+    setProducts(prev => prev.map(p => p.category.toLowerCase() === oldName.toLowerCase() ? { ...p, category: updated } : p));
+  };
+
+  const deleteCustomCategory = async (catName: string): Promise<void> => {
+    await categoryService.deleteCategory(catName, activeCompanyId);
+    setCustomCategories(prev => prev.filter(c => c.toLowerCase() !== catName.toLowerCase()));
   };
 
   const addProduct = async (productData: Omit<Product, 'id' | 'createdAt'>): Promise<Product> => {
@@ -2804,6 +2817,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     generateNextBatchNumber,
     customCategories,
     addCustomCategory,
+    updateCustomCategory,
+    deleteCustomCategory,
     customers,
     addCustomer,
     updateCustomer,

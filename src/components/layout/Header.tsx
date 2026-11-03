@@ -181,7 +181,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={() => {
                   setShowQuickCreateMenu(false);
-                  navigate('/products?action=new');
+                  navigate('/products/initial-stock');
                 }}
                 className="w-full px-3 py-2 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 flex items-center gap-2.5 cursor-pointer font-medium"
               >

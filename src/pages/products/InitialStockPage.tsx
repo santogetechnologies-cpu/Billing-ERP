@@ -32,7 +32,7 @@ import { Product } from '../../types';
 import { productService } from '../../services/productService';
 import { inventoryService } from '../../services/inventoryService';
 import { supabase } from '../../lib/supabase';
-import { canAssignBarcode, canManageBarcodeOverride } from '../../utils/rbac';
+import { canAssignBarcode, canManageBarcodeOverride, canManageInitialStock } from '../../utils/rbac';
 
 // Product Entry Form Interface
 export interface ProductEntryItem {
@@ -117,8 +117,7 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
   } = useERP();
 
   // Role Security Check
-  const canManageProducts =
-    profile?.role === 'Owner' || profile?.role === 'Admin' || profile?.role === 'Purchase Manager';
+  const canManageProducts = canManageInitialStock(profile?.role);
 
   const canAssign = canAssignBarcode(profile?.role);
   const canOverride = canManageBarcodeOverride(profile?.role);
