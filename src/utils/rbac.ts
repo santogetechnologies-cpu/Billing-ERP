@@ -882,7 +882,8 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
  */
 export function canRoleAccessNavItem(
   role: UserRole | string | undefined | null,
-  navItemName: string
+  navItemName: string,
+  navItemId?: string
 ): boolean {
   if (!role) return false;
   const normalizedRole = normalizeRole(role);
@@ -896,64 +897,73 @@ export function canRoleAccessNavItem(
   if (navItemName === 'User Activity' && !canAccessUserActivity(normalizedRole)) {
     return false;
   }
-  const allowedMenus = ROLE_ALLOWED_NAV_MENUS[normalizedRole];
-  if (!allowedMenus) return false;
 
-  // Match POS and Billing
-  if (navItemName === 'Billing (POS)' || navItemName === 'POS' || navItemName === 'Billing') {
-    return allowedMenus.includes('Sales') || normalizedRole === 'Cashier' || normalizedRole === 'Salesperson';
-  }
+  const id = (navItemId || navItemName).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  // Match Stock and Inventory
-  if (navItemName === 'Stock' || navItemName === 'Inventory') {
-    return allowedMenus.includes('Inventory') || allowedMenus.includes('Product');
+  if (id === 'dashboard' || id === 'home') return true;
+
+  if (id === 'pos' || id === 'billingpos' || id === 'billing') {
+    return normalizedRole === 'Cashier' || normalizedRole === 'Salesperson';
   }
 
-  // Match Accounts and Accounting
-  if (navItemName === 'Accounts' || navItemName === 'Accounting') {
-    return allowedMenus.includes('Accounting') || normalizedRole === 'Accountant';
+  if (id === 'sales' || id === 'salesinvoices') {
+    return normalizedRole === 'Cashier' || normalizedRole === 'Salesperson';
   }
 
-  // Match Parties, Customers and Suppliers
-  if (navItemName === 'Parties' || navItemName === 'Customers' || navItemName === 'Suppliers') {
-    return allowedMenus.includes('Customers') || allowedMenus.includes('Suppliers') || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier' || normalizedRole === 'Purchase Manager';
-  }
-
-  // Match both 'Product' and 'Products'
-  if (navItemName === 'Product' || navItemName === 'Products') {
-    return allowedMenus.includes('Product') || allowedMenus.includes('Products');
-  }
-
-  // Match both 'Barcode' and 'Barcode Management'
-  if (navItemName === 'Barcode Management' || navItemName === 'Barcode') {
-    return allowedMenus.includes('Barcode') || allowedMenus.includes('Barcode Management');
-  }
-
-  // Match both 'Warehouse Details' and 'Warehouses / Godowns'
-  if (navItemName === 'Warehouse Details' || navItemName === 'Warehouses / Godowns') {
-    return allowedMenus.includes('Warehouse Details') || allowedMenus.includes('Warehouses / Godowns');
-  }
-
-  // Support newly added enterprise modules
-  if (navItemName === 'Delivery Hub' || navItemName === 'Deliveries') {
-    return allowedMenus.includes('Sales') || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
-  }
-  if (navItemName === 'HR & Payroll' || navItemName === 'Payroll') {
-    return normalizedRole === 'Accountant';
-  }
-  if (navItemName === 'Storefront' || navItemName === 'Catalog' || navItemName === 'Storefront / Catalog') {
+  if (id === 'deliveryhub' || id === 'deliveries' || id === 'routedelivery') {
     return normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
   }
-  if (navItemName === 'Labels & Barcodes' || navItemName === 'Labels') {
-    return allowedMenus.includes('Barcode') || allowedMenus.includes('Product') || allowedMenus.includes('Inventory');
-  }
-  if (navItemName === 'Pricing & Commission' || navItemName === 'Pricing') {
-    return allowedMenus.includes('Sales') || normalizedRole === 'Salesperson';
-  }
-  if (navItemName === 'Repackaging & BOM' || navItemName === 'Conversion') {
-    return allowedMenus.includes('Inventory') || normalizedRole === 'Warehouse Manager';
+
+  if (id === 'products' || id === 'product' || id === 'productscatalog') {
+    return normalizedRole === 'Warehouse Manager' || normalizedRole === 'Purchase Manager' || normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
   }
 
+  if (id === 'stock' || id === 'inventory' || id === 'stockgodowns') {
+    return normalizedRole === 'Warehouse Manager';
+  }
+
+  if (id === 'conversion' || id === 'repackaging' || id === 'repackagingbom') {
+    return normalizedRole === 'Warehouse Manager';
+  }
+
+  if (id === 'purchases' || id === 'purchasesbills') {
+    return normalizedRole === 'Purchase Manager';
+  }
+
+  if (id === 'barcode' || id === 'barcodes' || id === 'barcodeslabels' || id === 'labelsbarcodes') {
+    return normalizedRole === 'Warehouse Manager' || normalizedRole === 'Purchase Manager';
+  }
+
+  if (id === 'accounts' || id === 'accounting' || id === 'accountsdaybook' || id === 'accountsjv') {
+    return normalizedRole === 'Accountant';
+  }
+
+  if (id === 'payroll' || id === 'hrpayroll' || id === 'staffpayroll') {
+    return normalizedRole === 'Accountant';
+  }
+
+  if (id === 'parties' || id === 'customers' || id === 'suppliers' || id === 'customersvendors') {
+    return normalizedRole === 'Salesperson' || normalizedRole === 'Cashier' || normalizedRole === 'Accountant' || normalizedRole === 'Purchase Manager';
+  }
+
+  if (id === 'pricing' || id === 'pricingcommission' || id === 'ratescommissions') {
+    return normalizedRole === 'Salesperson';
+  }
+
+  if (id === 'storefront' || id === 'catalog') {
+    return normalizedRole === 'Salesperson' || normalizedRole === 'Cashier';
+  }
+
+  if (id === 'reports' || id === 'reportspnl') {
+    return normalizedRole === 'Accountant';
+  }
+
+  if (id === 'settings') {
+    return normalizedRole === 'Accountant';
+  }
+
+  const allowedMenus = ROLE_ALLOWED_NAV_MENUS[normalizedRole];
+  if (!allowedMenus) return false;
   return allowedMenus.includes(navItemName);
 }
 

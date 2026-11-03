@@ -74,133 +74,133 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Complete Navigation Items grouped into 4 distinct functional sections
   const allNavItems: UniversalNavItem[] = [
-    // Section 1: Billing & Dispatch
+    // Section 1: Billing & Sales
     {
       id: 'dashboard',
       name: 'Dashboard',
       path: '/',
       icon: LayoutDashboard,
       matchExact: true,
-      section: 'Billing & Dispatch'
+      section: 'Billing & Sales'
     },
     {
       id: 'pos',
-      name: 'Billing (POS)',
+      name: 'POS Fast Billing',
       path: '/sales/pos',
       icon: Zap,
       badge: heldBillsCount > 0 ? heldBillsCount : undefined,
       badgeColor: 'brand',
-      section: 'Billing & Dispatch'
+      section: 'Billing & Sales'
     },
     {
       id: 'sales',
-      name: 'Sales',
+      name: 'Sales Invoices',
       path: '/sales',
       icon: ShoppingCart,
-      section: 'Billing & Dispatch'
+      section: 'Billing & Sales'
     },
     {
       id: 'delivery_hub',
-      name: 'Delivery Hub',
+      name: 'Route & Delivery',
       path: '/sales/hub',
       icon: Truck,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined,
       badgeColor: 'warning',
-      section: 'Billing & Dispatch'
+      section: 'Billing & Sales'
     },
 
-    // Section 2: Stock & Inventory
+    // Section 2: Products & Inventory
     {
       id: 'products',
-      name: 'Products',
+      name: 'Products & Catalog',
       path: '/products',
       icon: Package,
-      section: 'Inventory & Supply'
+      section: 'Inventory & Stock'
     },
     {
       id: 'stock',
-      name: 'Stock',
+      name: 'Stock & Godowns',
       path: '/inventory',
       icon: Boxes,
       badge: unreadAlertsCount > 0 ? unreadAlertsCount : undefined,
       badgeColor: 'warning',
-      section: 'Inventory & Supply'
+      section: 'Inventory & Stock'
     },
     {
       id: 'conversion',
-      name: 'Repackaging & BOM',
+      name: 'Repackaging / BOM',
       path: '/inventory/conversion',
       icon: Scale,
-      section: 'Inventory & Supply'
+      section: 'Inventory & Stock'
     },
     {
       id: 'purchases',
-      name: 'Purchases',
+      name: 'Purchases & PO',
       path: '/purchases',
       icon: ShoppingBag,
-      section: 'Inventory & Supply'
+      section: 'Inventory & Stock'
     },
     {
       id: 'barcode',
-      name: 'Labels & Barcodes',
+      name: 'Barcodes & Labels',
       path: '/barcode',
       icon: QrCode,
-      section: 'Inventory & Supply'
+      section: 'Inventory & Stock'
     },
 
     // Section 3: Finance & People
     {
       id: 'accounts',
-      name: 'Accounts',
+      name: 'Accounts & Daybook',
       path: '/accounting',
       icon: BookOpen,
-      section: 'Finance & Team'
+      section: 'Finance & Staff'
     },
     {
       id: 'payroll',
-      name: 'HR & Payroll',
+      name: 'Staff & Payroll',
       path: '/payroll',
       icon: Wallet,
-      section: 'Finance & Team'
+      section: 'Finance & Staff'
     },
     {
       id: 'parties',
-      name: 'Parties',
+      name: 'Customers & Vendors',
       path: '/customers',
       icon: Users,
-      section: 'Finance & Team'
+      section: 'Finance & Staff'
     },
     {
       id: 'pricing',
-      name: 'Pricing & Commission',
+      name: 'Rates & Rules',
       path: '/pricing',
       icon: BadgePercent,
-      section: 'Finance & Team'
+      section: 'Finance & Staff'
     },
 
-    // Section 4: Channels & Intelligence
+    // Section 4: Reports & Online
     {
       id: 'storefront',
-      name: 'Storefront',
+      name: 'Online Catalog',
       path: '/storefront',
       icon: Store,
-      section: 'Channels & Reports'
+      section: 'Analytics & Online'
     },
     {
       id: 'reports',
-      name: 'Reports',
+      name: 'Reports & P&L',
       path: '/reports',
       icon: BarChart3,
-      section: 'Channels & Reports'
+      section: 'Analytics & Online'
     }
   ];
 
   // RBAC Filtering: Only render items permitted for logged-in role
   const permittedNavItems = allNavItems.filter(item =>
-    canRoleAccessNavItem(profile?.role, item.name)
+    canRoleAccessNavItem(profile?.role, item.name, item.id)
   );
 
-  const canAccessSettings = canRoleAccessNavItem(profile?.role, 'Settings');
+  const canAccessSettings = canRoleAccessNavItem(profile?.role, 'Settings', 'settings');
 
   // Exact mutually-exclusive active matching logic
   const isItemActive = (item: UniversalNavItem): boolean => {
@@ -304,7 +304,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Main Sidebar Shell */}
       <aside
         className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col bg-slate-900 border-r border-slate-800 text-slate-300 transition-all duration-300 select-none ${
-          isCollapsed ? 'w-16' : 'w-60'
+          isCollapsed ? 'w-18' : 'w-64'
         } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Brand / Store Header */}

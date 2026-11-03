@@ -21,7 +21,13 @@ import {
   FileText,
   CreditCard,
   CheckCircle2,
-  ChevronRight
+  ChevronRight,
+  Truck,
+  Scale,
+  Sparkles,
+  BookOpen,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { StatCard } from '../../components/common/StatCard';
@@ -34,7 +40,6 @@ import { AccountantDashboardPage } from '../accounting/AccountantDashboardPage';
 import { UserPresenceBadge } from '../../components/common/UserPresenceBadge';
 import { RoleQuickStartCard } from '../../components/dashboard/RoleQuickStartCard';
 import { GuidedOnboardingModal } from '../../components/onboarding/GuidedOnboardingModal';
-import { Sparkles } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -71,6 +76,7 @@ export const DashboardPage: React.FC = () => {
 
   const [dateRange, setDateRange] = useState('This Month');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [showFullFinancials, setShowFullFinancials] = useState(false);
 
   // Compute Live Metrics from ERPContext state
   const metrics = useMemo(() => {
@@ -184,7 +190,7 @@ export const DashboardPage: React.FC = () => {
       link: string;
     }> = [];
 
-    salesInvoices.slice(0, 3).forEach(inv => {
+    salesInvoices.slice(0, 4).forEach(inv => {
       list.push({
         id: inv.id,
         date: inv.date,
@@ -261,17 +267,19 @@ export const DashboardPage: React.FC = () => {
     }));
   }, [salesInvoices, products]);
 
-  const totalCatVal = categorySales.reduce((acc, c) => acc + c.val, 0);
+  const totalCatVal = useMemo(() => {
+    return categorySales.reduce((acc, c) => acc + c.val, 0);
+  }, [categorySales]);
 
-  // Dynamic 6-month historical progression from real invoices & expenses
+  // Monthly stats for bar chart
   const monthlyStats = useMemo(() => {
-    const months: Array<{ month: string; key: string; sales: number; pur: number; profit: number }> = [];
+    const months = [];
     const now = new Date();
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthLabel = d.toLocaleString('default', { month: 'short' });
       const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      
+      const monthLabel = d.toLocaleString('default', { month: 'short' });
+
       const sales = salesInvoices
         .filter(inv => inv.date?.startsWith(yearMonth))
         .reduce((sum, inv) => sum + inv.grandTotal, 0);
@@ -300,73 +308,118 @@ export const DashboardPage: React.FC = () => {
   }, [salesInvoices, purchaseInvoices, expenses]);
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner & Date Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel p-4.5 hover:border-slate-300/90">
+    <div className="space-y-5 animate-fadeIn">
+      {/* 1. Sleek, Minimal Store Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 rounded-2xl shadow-2xs">
         <div>
-          <div className="flex items-center gap-2">
-            <GuidedOnboardingModal
-              isOpen={isOnboardingOpen}
-              onClose={() => setIsOnboardingOpen(false)}
-            />
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Commercial Operations Dashboard
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">
+              Store Overview
             </h1>
-            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-              FY {company.financialYear}
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800">
+              {company.name || 'Universal Store'} • FY {company.financialYear}
             </span>
             <UserPresenceBadge size="sm" />
           </div>
-
-          <p className="text-xs text-slate-500 mt-1">
-            Real-time billing, inventory movement, receivables and accounting telemetry.
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Real-time daily operations, fast billing shortcuts, and inventory health.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300">
             <Calendar className="w-3.5 h-3.5 text-slate-400" />
             <select
               value={dateRange}
               onChange={e => setDateRange(e.target.value)}
-              className="bg-transparent font-medium text-slate-800 focus:outline-none cursor-pointer"
+              className="bg-transparent font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer text-xs"
             >
               <option value="Today">Today</option>
               <option value="Yesterday">Yesterday</option>
               <option value="This Week">This Week</option>
               <option value="This Month">This Month</option>
-              <option value="Last Month">Last Month</option>
               <option value="This Quarter">This Quarter</option>
               <option value="This Year">This Year</option>
-              <option value="Custom Range">Custom Range</option>
             </select>
           </div>
 
           <button
             onClick={() => setIsOnboardingOpen(true)}
-            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Launch Guided Onboarding Wizard"
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Setup Guide"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Setup Wizard</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>Setup Guide</span>
           </button>
-
-          {hasPermission(profile?.role, 'pos', 'view') && (
-            <button
-              onClick={() => navigate('/sales/pos')}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>Fast Billing</span>
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Per-Role Interactive Quick Start Checklist (Part B7) */}
+      <GuidedOnboardingModal
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+      />
+
+      {/* 2. Prominent 1-Click Action Bar (Easiest to Use) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+        <button
+          type="button"
+          onClick={() => navigate('/sales/pos')}
+          className="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs flex flex-col items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer font-bold text-xs"
+        >
+          <Zap className="w-5 h-5 text-amber-300" />
+          <span>POS Billing</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('/products?action=new')}
+          className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer font-semibold text-xs"
+        >
+          <Package className="w-5 h-5 text-blue-600" />
+          <span>Add Product</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('/sales/hub')}
+          className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer font-semibold text-xs"
+        >
+          <Truck className="w-5 h-5 text-emerald-600" />
+          <span>Route & Delivery</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('/inventory/conversion')}
+          className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer font-semibold text-xs"
+        >
+          <Scale className="w-5 h-5 text-purple-600" />
+          <span>Repackaging & BOM</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('/customers')}
+          className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer font-semibold text-xs"
+        >
+          <Users className="w-5 h-5 text-indigo-600" />
+          <span>Customer Khata</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('/accounting')}
+          className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs flex flex-col items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer font-semibold text-xs"
+        >
+          <BookOpen className="w-5 h-5 text-rose-600" />
+          <span>Accounts & JV</span>
+        </button>
+      </div>
+
+      {/* 3. Collapsible Role Quick Start Checklist */}
       <RoleQuickStartCard />
 
-      {/* 8 Primary ERP Summary Cards */}
+      {/* 4. Primary 4 Core Business Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Sales Today"
@@ -387,87 +440,107 @@ export const DashboardPage: React.FC = () => {
           onClick={canAccessRoute(profile?.role, '/purchases') ? () => navigate('/purchases') : undefined}
         />
         <StatCard
-          title="Expenses Today"
-          value={formatCurrency(metrics.todayExpenses)}
-          subtitle={`${metrics.todayExpensesCount} Recorded Expenses`}
-          icon={Receipt}
-          iconBgColor="bg-amber-50"
-          iconTextColor="text-amber-600"
-          onClick={canAccessRoute(profile?.role, '/expenses') ? () => navigate('/expenses') : undefined}
+          title="Customer Due (Khata)"
+          value={formatCurrency(metrics.totalReceivables)}
+          subtitle={`${customers.length} Accounts Pending`}
+          icon={Users}
+          iconBgColor="bg-purple-50"
+          iconTextColor="text-purple-600"
+          onClick={canAccessRoute(profile?.role, '/customers') ? () => navigate('/customers') : undefined}
         />
         <StatCard
-          title="Stock Value (Assets)"
+          title="Stock in Hand (Asset)"
           value={formatCurrency(metrics.stockValue)}
-          subtitle={`${products.length} Master SKUs`}
+          subtitle={`${products.length} Master Products`}
           icon={Boxes}
           iconBgColor="bg-emerald-50"
           iconTextColor="text-emerald-600"
           onClick={canAccessRoute(profile?.role, '/inventory') ? () => navigate('/inventory') : undefined}
         />
-        <StatCard
-          title="Gross Profit"
-          value={formatCurrency(metrics.grossProfit)}
-          subtitle={`Margin ${metrics.grossMarginPct}%`}
-          icon={TrendingUp}
-          iconBgColor="bg-emerald-50"
-          iconTextColor="text-emerald-600"
-          onClick={canAccessRoute(profile?.role, '/accounting/profit-loss') ? () => navigate('/accounting/profit-loss') : undefined}
-        />
-        <StatCard
-          title="Net Profit"
-          value={formatCurrency(metrics.netProfit)}
-          subtitle="Operating surplus"
-          icon={DollarSign}
-          iconBgColor="bg-cyan-50"
-          iconTextColor="text-cyan-600"
-          onClick={canAccessRoute(profile?.role, '/accounting/profit-loss') ? () => navigate('/accounting/profit-loss') : undefined}
-        />
-        <StatCard
-          title="Customer Receivables"
-          value={formatCurrency(metrics.totalReceivables)}
-          subtitle={`${customers.length} Accounts`}
-          icon={Users}
-          iconBgColor="bg-purple-50"
-          iconTextColor="text-purple-600"
-          onClick={canAccessRoute(profile?.role, '/receivables') ? () => navigate('/receivables') : undefined}
-        />
-        <StatCard
-          title="Supplier Payables"
-          value={formatCurrency(metrics.totalPayables)}
-          subtitle={`${suppliers.length} Vendors`}
-          icon={Building2}
-          iconBgColor="bg-rose-50"
-          iconTextColor="text-rose-600"
-          onClick={canAccessRoute(profile?.role, '/payables') ? () => navigate('/payables') : undefined}
-        />
       </div>
 
-      {/* Charts Section: Sales Overview Bar/Line & Category Donut */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 5. Clean Toggle for Secondary Financial Detail */}
+      <div className="flex items-center justify-between pt-1">
+        <button
+          type="button"
+          onClick={() => setShowFullFinancials(!showFullFinancials)}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-1.5 rounded-lg shadow-2xs transition-colors cursor-pointer"
+        >
+          <span>{showFullFinancials ? 'Hide Profit & Ledger Details' : 'View Full Profit & Ledger Breakdown'}</span>
+          {showFullFinancials ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+
+        <span className="text-[11px] text-slate-400">
+          Showing metrics for {dateRange.toLowerCase()}
+        </span>
+      </div>
+
+      {showFullFinancials && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
+          <StatCard
+            title="Gross Profit"
+            value={formatCurrency(metrics.grossProfit)}
+            subtitle={`Gross Margin: ${metrics.grossMarginPct}%`}
+            icon={TrendingUp}
+            iconBgColor="bg-emerald-50"
+            iconTextColor="text-emerald-600"
+            onClick={canAccessRoute(profile?.role, '/accounting') ? () => navigate('/accounting') : undefined}
+          />
+          <StatCard
+            title="Net Operating Profit"
+            value={formatCurrency(metrics.netProfit)}
+            subtitle="After all recorded expenses"
+            icon={DollarSign}
+            iconBgColor="bg-cyan-50"
+            iconTextColor="text-cyan-600"
+            onClick={canAccessRoute(profile?.role, '/accounting') ? () => navigate('/accounting') : undefined}
+          />
+          <StatCard
+            title="Operating Expenses"
+            value={formatCurrency(metrics.todayExpenses)}
+            subtitle={`${metrics.todayExpensesCount} Recorded Vouchers`}
+            icon={Receipt}
+            iconBgColor="bg-amber-50"
+            iconTextColor="text-amber-600"
+            onClick={canAccessRoute(profile?.role, '/expenses') ? () => navigate('/expenses') : undefined}
+          />
+          <StatCard
+            title="Supplier Payables"
+            value={formatCurrency(metrics.totalPayables)}
+            subtitle={`${suppliers.length} Vendor Balances`}
+            icon={Building2}
+            iconBgColor="bg-rose-50"
+            iconTextColor="text-rose-600"
+            onClick={canAccessRoute(profile?.role, '/suppliers') ? () => navigate('/suppliers') : undefined}
+          />
+        </div>
+      )}
+
+      {/* 6. Clean Activity & Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Sales & Expense Overview Chart (SVG) */}
-        <div className="lg:col-span-2 glass-panel p-5 hover:border-slate-300/90">
-          <div className="flex items-center justify-between mb-4">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 rounded-2xl shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
-              <h2 className="text-sm font-bold text-slate-900">Financial Revenue & Cost Overview</h2>
-              <p className="text-xs text-slate-500">Monthly progression of Sales, Purchases & Profit</p>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white">Revenue & Expenses Overview</h2>
+              <p className="text-xs text-slate-500">6-Month progression of Sales, Purchases & Profit</p>
             </div>
-            <div className="flex items-center gap-4 text-xs">
-              <span className="flex items-center gap-1.5 font-medium text-slate-600">
+            <div className="flex items-center gap-3 text-xs flex-wrap">
+              <span className="flex items-center gap-1.5 font-medium text-slate-600 dark:text-slate-300">
                 <span className="w-2.5 h-2.5 rounded-full bg-blue-600" /> Sales
               </span>
-              <span className="flex items-center gap-1.5 font-medium text-slate-600">
+              <span className="flex items-center gap-1.5 font-medium text-slate-600 dark:text-slate-300">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Purchases
               </span>
-              <span className="flex items-center gap-1.5 font-medium text-slate-600">
+              <span className="flex items-center gap-1.5 font-medium text-slate-600 dark:text-slate-300">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Net Profit
               </span>
             </div>
           </div>
 
-          {/* SVG Bar Chart with real aesthetics */}
-          <div className="h-64 w-full pt-4">
+          {/* SVG Bar Chart */}
+          <div className="h-60 w-full pt-2">
             <svg viewBox="0 0 700 240" className="w-full h-full overflow-visible">
-              {/* Horizontal grid lines */}
               {[0, 60, 120, 180].map(y => {
                 const val = Math.round(((240 - y) / 240) * monthlyStats.peak);
                 return (
@@ -480,7 +553,6 @@ export const DashboardPage: React.FC = () => {
                 );
               })}
 
-              {/* Months bars */}
               {monthlyStats.months.map((m, i) => {
                 const groupX = 80 + i * 100;
                 const salesHeight = (m.sales / monthlyStats.peak) * 190;
@@ -488,7 +560,6 @@ export const DashboardPage: React.FC = () => {
                 const profitHeight = (m.profit / monthlyStats.peak) * 190;
                 return (
                   <g key={m.month}>
-                    {/* Sales Bar */}
                     <rect
                       x={groupX}
                       y={240 - salesHeight}
@@ -500,7 +571,6 @@ export const DashboardPage: React.FC = () => {
                     >
                       <title>{`Sales: ₹${m.sales}`}</title>
                     </rect>
-                    {/* Purchases Bar */}
                     <rect
                       x={groupX + 22}
                       y={240 - purHeight}
@@ -512,7 +582,6 @@ export const DashboardPage: React.FC = () => {
                     >
                       <title>{`Purchases: ₹${m.pur}`}</title>
                     </rect>
-                    {/* Profit Bar */}
                     <rect
                       x={groupX + 44}
                       y={240 - profitHeight}
@@ -524,7 +593,6 @@ export const DashboardPage: React.FC = () => {
                     >
                       <title>{`Profit: ₹${m.profit}`}</title>
                     </rect>
-                    {/* Month label */}
                     <text
                       x={groupX + 27}
                       y="255"
@@ -543,18 +611,18 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Category Breakdown (Donut SVG Chart) */}
-        <div className="glass-panel p-5 flex flex-col justify-between hover:border-slate-300/90">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 rounded-2xl shadow-2xs flex flex-col justify-between">
           <div>
-            <h2 className="text-sm font-bold text-slate-900">Sales by Product Category</h2>
-            <p className="text-xs text-slate-500">Distribution across revenue streams</p>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white">Sales by Category</h2>
+            <p className="text-xs text-slate-500">Revenue contribution per product line</p>
 
             {categorySales.length === 0 ? (
-              <div className="py-16 text-center text-xs text-slate-400">
+              <div className="py-14 text-center text-xs text-slate-400">
                 <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                 <span>No category sales recorded yet</span>
               </div>
             ) : (
-              <div className="relative w-44 h-44 mx-auto my-4 flex items-center justify-center">
+              <div className="relative w-40 h-40 mx-auto my-3 flex items-center justify-center">
                 <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
                   {(() => {
                     let accumulatedPercent = 0;
@@ -583,22 +651,22 @@ export const DashboardPage: React.FC = () => {
                   })()}
                 </svg>
                 <div className="absolute text-center">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Sales</span>
-                  <span className="text-sm font-bold text-slate-900">{formatCurrency(totalCatVal)}</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total</span>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">{formatCurrency(totalCatVal)}</span>
                 </div>
               </div>
             )}
           </div>
 
           {categorySales.length > 0 && (
-            <div className="space-y-1.5 text-xs">
-              {categorySales.map((cat, i) => (
-                <div key={i} className="flex items-center justify-between text-slate-600 py-0.5">
+            <div className="space-y-1 text-xs pt-2 border-t border-slate-100 dark:border-slate-800">
+              {categorySales.slice(0, 4).map((cat, i) => (
+                <div key={i} className="flex items-center justify-between text-slate-600 dark:text-slate-300 py-0.5">
                   <div className="flex items-center gap-2 truncate">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
                     <span className="truncate">{cat.label}</span>
                   </div>
-                  <span className="font-semibold text-slate-900 shrink-0">
+                  <span className="font-semibold text-slate-900 dark:text-white shrink-0">
                     {totalCatVal > 0 ? Math.round((cat.val / totalCatVal) * 100) : 0}%
                   </span>
                 </div>
@@ -608,31 +676,24 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 Compact ERP Insight & Operations Grid Cards */}
-      <div className="dashboard-insight-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 7. Bottom Operational Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Top Selling Products */}
         <div
           role="button"
           tabIndex={0}
           onClick={() => navigate('/products')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigate('/products');
-            }
-          }}
-          aria-label="Top Selling Products - View Master"
-          className="glass-panel glass-card-interactive p-4.5 hover:border-blue-400/90 flex flex-col justify-between min-h-[142px] group select-none"
+          className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 rounded-xl shadow-2xs hover:border-blue-400 flex flex-col justify-between group cursor-pointer transition-colors"
         >
           <div>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-hover:text-blue-600 transition-colors truncate">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider group-hover:text-blue-600 transition-colors truncate">
                   Top Selling Products
                 </p>
                 {topSellingProducts.length > 0 ? (
                   <div className="mt-1">
-                    <h3 className="text-base font-bold text-slate-900 truncate">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                       {topSellingProducts[0].product.name}
                     </h3>
                     <p className="text-xs font-semibold text-emerald-600 mt-0.5 font-mono">
@@ -644,185 +705,158 @@ export const DashboardPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="mt-1">
-                    <h3 className="text-base font-bold text-slate-400">No Sales Recorded</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Invoices will track here</p>
+                    <h3 className="text-sm font-bold text-slate-400">No Sales Yet</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Invoices track here</p>
                   </div>
                 )}
               </div>
-              <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 shrink-0 transition-transform group-hover:scale-105">
-                <Package className="w-5 h-5" />
+              <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 shrink-0">
+                <Package className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between text-xs pt-2.5 border-t border-slate-100">
-            <span className="text-slate-500 truncate text-[11px]">
-              {topSellingProducts.length > 0
-                ? `${topSellingProducts.length} active best sellers`
-                : 'Highest grossing items'}
+          <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800">
+            <span className="text-slate-500 text-[11px]">
+              {topSellingProducts.length > 0 ? `${topSellingProducts.length} active items` : 'Best sellers'}
             </span>
-            <span className="text-blue-600 font-medium flex items-center gap-0.5 shrink-0 ml-2 group-hover:text-blue-700">
-              <span>View Master</span>
-              <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            <span className="text-blue-600 font-medium flex items-center gap-0.5 text-[11px]">
+              <span>View Catalog</span>
+              <ChevronRight className="w-3 h-3" />
             </span>
           </div>
         </div>
 
-        {/* Card 2: Low Stock & Reorder Warnings */}
+        {/* Card 2: Low Stock Warnings */}
         <div
           role="button"
           tabIndex={0}
           onClick={canAccessRoute(profile?.role, '/inventory') ? () => navigate('/inventory') : undefined}
-          onKeyDown={(e) => {
-            if ((e.key === 'Enter' || e.key === ' ') && canAccessRoute(profile?.role, '/inventory')) {
-              e.preventDefault();
-              navigate('/inventory');
-            }
-          }}
-          aria-label="Low Stock & Reorder Warnings - Inventory Hub"
-          className="glass-panel glass-card-interactive p-4.5 hover:border-blue-400/90 flex flex-col justify-between min-h-[142px] group select-none"
+          className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 rounded-xl shadow-2xs hover:border-amber-400 flex flex-col justify-between group cursor-pointer transition-colors"
         >
           <div>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-hover:text-amber-600 transition-colors flex items-center gap-1.5 truncate">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider group-hover:text-amber-600 transition-colors flex items-center gap-1 truncate">
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                   <span>Low Stock Warnings</span>
                 </p>
                 {lowStockProducts.length > 0 ? (
                   <div className="mt-1">
                     <div className="flex items-baseline gap-1.5">
-                      <h3 className="text-xl font-bold font-mono text-rose-600">
+                      <h3 className="text-lg font-bold font-mono text-rose-600">
                         {lowStockProducts.length}
                       </h3>
-                      <span className="text-xs font-semibold text-slate-700 truncate">
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">
                         {lowStockProducts.length === 1 ? 'Item Needs Reorder' : 'Items Need Reorder'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 truncate mt-0.5">
-                      Lowest: <span className="font-semibold text-slate-800">{lowStockProducts[0].name}</span> ({lowStockProducts[0].currentStock} left)
+                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                      Lowest: <span className="font-semibold text-slate-800 dark:text-slate-200">{lowStockProducts[0].name}</span> ({lowStockProducts[0].currentStock} left)
                     </p>
                   </div>
                 ) : (
                   <div className="mt-1">
                     <div className="flex items-baseline gap-1.5">
-                      <h3 className="text-xl font-bold font-mono text-emerald-600">0</h3>
-                      <span className="text-xs font-semibold text-emerald-700">Active Stock</span>
+                      <h3 className="text-lg font-bold font-mono text-emerald-600">0</h3>
+                      <span className="text-xs font-semibold text-emerald-700">Healthy Stock</span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">All items above reorder level</p>
+                    <p className="text-xs text-slate-400 mt-0.5">All items above buffer</p>
                   </div>
                 )}
               </div>
-              <div className={`p-2.5 rounded-lg shrink-0 transition-transform group-hover:scale-105 ${
-                lowStockProducts.length > 0 ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
+              <div className={`p-2 rounded-lg shrink-0 ${
+                lowStockProducts.length > 0 ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'
               }`}>
-                <AlertTriangle className="w-5 h-5" />
+                <AlertTriangle className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between text-xs pt-2.5 border-t border-slate-100">
-            <span className="text-slate-500 truncate text-[11px]">
-              {lowStockProducts.length > 0 ? 'Below safety buffer' : 'Healthy inventory'}
+          <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800">
+            <span className="text-slate-500 text-[11px]">
+              {lowStockProducts.length > 0 ? 'Needs reorder' : 'Healthy inventory'}
             </span>
-            {canAccessRoute(profile?.role, '/inventory') && (
-              <span className="text-blue-600 font-medium flex items-center gap-0.5 shrink-0 ml-2 group-hover:text-blue-700">
-                <span>Inventory Hub</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-              </span>
-            )}
+            <span className="text-blue-600 font-medium flex items-center gap-0.5 text-[11px]">
+              <span>Manage Stock</span>
+              <ChevronRight className="w-3 h-3" />
+            </span>
           </div>
         </div>
 
-        {/* Card 3: Key High-Value Accounts */}
+        {/* Card 3: Key Customer Accounts */}
         <div
           role="button"
           tabIndex={0}
           onClick={canAccessRoute(profile?.role, '/customers') ? () => navigate('/customers') : undefined}
-          onKeyDown={(e) => {
-            if ((e.key === 'Enter' || e.key === ' ') && canAccessRoute(profile?.role, '/customers')) {
-              e.preventDefault();
-              navigate('/customers');
-            }
-          }}
-          aria-label="Key High-Value Accounts - All Customers"
-          className="glass-panel glass-card-interactive p-4.5 hover:border-blue-400/90 flex flex-col justify-between min-h-[142px] group select-none"
+          className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 rounded-xl shadow-2xs hover:border-purple-400 flex flex-col justify-between group cursor-pointer transition-colors"
         >
           <div>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-hover:text-purple-600 transition-colors truncate">
-                  Key High-Value Accounts
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider group-hover:text-purple-600 transition-colors truncate">
+                  Top Customer Khata
                 </p>
                 {topCustomers.length > 0 ? (
                   <div className="mt-1">
-                    <h3 className="text-base font-bold text-slate-900 truncate">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                       {topCustomers[0].name}
                     </h3>
-                    <p className="text-xs font-semibold text-slate-700 mt-0.5 font-mono">
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-0.5 font-mono">
                       {formatCurrency(topCustomers[0].totalPurchased)}{' '}
                       <span className="text-slate-400 font-normal font-sans">
-                        ({customers.length} total parties)
+                        ({customers.length} total)
                       </span>
                     </p>
                   </div>
                 ) : (
                   <div className="mt-1">
-                    <h3 className="text-base font-bold text-slate-400">No Customer Accounts</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Parties will appear here</p>
+                    <h3 className="text-sm font-bold text-slate-400">No Customers</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Parties list here</p>
                   </div>
                 )}
               </div>
-              <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600 shrink-0 transition-transform group-hover:scale-105">
-                <Users className="w-5 h-5" />
+              <div className="p-2 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-600 shrink-0">
+                <Users className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between text-xs pt-2.5 border-t border-slate-100">
-            <span className="text-slate-500 truncate text-[11px]">
-              {topCustomers.length > 0 ? 'Highest volume clients' : 'No accounts recorded'}
+          <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800">
+            <span className="text-slate-500 text-[11px]">
+              {topCustomers.length > 0 ? 'Highest volume' : 'No accounts yet'}
             </span>
-            {canAccessRoute(profile?.role, '/customers') && (
-              <span className="text-blue-600 font-medium flex items-center gap-0.5 shrink-0 ml-2 group-hover:text-blue-700">
-                <span>All Customers</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-              </span>
-            )}
+            <span className="text-blue-600 font-medium flex items-center gap-0.5 text-[11px]">
+              <span>Customer List</span>
+              <ChevronRight className="w-3 h-3" />
+            </span>
           </div>
         </div>
 
-        {/* Card 4: Recent ERP Transactions */}
+        {/* Card 4: Recent Activity */}
         <div
           role="button"
           tabIndex={0}
-          onClick={canAccessRoute(profile?.role, '/audit-log') ? () => navigate('/audit-log') : undefined}
-          onKeyDown={(e) => {
-            if ((e.key === 'Enter' || e.key === ' ') && canAccessRoute(profile?.role, '/audit-log')) {
-              e.preventDefault();
-              navigate('/audit-log');
-            }
-          }}
-          aria-label="Recent ERP Transactions - Audit Log"
-          className="glass-panel glass-card-interactive p-4.5 hover:border-blue-400/90 flex flex-col justify-between min-h-[142px] group select-none"
+          onClick={canAccessRoute(profile?.role, '/sales') ? () => navigate('/sales') : undefined}
+          className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 rounded-xl shadow-2xs hover:border-indigo-400 flex flex-col justify-between group cursor-pointer transition-colors"
         >
           <div>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition-colors truncate">
-                  Recent ERP Transactions
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition-colors truncate">
+                  Recent Bills & Activity
                 </p>
                 {recentTransactions.length > 0 ? (
                   <div className="mt-1">
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-base font-bold text-slate-900 truncate">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                         {recentTransactions[0].title}
                       </h3>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded shrink-0">
+                      <span className="text-[10px] font-semibold px-1.5 py-0.2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded shrink-0">
                         {recentTransactions[0].type}
                       </span>
                     </div>
-                    <p className="text-xs font-semibold text-slate-700 mt-0.5 font-mono">
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-0.5 font-mono">
                       {formatCurrency(recentTransactions[0].amount || 0)}{' '}
                       <span className="text-slate-400 font-normal font-sans truncate">
                         · {recentTransactions[0].party}
@@ -831,24 +865,24 @@ export const DashboardPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="mt-1">
-                    <h3 className="text-base font-bold text-slate-400">No Recent Activity</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Entries will stream here</p>
+                    <h3 className="text-sm font-bold text-slate-400">No Recent Bills</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Entries stream here</p>
                   </div>
                 )}
               </div>
-              <div className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 shrink-0 transition-transform group-hover:scale-105">
-                <FileText className="w-5 h-5" />
+              <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 shrink-0">
+                <FileText className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between text-xs pt-2.5 border-t border-slate-100">
-            <span className="text-slate-500 truncate text-[11px]">
-              {recentTransactions.length > 0 ? `${recentTransactions.length} operations logged` : 'Bills, POs & receipts'}
+          <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800">
+            <span className="text-slate-500 text-[11px]">
+              {recentTransactions.length > 0 ? `${recentTransactions.length} operations` : 'Bills & receipts'}
             </span>
-            <span className="text-blue-600 font-medium flex items-center gap-0.5 shrink-0 ml-2 group-hover:text-blue-700">
-              <span>Audit Log</span>
-              <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            <span className="text-blue-600 font-medium flex items-center gap-0.5 text-[11px]">
+              <span>View All</span>
+              <ChevronRight className="w-3 h-3" />
             </span>
           </div>
         </div>
