@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X,
   ShoppingBag,
@@ -9,8 +9,7 @@ import {
   Printer,
   Sparkles,
   AlertTriangle,
-  Building,
-  DollarSign
+  Building
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -39,18 +38,82 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
     warehouses,
     company,
     units,
-    createPurchaseInvoice
+    createPurchaseInvoice,
+    getWarehouseStock
   } = useERP();
+
+  const isPO = documentType === 'purchase_order';
+
+  const generateAutoRef = useCallback(() => {
+    const timestamp = Date.now().toString().slice(-6);
+    return isPO ? `PO-REF-${timestamp}` : `BILL-REF-${timestamp}`;
+  }, [isPO]);
 
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id || '');
   const [warehouseName, setWarehouseName] = useState(warehouses[0]?.name || 'Main Warehouse');
-  const [supplierBillNo, setSupplierBillNo] = useState('');
+  const [supplierBillNo, setSupplierBillNo] = useState(() =>
+    isPO
+      ? `PO-REF-${Date.now().toString().slice(-6)}`
+      : `BILL-REF-${Date.now().toString().slice(-6)}`
+  );
   const [items, setItems] = useState<PurchaseInvoice['items']>([]);
   const [notes, setNotes] = useState('');
   const [selectedProductToAdd, setSelectedProductToAdd] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [savedDocument, setSavedDocument] = useState<PurchaseInvoice | null>(null);
+
+  // Selected warehouse object for dynamic stock lookups
+  const selectedWarehouse = useMemo(() => {
+    return (
+      warehouses.find(w => w.name === warehouseName || w.id === warehouseName) ||
+      warehouses.find(w => w.isDefault && (w.isActive ?? true)) ||
+      warehouses[0]
+    );
+  }, [warehouses, warehouseName]);
+
+  // Stock status calculation based on selected warehouse
+  const getProductStockStatus = useCallback(
+    (productId: string, isUnregistered?: boolean): {
+      status: 'In Stock' | 'Limited Stock' | 'Out of Stock';
+      stock: number;
+    } => {
+      if (isUnregistered || !productId || productId.startsWith('unregistered-')) {
+        return { status: 'Out of Stock', stock: 0 };
+      }
+
+      const prod = products.find(p => p.id === productId);
+      if (!prod) {
+        return { status: 'Out of Stock', stock: 0 };
+      }
+
+      const stock = getWarehouseStock(selectedWarehouse?.id, prod.id);
+
+      if (stock <= 0) {
+        return { status: 'Out of Stock', stock: 0 };
+      }
+
+      // Check low stock threshold
+      const limit =
+        prod.reorderLevel !== null && prod.reorderLevel !== undefined && !isNaN(Number(prod.reorderLevel))
+          ? Number(prod.reorderLevel)
+          : prod.minStockLevel !== null && prod.minStockLevel !== undefined && !isNaN(Number(prod.minStockLevel))
+          ? Number(prod.minStockLevel)
+          : prod.stockWarningLimit !== null && prod.stockWarningLimit !== undefined && !isNaN(Number(prod.stockWarningLimit))
+          ? Number(prod.stockWarningLimit)
+          : null;
+
+      if (limit !== null) {
+        if (stock <= limit) {
+          return { status: 'Limited Stock', stock };
+        }
+        return { status: 'In Stock', stock };
+      }
+
+      return { status: 'In Stock', stock };
+    },
+    [products, selectedWarehouse, getWarehouseStock]
+  );
 
   // Quick Add Item Modal State (Temporary / Unregistered PO-Only Item)
   const [isAddNewItemModalOpen, setIsAddNewItemModalOpen] = useState(false);
@@ -108,26 +171,47 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
     }
   }, [suppliers, warehouses]);
 
+  // Autogenerate Supplier Invoice / Ref # on modal open
+  useEffect(() => {
+    if (isOpen) {
+      setSavedDocument(null);
+      setErrorMsg(null);
+      setSupplierBillNo(generateAutoRef());
+    }
+  }, [isOpen, generateAutoRef]);
+
   const handleAddItem = (product: Product) => {
-    const unit = normalizeUniversalUnit(product.primaryUnit);
-    const rate = product.costPrice || product.purchasePrice || 0;
-    const taxRate = product.taxRate || 0;
+    const unit = normalizeUniversalUnit(product.primaryUnit) || 'Piece';
+    const rate = isPO ? 0 : (product.costPrice || product.purchasePrice || 0);
+    const taxRate = isPO ? 0 : (product.taxRate || 0);
     const lineTotal = rate * 1;
     const taxAmt = lineTotal * (taxRate / 100);
 
-    const newItem = {
-      productId: product.id,
-      productName: product.name,
-      qty: 1,
-      unit,
-      rate,
-      discount: 0,
-      taxRate,
-      taxAmt,
-      total: lineTotal + taxAmt
-    };
-
-    setItems(prev => [newItem, ...prev]);
+    setItems(prev => {
+      const existingIdx = prev.findIndex(item => item.productId === product.id);
+      if (existingIdx >= 0) {
+        const next = [...prev];
+        next[existingIdx] = {
+          ...next[existingIdx],
+          qty: (next[existingIdx].qty || 0) + 1
+        };
+        return next;
+      }
+      return [
+        {
+          productId: product.id,
+          productName: product.name,
+          qty: 1,
+          unit,
+          rate,
+          discount: 0,
+          taxRate,
+          taxAmt,
+          total: lineTotal + taxAmt
+        },
+        ...prev
+      ];
+    });
     setSelectedProductToAdd('');
   };
 
@@ -135,14 +219,20 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
     setItems(items.filter((_, idx) => idx !== index));
   };
 
-  const subtotal = items.reduce((sum, item) => sum + item.rate * item.qty, 0);
-  const taxTotal = items.reduce((sum, item) => sum + item.taxAmt, 0);
+  const subtotal = items.reduce((sum, item) => sum + (item.rate || 0) * (item.qty || 0), 0);
+  const taxTotal = items.reduce((sum, item) => sum + (item.taxAmt || 0), 0);
   const grandTotal = subtotal + taxTotal;
 
   const handleSavePurchase = async (e: React.FormEvent) => {
     e.preventDefault();
     if (items.length === 0) {
-      setErrorMsg('Please add at least one item line to this purchase order / bill.');
+      setErrorMsg('Please add at least one item line to this purchase order.');
+      return;
+    }
+
+    const invalidQtyItem = items.find(it => !it.qty || Number(it.qty) <= 0);
+    if (invalidQtyItem) {
+      setErrorMsg(`Please specify a valid quantity greater than 0 for "${invalidQtyItem.productName}".`);
       return;
     }
 
@@ -150,26 +240,43 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
     setErrorMsg(null);
 
     const supplier = suppliers.find(s => s.id === supplierId);
-    const prefix = documentType === 'purchase_order' ? 'PO-' : 'PB-';
+    const prefix = isPO ? 'PO-' : 'PB-';
     const invoiceNumber = `${prefix}${Date.now().toString().slice(-6)}`;
+
+    // Prepare items with zero rates/taxes for PO and attached stock status snapshot
+    const preparedItems = items.map(it => {
+      const stockInfo = getProductStockStatus(it.productId, it.isUnregistered || it.isTemporary);
+      return {
+        ...it,
+        qty: Number(it.qty) || 1,
+        rate: isPO ? 0 : (it.rate || 0),
+        discount: isPO ? 0 : (it.discount || 0),
+        taxRate: isPO ? 0 : (it.taxRate || 0),
+        taxAmt: isPO ? 0 : (it.taxAmt || 0),
+        total: isPO ? 0 : (it.total || 0),
+        stockStatusAtOrder: stockInfo.status
+      };
+    });
+
+    const finalSupplierInvoiceNumber = supplierBillNo.trim() || generateAutoRef();
 
     const payload: Omit<PurchaseInvoice, 'id' | 'createdAt'> = {
       invoiceNumber,
-      docType: documentType === 'purchase_order' ? 'purchase_order' : 'standard_invoice',
+      docType: isPO ? 'purchase_order' : 'standard_invoice',
       date: new Date().toISOString().split('T')[0],
       dueDate: new Date().toISOString().split('T')[0],
       supplierId,
       supplierName: supplier?.name || 'Primary Supplier',
       supplierGstin: supplier?.gstin || '',
-      supplierInvoiceNumber: supplierBillNo.trim() || undefined,
-      items,
-      subtotal,
-      taxTotal,
+      supplierInvoiceNumber: finalSupplierInvoiceNumber,
+      items: preparedItems,
+      subtotal: isPO ? 0 : subtotal,
+      taxTotal: isPO ? 0 : taxTotal,
       freightCharges: 0,
       otherCharges: 0,
-      grandTotal,
-      paidAmount: documentType === 'purchase_order' ? 0 : grandTotal,
-      paymentStatus: documentType === 'purchase_order' ? 'Unpaid' : 'Paid',
+      grandTotal: isPO ? 0 : grandTotal,
+      paidAmount: 0,
+      paymentStatus: 'Unpaid',
       warehouse: warehouseName,
       notes: notes.trim()
     };
@@ -187,7 +294,7 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
 
   if (!isOpen) return null;
 
-  const docTitle = documentType === 'purchase_order' ? 'New Purchase Order (PO)' : 'New Purchase Bill';
+  const docTitle = isPO ? 'New Purchase Order (PO)' : 'New Purchase Bill';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
@@ -225,7 +332,10 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                 {savedDocument.invoiceNumber} recorded successfully!
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Supplier: <strong>{savedDocument.supplierName}</strong> | Total: <strong className="font-mono">{formatCurrency(savedDocument.grandTotal)}</strong>
+                Supplier: <strong>{savedDocument.supplierName}</strong> | Ref #: <strong>{savedDocument.supplierInvoiceNumber || supplierBillNo}</strong> | Receiving Warehouse: <strong>{savedDocument.warehouse || warehouseName}</strong> | Items: <strong>{savedDocument.items?.length || 0} line(s)</strong>
+                {!isPO && (
+                  <> | Total: <strong className="font-mono">{formatCurrency(savedDocument.grandTotal)}</strong></>
+                )}
               </p>
             </div>
 
@@ -244,6 +354,7 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                 onClick={() => {
                   setSavedDocument(null);
                   setItems([]);
+                  setSupplierBillNo(generateAutoRef());
                 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
               >
@@ -302,15 +413,26 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Supplier Invoice / Ref #
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Supplier Invoice / Ref #
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setSupplierBillNo(generateAutoRef())}
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 cursor-pointer transition-colors"
+                    title="Autogenerate Reference #"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Auto</span>
+                  </button>
+                </div>
                 <input
                   type="text"
-                  placeholder="Optional bill ref..."
+                  placeholder={isPO ? 'PO-REF-...' : 'Optional bill ref...'}
                   value={supplierBillNo}
                   onChange={e => setSupplierBillNo(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
             </div>
@@ -334,7 +456,9 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                   <option value="">Select a product to add to purchase...</option>
                   {products.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name} (Cost: {formatCurrency(p.costPrice || p.purchasePrice || 0)} / {p.primaryUnit})
+                      {isPO
+                        ? `${p.name} (${p.primaryUnit || 'Piece'})`
+                        : `${p.name} (Cost: ${formatCurrency(p.costPrice || p.purchasePrice || 0)} / ${p.primaryUnit})`}
                     </option>
                   ))}
                 </select>
@@ -359,108 +483,235 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                 </button>
               </div>
 
-              {/* Items List */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 max-h-56 overflow-y-auto">
-                {items.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-slate-400">
-                    No items added yet. Select a product above to add lines.
+              {/* Items List / Table */}
+              {isPO ? (
+                /* PO Mode: Redesigned 4-column layout without pricing (Product Name | Stock Status | Required Quantity | Action) */
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-2xs">
+                  {/* Table Header */}
+                  <div className="grid grid-cols-12 gap-3 px-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <div className="col-span-5">Product Name</div>
+                    <div className="col-span-3">Stock Status</div>
+                    <div className="col-span-3">Required Quantity</div>
+                    <div className="col-span-1 text-right">Action</div>
                   </div>
-                ) : (
-                  items.map((item, idx) => (
-                    <div key={idx} className="p-2.5 flex items-center justify-between gap-3 text-xs">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="font-semibold text-slate-900 dark:text-white truncate">{item.productName}</p>
-                          {(item.isUnregistered || (item.productId && item.productId.startsWith('unregistered-')) || !item.productId) && (
-                            <span className="px-1.5 py-0.2 text-[9px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded">
-                              PO Only
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-slate-400 font-mono">
-                          {formatCurrency(item.rate)} × {item.qty} {item.unit} (+{item.taxRate}% tax)
-                        </p>
+
+                  {/* Table Body */}
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-56 overflow-y-auto">
+                    {items.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-400 dark:text-slate-500">
+                        No items added yet. Select a product above to add lines.
                       </div>
+                    ) : (
+                      items.map((item, idx) => {
+                        const stockInfo = getProductStockStatus(
+                          item.productId,
+                          item.isUnregistered || item.isTemporary
+                        );
+                        return (
+                          <div
+                            key={idx}
+                            className="grid grid-cols-12 gap-3 px-4 py-2.5 items-center text-xs hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
+                          >
+                            {/* 1. Product Name */}
+                            <div className="col-span-5 min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-900 dark:text-white truncate">
+                                  {item.productName}
+                                </span>
+                                {(item.isUnregistered || (item.productId && item.productId.startsWith('unregistered-')) || !item.productId) && (
+                                  <span className="px-1.5 py-0.2 text-[9px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded">
+                                    PO Only
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                Unit: {item.unit || 'Piece'}
+                              </p>
+                            </div>
 
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-slate-400">Cost:</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={item.rate}
-                            onChange={e => {
-                              const newRate = parseFloat(e.target.value) || 0;
-                              setItems(prev => {
-                                const next = [...prev];
-                                const cur = next[idx];
-                                const total = cur.qty * newRate;
-                                const taxAmt = total * (cur.taxRate / 100);
-                                next[idx] = { ...cur, rate: newRate, taxAmt, total: total + taxAmt };
-                                return next;
-                              });
-                            }}
-                            className="w-20 px-2 py-1 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-right"
-                          />
-                        </div>
+                            {/* 2. Stock Status */}
+                            <div className="col-span-3">
+                              {stockInfo.status === 'In Stock' && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                  <span>In Stock</span>
+                                </span>
+                              )}
+                              {stockInfo.status === 'Limited Stock' && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                  <span>Limited Stock</span>
+                                </span>
+                              )}
+                              {stockInfo.status === 'Out of Stock' && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                                  <span>Out of Stock</span>
+                                </span>
+                              )}
+                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5 block">
+                                {stockInfo.stock} in stock
+                              </span>
+                            </div>
 
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-slate-400">Qty:</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.qty}
-                            onChange={e => {
-                              const newQty = Math.max(1, parseFloat(e.target.value) || 1);
-                              setItems(prev => {
-                                const next = [...prev];
-                                const cur = next[idx];
-                                const total = newQty * cur.rate;
-                                const taxAmt = total * (cur.taxRate / 100);
-                                next[idx] = { ...cur, qty: newQty, taxAmt, total: total + taxAmt };
-                                return next;
-                              });
-                            }}
-                            className="w-16 px-2 py-1 text-xs font-bold font-mono rounded-lg border border-slate-200 dark:border-slate-700 text-center"
-                          />
-                        </div>
+                            {/* 3. Required Quantity */}
+                            <div className="col-span-3 flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min="1"
+                                step="any"
+                                value={item.qty === 0 ? '' : item.qty}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  const parsed = parseFloat(val);
+                                  setItems(prev => {
+                                    const next = [...prev];
+                                    next[idx] = {
+                                      ...next[idx],
+                                      qty: val === '' ? ('' as any) : isNaN(parsed) ? 1 : parsed
+                                    };
+                                    return next;
+                                  });
+                                }}
+                                onBlur={() => {
+                                  setItems(prev => {
+                                    const next = [...prev];
+                                    if (!next[idx].qty || Number(next[idx].qty) <= 0) {
+                                      next[idx] = { ...next[idx], qty: 1 };
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className="w-20 px-2.5 py-1 text-xs font-bold font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-center focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              />
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                {item.unit || 'Piece'}
+                              </span>
+                            </div>
 
-                        <span className="font-bold font-mono text-slate-900 dark:text-white w-20 text-right">
-                          {formatCurrency(item.total)}
-                        </span>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItem(idx)}
-                          className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                            {/* 4. Action */}
+                            <div className="col-span-1 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
+                                title="Delete item"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Non-PO Mode: Standard Line Items with Pricing */
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 max-h-56 overflow-y-auto">
+                  {items.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-400">
+                      No items added yet. Select a product above to add lines.
                     </div>
-                  ))
-                )}
-              </div>
+                  ) : (
+                    items.map((item, idx) => (
+                      <div key={idx} className="p-2.5 flex items-center justify-between gap-3 text-xs">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-semibold text-slate-900 dark:text-white truncate">{item.productName}</p>
+                            {(item.isUnregistered || (item.productId && item.productId.startsWith('unregistered-')) || !item.productId) && (
+                              <span className="px-1.5 py-0.2 text-[9px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded">
+                                PO Only
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            {formatCurrency(item.rate)} × {item.qty} {item.unit} (+{item.taxRate}% tax)
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400">Cost:</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={item.rate}
+                              onChange={e => {
+                                const newRate = parseFloat(e.target.value) || 0;
+                                setItems(prev => {
+                                  const next = [...prev];
+                                  const cur = next[idx];
+                                  const total = cur.qty * newRate;
+                                  const taxAmt = total * (cur.taxRate / 100);
+                                  next[idx] = { ...cur, rate: newRate, taxAmt, total: total + taxAmt };
+                                  return next;
+                                });
+                              }}
+                              className="w-20 px-2 py-1 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-right"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400">Qty:</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={item.qty}
+                              onChange={e => {
+                                const newQty = Math.max(1, parseFloat(e.target.value) || 1);
+                                setItems(prev => {
+                                  const next = [...prev];
+                                  const cur = next[idx];
+                                  const total = newQty * cur.rate;
+                                  const taxAmt = total * (cur.taxRate / 100);
+                                  next[idx] = { ...cur, qty: newQty, taxAmt, total: total + taxAmt };
+                                  return next;
+                                });
+                              }}
+                              className="w-16 px-2 py-1 text-xs font-bold font-mono rounded-lg border border-slate-200 dark:border-slate-700 text-center"
+                            />
+                          </div>
+
+                          <span className="font-bold font-mono text-slate-900 dark:text-white w-20 text-right">
+                            {formatCurrency(item.total)}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(idx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Step 3: REVIEW Summary Card */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-500">
-                <span>Subtotal (Excl. Tax):</span>
-                <span className="font-mono">{formatCurrency(subtotal)}</span>
+            {/* Step 3: REVIEW Summary Card (Non-PO only: completely removed for PO) */}
+            {!isPO && (
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-500">
+                  <span>Subtotal (Excl. Tax):</span>
+                  <span className="font-mono">{formatCurrency(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Input Tax Credit (GST):</span>
+                  <span className="font-mono">{formatCurrency(taxTotal)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-700 text-sm">
+                  <span>Grand Total:</span>
+                  <span className="font-mono text-purple-600 text-base">{formatCurrency(grandTotal)}</span>
+                </div>
               </div>
-              <div className="flex justify-between text-slate-500">
-                <span>Input Tax Credit (GST):</span>
-                <span className="font-mono">{formatCurrency(taxTotal)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-700 text-sm">
-                <span>Grand Total:</span>
-                <span className="font-mono text-purple-600 text-base">{formatCurrency(grandTotal)}</span>
-              </div>
-            </div>
+            )}
 
-            {/* Notes */}
+            {/* Purchase Order Remarks */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Purchase Order Remarks
@@ -586,14 +837,6 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                     ))}
                   </select>
                 </div>
-              </div>
-
-              {/* 3. Estimated Line Total - Directly below Quantity and Unit */}
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-xs">
-                <span className="text-slate-500">Estimated Line Total:</span>
-                <span className="font-mono font-bold text-purple-600 dark:text-purple-400 text-sm">
-                  {formatCurrency(0)}
-                </span>
               </div>
 
               {/* Modal Actions */}

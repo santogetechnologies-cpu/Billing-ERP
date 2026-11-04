@@ -4,37 +4,22 @@ import {
   ShoppingBag,
   Plus,
   RotateCcw,
-  Eye,
-  Building2,
-  Calendar,
-  Clock,
   FileText,
-  CheckCircle2,
-  AlertCircle,
-  Copy,
-  Check,
-  Printer,
   CreditCard,
   Truck,
-  PackageCheck
+  Search
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
-import { hasPermission } from '../../utils/rbac';
-import { DataTable, Column } from '../../components/common/DataTable';
-import { StatusBadge } from '../../components/common/StatusBadge';
 import { Tabs, TabItem } from '../../components/common/Tabs';
-import { formatCurrency, formatDate } from '../../utils/formatters';
-import { PurchaseInvoice, PaymentRecord } from '../../types';
-import { supplierBillService } from '../../services/supplierBillService';
-import { Modal } from '../../components/common/Modal';
+import { formatDate } from '../../utils/formatters';
+import { PurchaseInvoice } from '../../types';
 import { PurchaseDocumentModal } from '../../components/purchases/PurchaseDocumentModal';
 import { PurchaseOrdersTab } from '../../components/purchases/PurchaseOrdersTab';
-import { PurchaseGoodsReceivedTab } from '../../components/purchases/PurchaseGoodsReceivedTab';
 import { PurchaseReturnsTab } from '../../components/purchases/PurchaseReturnsTab';
 import { PurchasePaymentsMadeTab } from '../../components/purchases/PurchasePaymentsMadeTab';
-
-type PurchaseBillItem = PurchaseInvoice['items'][number] & { id?: string };
+import { SupplierBillInvoiceModal } from '../../components/purchases/SupplierBillInvoiceModal';
+import { PaySupplierBillModal } from '../../components/purchases/PaySupplierBillModal';
 
 export const PurchaseInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -42,173 +27,75 @@ export const PurchaseInvoicesPage: React.FC = () => {
   const { profile } = useAuth();
   const {
     purchaseInvoices = [],
-    purchaseRequests = [],
-    warehouses = [],
-    company,
     payments = []
   } = useERP();
 
   const [activeTab, setActiveTab] = useState<string>(() => searchParams.get('tab') || 'bills');
   const [selectedInvoice, setSelectedInvoice] = useState<PurchaseInvoice | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [billPaymentHistory, setBillPaymentHistory] = useState<PaymentRecord[]>([]);
-  const [isLoadingPaymentHistory, setIsLoadingPaymentHistory] = useState(false);
+  const [payingBill, setPayingBill] = useState<PurchaseInvoice | null>(null);
+  const [billsSearch, setBillsSearch] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'All' | 'Pending' | 'Partially Paid' | 'Completed'>('All');
 
   // Document modal for creating PO or Standard Bill
   const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
   const [documentModalType, setDocumentModalType] = useState<'purchase_order' | 'standard_invoice'>('standard_invoice');
-  const [selectedPOForReceiving, setSelectedPOForReceiving] = useState<PurchaseInvoice | null>(null);
 
-  // Sync ?tab= in URL
+  // Sync ?tab= in URL (gracefully redirect legacy grn tab to orders)
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab) setActiveTab(tab);
-  }, [searchParams]);
+    if (tab === 'grn') {
+      setActiveTab('orders');
+      setSearchParams({ tab: 'orders' });
+    } else if (tab) {
+      setActiveTab(tab);
+    }
+  }, [searchParams, setSearchParams]);
 
-  // Tab definitions (Part C: Purchases: Orders (PO) · Goods Received (GRN) · Bills · Returns · Payments made)
+  // Tab definitions (Purchases: Orders (PO) · Bills · Returns · Payments made)
   const purchaseOrders = useMemo(() => purchaseInvoices.filter(i => i.docType === 'purchase_order'), [purchaseInvoices]);
-  const standardBills = useMemo(() => purchaseInvoices.filter(i => i.docType === 'purchase_invoice' || !i.docType), [purchaseInvoices]);
+  const standardBills = useMemo(
+    () =>
+      purchaseInvoices.filter(
+        i =>
+          (i.docType === 'purchase_invoice' || !i.docType) &&
+          (!i.purchaseOrderId || i.billStatus === 'Complete')
+      ),
+    [purchaseInvoices]
+  );
   const purchaseReturnsList = useMemo(() => purchaseInvoices.filter(i => i.docType === 'purchase_return'), [purchaseInvoices]);
   const outwardPaymentsList = useMemo(() => payments.filter(p => p.type === 'Paid' || p.partyType === 'Supplier'), [payments]);
 
   const purchaseTabs: TabItem[] = [
     { id: 'orders', label: 'Orders (PO)', count: purchaseOrders.length, icon: Truck },
-    { id: 'grn', label: 'Goods Received (GRN)', count: purchaseOrders.length, icon: PackageCheck },
     { id: 'bills', label: 'Bills', count: standardBills.length, icon: FileText },
     { id: 'returns', label: 'Returns', count: purchaseReturnsList.length, icon: RotateCcw },
     { id: 'payments', label: 'Payments made', count: outwardPaymentsList.length, icon: CreditCard }
   ];
 
-  // Fetch payment history when selectedInvoice changes
-  useEffect(() => {
-    if (!selectedInvoice?.id) {
-      setBillPaymentHistory([]);
-      return;
-    }
-    let isMounted = true;
-    setIsLoadingPaymentHistory(true);
-    supplierBillService.getBillPaymentHistory(selectedInvoice.id, company?.id)
-      .then(history => {
-        if (isMounted) setBillPaymentHistory(history);
-      })
-      .catch(() => {
-        if (isMounted) setBillPaymentHistory([]);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingPaymentHistory(false);
-      });
+  // Filtered bills for Tab 2: Bills (Search + Payment Status)
+  const filteredBills = useMemo(() => {
+    return standardBills.filter(bill => {
+      const s = billsSearch.toLowerCase();
+      const matchesSearch =
+        !billsSearch ||
+        bill.supplierName.toLowerCase().includes(s) ||
+        (bill.purchaseOrderNumber && bill.purchaseOrderNumber.toLowerCase().includes(s)) ||
+        (bill.supplierInvoiceNumber && bill.supplierInvoiceNumber.toLowerCase().includes(s)) ||
+        bill.invoiceNumber.toLowerCase().includes(s);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedInvoice?.id, company?.id]);
+      const isCompleted = bill.paymentStatus === 'Paid' || (Number(bill.paidAmount) >= Number(bill.grandTotal) && Number(bill.grandTotal) > 0);
+      const isPartial = !isCompleted && (bill.paymentStatus === 'Partially Paid' || Number(bill.paidAmount) > 0);
+      const isPending = !isCompleted && !isPartial;
 
-  const handlePrint = () => {
-    const originalTitle = document.title;
-    const invNo = selectedInvoice?.supplierInvoiceNumber || selectedInvoice?.invoiceNumber || 'Bill';
-    document.title = `Supplier_Invoice_${invNo}`;
-    window.print();
-    setTimeout(() => {
-      document.title = originalTitle;
-    }, 1500);
-  };
+      const matchesStatus =
+        paymentStatusFilter === 'All' ||
+        (paymentStatusFilter === 'Completed' && isCompleted) ||
+        (paymentStatusFilter === 'Partially Paid' && isPartial) ||
+        (paymentStatusFilter === 'Pending' && isPending);
 
-  const getReceivingBadge = (row: PurchaseInvoice) => {
-    const linkedPr = purchaseRequests.find(pr =>
-      (row.purchaseRequestId && pr.id === row.purchaseRequestId) ||
-      (row.purchaseRequestNumber && pr.requestNumber === row.purchaseRequestNumber) ||
-      (row.purchaseOrderId && (pr.purchaseOrderId === row.purchaseOrderId || pr.id === row.purchaseOrderId)) ||
-      (row.purchaseOrderNumber && pr.purchaseOrderNumber === row.purchaseOrderNumber)
-    );
-
-    if (linkedPr) {
-      if (linkedPr.status === 'Completed') {
-        return { text: 'Fully Received', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
-      }
-      if (linkedPr.status === 'Partially Received') {
-        return { text: 'Partially Received', bg: 'bg-blue-50 text-blue-700 border-blue-200' };
-      }
-      return { text: 'Pending Delivery', bg: 'bg-amber-50 text-amber-700 border-amber-200' };
-    }
-
-    if (row.purchaseOrderNumber || row.purchaseOrderId) {
-      return { text: 'Pending Delivery', bg: 'bg-amber-50 text-amber-700 border-amber-200' };
-    }
-
-    return { text: 'Direct Receipt', bg: 'bg-slate-50 text-slate-700 border-slate-200' };
-  };
-
-  const billColumns: Column<PurchaseInvoice>[] = [
-    {
-      key: 'supplierInvoiceNumber',
-      header: 'Supplier Bill #',
-      render: row => (
-        <div>
-          <button
-            type="button"
-            onClick={e => {
-              e.stopPropagation();
-              setSelectedInvoice(row);
-            }}
-            className="font-mono font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5 cursor-pointer text-left"
-          >
-            <span>{row.supplierInvoiceNumber || row.invoiceNumber}</span>
-          </button>
-          {row.purchaseOrderNumber && (
-            <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
-              PO: {row.purchaseOrderNumber}
-            </span>
-          )}
-        </div>
-      )
-    },
-    {
-      key: 'supplierName',
-      header: 'Supplier Name',
-      render: row => (
-        <div>
-          <span className="font-semibold text-slate-800 block truncate max-w-[200px]">
-            {row.supplierName}
-          </span>
-          <span className="text-[10px] text-slate-400 font-mono">
-            GSTIN: {row.supplierGstin || 'Unregistered'}
-          </span>
-        </div>
-      )
-    },
-    {
-      key: 'date',
-      header: 'Invoice Date',
-      render: row => <span className="text-slate-600 text-xs whitespace-nowrap">{formatDate(row.date)}</span>
-    },
-    {
-      key: 'grandTotal',
-      header: 'Bill Amount',
-      align: 'right',
-      render: row => (
-        <span className="font-bold text-slate-900 tabular-nums">{formatCurrency(row.grandTotal)}</span>
-      )
-    },
-    {
-      key: 'id',
-      header: 'Receiving Status',
-      align: 'center',
-      render: row => {
-        const badge = getReceivingBadge(row);
-        return (
-          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.bg}`}>
-            {badge.text}
-          </span>
-        );
-      }
-    },
-    {
-      key: 'paymentStatus',
-      header: 'Payment Status',
-      align: 'center',
-      render: row => <StatusBadge status={row.paymentStatus} size="sm" />
-    }
-  ];
+      return matchesSearch && matchesStatus;
+    });
+  }, [standardBills, billsSearch, paymentStatusFilter]);
 
   return (
     <div className="space-y-4">
@@ -217,10 +104,10 @@ export const PurchaseInvoicesPage: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             <ShoppingBag className="w-5 h-5 text-indigo-600" />
-            Purchases & Inward Goods
+            Purchases & PO
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Manage purchase orders, goods receipt notes (GRN), vendor bills, debit notes, and payments.
+            Manage purchase orders, vendor bills, debit notes, and payments.
           </p>
         </div>
 
@@ -251,7 +138,7 @@ export const PurchaseInvoicesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Part C: In-Page Tabs (Orders · Goods Received · Bills · Returns · Payments made) */}
+      {/* Tabs (Orders · Bills · Returns · Payments made) */}
       <Tabs
         tabs={purchaseTabs}
         activeTab={activeTab}
@@ -268,57 +155,158 @@ export const PurchaseInvoicesPage: React.FC = () => {
             setDocumentModalType('purchase_order');
             setIsDocumentModalOpen(true);
           }}
-          onReceivePO={po => {
-            setSelectedPOForReceiving(po);
-            setActiveTab('grn');
-            setSearchParams({ tab: 'grn' });
-          }}
         />
       )}
 
-      {/* Tab 2: Goods Received (GRN) */}
-      {activeTab === 'grn' && (
-        <PurchaseGoodsReceivedTab initialSelectedPO={selectedPOForReceiving} />
-      )}
-
-      {/* Tab 3: Bills (Purchase Invoices) */}
+      {/* Tab 2: Bills (Purchase Invoices) */}
       {activeTab === 'bills' && (
-        <DataTable
-          title="Supplier Purchase Bills"
-          subtitle={`Total ${standardBills.length} purchase invoices recorded`}
-          columns={billColumns}
-          data={standardBills}
-          searchPlaceholder="Search bill #, supplier name, GSTIN..."
-          searchKeys={['invoiceNumber', 'supplierName', 'supplierGstin', 'paymentStatus']}
-          onRowClick={row => setSelectedInvoice(row)}
-          actionsWidth="80px"
-          actions={row => (
-            <div className="flex items-center justify-end gap-1">
-              <button
-                type="button"
-                onClick={e => {
-                  e.stopPropagation();
-                  setSelectedInvoice(row);
-                }}
-                className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                title="View Bill Details"
-              >
-                <Eye className="w-4 h-4" />
-              </button>
+        <div className="space-y-4 animate-fadeIn">
+          {/* Search Bar & Payment Status Filter Pills */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search bills by supplier or PO #..."
+                value={billsSearch}
+                onChange={e => setBillsSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
             </div>
-          )}
-          filters={[
-            {
-              key: 'paymentStatus',
-              label: 'Payment Status',
-              options: [
-                { label: 'Paid', value: 'Paid' },
-                { label: 'Partially Paid', value: 'Partially Paid' },
-                { label: 'Unpaid', value: 'Unpaid' }
-              ]
-            }
-          ]}
-        />
+
+            <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+              {(['All', 'Pending', 'Partially Paid', 'Completed'] as const).map(status => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setPaymentStatusFilter(status)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    paymentStatusFilter === status
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Bills Table - Strictly 6 Columns matching Orders (PO) Table */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="px-4 py-3">Supplier / PO Number</th>
+                    <th className="px-4 py-3">Bill Date</th>
+                    <th className="px-4 py-3">Destination Store</th>
+                    <th className="px-4 py-3">Items Count</th>
+                    <th className="px-4 py-3">Payment Status</th>
+                    <th className="px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredBills.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                        No purchase bills found.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBills.map(bill => {
+                      const isCompleted = bill.paymentStatus === 'Paid' || (Number(bill.paidAmount) >= Number(bill.grandTotal) && Number(bill.grandTotal) > 0);
+                      const isPartial = !isCompleted && (bill.paymentStatus === 'Partially Paid' || Number(bill.paidAmount) > 0);
+                      const itemsCount = bill.items?.length || 0;
+                      const poDisplay = bill.purchaseOrderNumber || bill.invoiceNumber;
+
+                      return (
+                        <tr
+                          key={bill.id}
+                          className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
+                        >
+                          {/* 1. Supplier / PO Number: Supplier Name bold on top, PO Number in small purple text underneath */}
+                          <td className="px-4 py-3">
+                            <div className="font-bold text-slate-900 dark:text-white text-xs">
+                              {bill.supplierName}
+                            </div>
+                            <div className="font-mono text-[11px] font-semibold text-purple-600 dark:text-purple-400 mt-0.5">
+                              {poDisplay}
+                            </div>
+                          </td>
+
+                          {/* 2. Bill Date */}
+                          <td className="px-4 py-3 text-slate-600 dark:text-slate-300 font-mono text-xs">
+                            {formatDate(bill.date)}
+                          </td>
+
+                          {/* 3. Destination Store */}
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs">
+                            {bill.warehouse || 'Main Warehouse'}
+                          </td>
+
+                          {/* 4. Items Count */}
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300 text-xs">
+                            {itemsCount} {itemsCount === 1 ? 'Item' : 'Items'}
+                          </td>
+
+                          {/* 5. Payment Status */}
+                          <td className="px-4 py-3">
+                            {isCompleted ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                <span>COMPLETED</span>
+                              </span>
+                            ) : isPartial ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                <span>PARTIALLY PAID</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                <span>PENDING</span>
+                              </span>
+                            )}
+                          </td>
+
+                          {/* 6. Action: Bill Button & Pay Button */}
+                          <td className="px-4 py-3 text-right">
+                            <div className="inline-flex items-center gap-1.5 justify-end">
+                              {/* Bill Button - Opens professional invoice modal */}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedInvoice(bill)}
+                                title="View Professional Bill"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold text-xs transition-colors cursor-pointer"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>Bill</span>
+                              </button>
+
+                              {/* Pay Button - Opens payment form (Hidden once fully COMPLETED) */}
+                              {!isCompleted && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPayingBill(bill)}
+                                  title="Pay Supplier Bill"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-2xs transition-colors cursor-pointer"
+                                >
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                  <span>Pay</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Tab 4: Returns (Debit Notes) */}
@@ -335,120 +323,18 @@ export const PurchaseInvoicesPage: React.FC = () => {
       />
 
       {/* Complete Supplier Invoice / Bill Details Modal */}
-      {selectedInvoice && (
-        <Modal
-          isOpen={Boolean(selectedInvoice)}
-          onClose={() => setSelectedInvoice(null)}
-          title={`Supplier Bill: ${selectedInvoice.supplierInvoiceNumber || selectedInvoice.invoiceNumber}`}
-          subtitle="Original supplier bill details, itemization, and payment status."
-          size="2xl"
-          footer={
-            <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-2.5 no-print">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const invNo = selectedInvoice.supplierInvoiceNumber || selectedInvoice.invoiceNumber;
-                    navigator.clipboard.writeText(invNo);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  }}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
-                  <span>{copied ? 'Copied' : 'Copy #'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePrint}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Print</span>
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedInvoice(null)}
-                className="px-4 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-900 cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          }
-        >
-          <div className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-slate-50 rounded-xl text-xs">
-              <div>
-                <span className="text-slate-400 block">Supplier:</span>
-                <span className="font-semibold text-slate-800">{selectedInvoice.supplierName}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Date:</span>
-                <span className="font-semibold text-slate-800">{formatDate(selectedInvoice.date)}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Receiving:</span>
-                <span className="font-semibold text-blue-700">{getReceivingBadge(selectedInvoice).text}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Payment:</span>
-                <StatusBadge status={selectedInvoice.paymentStatus} size="sm" />
-              </div>
-            </div>
+      <SupplierBillInvoiceModal
+        isOpen={Boolean(selectedInvoice)}
+        onClose={() => setSelectedInvoice(null)}
+        bill={selectedInvoice}
+      />
 
-            {/* Line items table */}
-            <div className="border border-slate-200 rounded-xl overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="py-2 px-3 text-left">Product</th>
-                    <th className="py-2 px-3 text-right">Qty</th>
-                    <th className="py-2 px-3 text-right">Rate</th>
-                    <th className="py-2 px-3 text-right">Tax</th>
-                    <th className="py-2 px-3 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(selectedInvoice.items || []).map((it, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-3 font-medium text-slate-800">{it.productName}</td>
-                      <td className="py-2 px-3 text-right text-slate-600">{it.qty} {it.unit}</td>
-                      <td className="py-2 px-3 text-right text-slate-600">{formatCurrency(it.rate)}</td>
-                      <td className="py-2 px-3 text-right text-slate-600">{formatCurrency(it.taxAmt || 0)}</td>
-                      <td className="py-2 px-3 text-right font-semibold text-slate-900">{formatCurrency(it.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Financial Summary */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>Subtotal:</span>
-                <span>{formatCurrency(selectedInvoice.subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Tax Total:</span>
-                <span>{formatCurrency(selectedInvoice.taxTotal)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-slate-900 text-sm pt-1 border-t border-slate-200">
-                <span>Grand Total:</span>
-                <span className="text-blue-700">{formatCurrency(selectedInvoice.grandTotal)}</span>
-              </div>
-              <div className="flex justify-between text-emerald-700 font-medium">
-                <span>Paid:</span>
-                <span>{formatCurrency(selectedInvoice.paidAmount || 0)}</span>
-              </div>
-              <div className="flex justify-between text-amber-700 font-semibold">
-                <span>Balance Due:</span>
-                <span>{formatCurrency(Math.max(0, selectedInvoice.grandTotal - (selectedInvoice.paidAmount || 0)))}</span>
-              </div>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {/* Pay Supplier Bill Modal */}
+      <PaySupplierBillModal
+        isOpen={Boolean(payingBill)}
+        onClose={() => setPayingBill(null)}
+        bill={payingBill}
+      />
     </div>
   );
 };

@@ -308,6 +308,9 @@ export interface PurchaseInvoice {
     total: number;
     isUnregistered?: boolean;
     isTemporary?: boolean;
+    orderedQty?: number;
+    receivedQty?: number;
+    stockStatusAtOrder?: string;
   }[];
   subtotal: number;
   taxTotal: number;
@@ -335,6 +338,8 @@ export interface PurchaseInvoice {
   correctionRequestedAt?: string;
   hasDiscrepancy?: boolean;
   discrepancyNotes?: string;
+  poStatus?: 'Ordered' | 'Partially Received' | 'Received';
+  billStatus?: 'Not Complete' | 'Complete';
 }
 
 export type ExpenseCategory =

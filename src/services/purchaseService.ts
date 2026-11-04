@@ -22,6 +22,26 @@ export interface BillMetadata {
   verifiedAt?: string;
   correctionNotes?: string;
   correctionRequestedAt?: string;
+  poStatus?: 'Ordered' | 'Partially Received' | 'Received';
+  billStatus?: 'Not Complete' | 'Complete';
+  receivedAt?: string;
+  receivedBy?: string;
+  receivedItems?: Array<{
+    productId: string;
+    productName: string;
+    orderedQty: number;
+    receivedQty: number;
+    unit?: string;
+    rate?: number;
+    taxRate?: number;
+    taxAmt?: number;
+    total?: number;
+    isUnregistered?: boolean;
+    isTemporary?: boolean;
+  }>;
+  stockAddedForItems?: Record<string, number>;
+  linkedBillId?: string;
+  linkedBillNumber?: string;
 }
 
 const META_PREFIX = '<!-- UB_BILL_META:';
@@ -125,6 +145,9 @@ export const purchaseService = {
       const verifiedAt = p.verified_at || notesMeta.verifiedAt || cached.verifiedAt || undefined;
       const correctionNotes = p.correction_notes || notesMeta.correctionNotes || cached.correctionNotes || undefined;
       const correctionRequestedAt = p.correction_requested_at || notesMeta.correctionRequestedAt || cached.correctionRequestedAt || undefined;
+      const poStatus = notesMeta.poStatus || cached.poStatus || (p.doc_type === 'purchase_order' ? 'Ordered' : undefined);
+      const billStatus = notesMeta.billStatus || cached.billStatus || undefined;
+      const receivedItemsList = notesMeta.receivedItems || cached.receivedItems;
 
       return {
         id: p.id,
@@ -136,20 +159,34 @@ export const purchaseService = {
         supplierName: p.supplier_name,
         supplierGstin: p.supplier_gstin,
         warehouse: p.warehouse_id || '',
-        items: (p.purchase_items || []).map((item: any) => ({
-          id: item.id,
-          productId: item.product_id,
-          productName: item.product_name,
-          qty: Number(item.qty),
-          unit: item.unit,
-          rate: Number(item.rate),
-          discount: Number(item.discount || 0),
-          taxRate: Number(item.tax_rate),
-          taxAmt: Number(item.tax_amt),
-          total: Number(item.total),
-          isUnregistered: !item.product_id || String(item.product_id).startsWith('unregistered-'),
-          isTemporary: !item.product_id || String(item.product_id).startsWith('unregistered-')
-        })),
+        items: (p.purchase_items || []).map((item: any) => {
+          const recItem = receivedItemsList?.find(
+            (ri: any) => (item.product_id && ri.productId === item.product_id) || (ri.productName && ri.productName === item.product_name)
+          );
+          const orderedQty = recItem?.orderedQty !== undefined ? Number(recItem.orderedQty) : Number(item.qty);
+          const receivedQty = recItem?.receivedQty !== undefined ? Number(recItem.receivedQty) : undefined;
+          const rate = recItem?.rate !== undefined ? Number(recItem.rate) : Number(item.rate);
+          const taxRate = recItem?.taxRate !== undefined ? Number(recItem.taxRate) : Number(item.tax_rate);
+          const taxAmt = recItem?.taxAmt !== undefined ? Number(recItem.taxAmt) : Number(item.tax_amt);
+          const total = recItem?.total !== undefined ? Number(recItem.total) : Number(item.total);
+
+          return {
+            id: item.id,
+            productId: item.product_id,
+            productName: item.product_name,
+            qty: Number(item.qty),
+            orderedQty,
+            receivedQty,
+            unit: item.unit,
+            rate,
+            discount: Number(item.discount || 0),
+            taxRate,
+            taxAmt,
+            total,
+            isUnregistered: !item.product_id || String(item.product_id).startsWith('unregistered-'),
+            isTemporary: !item.product_id || String(item.product_id).startsWith('unregistered-')
+          };
+        }),
         subtotal: Number(p.subtotal),
         taxTotal: Number(p.tax_total),
         freightCharges: Number(p.freight_charges || 0),
@@ -171,7 +208,9 @@ export const purchaseService = {
         verifiedByName,
         verifiedAt,
         correctionNotes,
-        correctionRequestedAt
+        correctionRequestedAt,
+        poStatus,
+        billStatus
       };
     });
 
@@ -246,7 +285,22 @@ export const purchaseService = {
       verifiedByName: invoice.verifiedByName,
       verifiedAt: invoice.verifiedAt,
       correctionNotes: invoice.correctionNotes,
-      correctionRequestedAt: invoice.correctionRequestedAt
+      correctionRequestedAt: invoice.correctionRequestedAt,
+      poStatus: invoice.poStatus || (invoice.docType === 'purchase_order' ? 'Ordered' : undefined),
+      billStatus: invoice.billStatus,
+      receivedItems: invoice.docType === 'purchase_order' ? invoice.items.map(it => ({
+        productId: it.productId,
+        productName: it.productName,
+        orderedQty: it.orderedQty ?? it.qty,
+        receivedQty: it.receivedQty ?? 0,
+        unit: it.unit,
+        rate: it.rate,
+        taxRate: it.taxRate,
+        taxAmt: it.taxAmt,
+        total: it.total,
+        isUnregistered: it.isUnregistered,
+        isTemporary: it.isTemporary
+      })) : undefined
     };
 
     const notesWithMeta = injectBillMetadata(invoice.notes, initialMeta);
@@ -388,35 +442,38 @@ export const purchaseService = {
       }));
       await supabase.from('purchase_items').insert(itemsPayload);
 
-      for (const item of invoice.items) {
-        if (isValidUuid(item.productId)) {
-          // Increment stock
-          const { data: prodData } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
-          if (prodData) {
-            await supabase.from('products').update({ current_stock: prodData.current_stock + item.qty }).eq('id', item.productId);
-          }
+      // Only increment stock and log transactions for actual bills/invoices, NOT for purchase orders
+      if (invoice.docType !== 'purchase_order') {
+        for (const item of invoice.items) {
+          if (isValidUuid(item.productId)) {
+            // Increment stock
+            const { data: prodData } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
+            if (prodData) {
+              await supabase.from('products').update({ current_stock: prodData.current_stock + item.qty }).eq('id', item.productId);
+            }
 
-          // Stock transaction
-          await supabase.from('stock_transactions').insert({
-            company_id: finalCompanyId,
-            date: invoice.date,
-            type: 'Purchase',
-            product_id: item.productId,
-            product_name: item.productName,
-            qty: item.qty,
-            unit: item.unit,
-            unit_cost: item.rate,
-            total_cost: item.total,
-            reference_type: 'Purchase',
-            reference_id: purData.id,
-            reference_number: invoice.invoiceNumber
-          });
+            // Stock transaction
+            await supabase.from('stock_transactions').insert({
+              company_id: finalCompanyId,
+              date: invoice.date,
+              type: 'Purchase',
+              product_id: item.productId,
+              product_name: item.productName,
+              qty: item.qty,
+              unit: item.unit,
+              unit_cost: item.rate,
+              total_cost: item.total,
+              reference_type: 'Purchase',
+              reference_id: purData.id,
+              reference_number: invoice.invoiceNumber
+            });
+          }
         }
       }
     }
 
-    // Update supplier payable
-    if (invoice.supplierId) {
+    // Update supplier payable (skip for purchase orders)
+    if (invoice.supplierId && invoice.docType !== 'purchase_order') {
       const balanceChange = invoice.grandTotal - (invoice.paidAmount || 0);
       const { data: supData } = await supabase.from('suppliers').select('current_outstanding, total_purchases, total_paid').eq('id', invoice.supplierId).single();
       if (supData) {
@@ -951,6 +1008,902 @@ export const purchaseService = {
     };
 
     return { payment: formattedPayment, updatedPurchase: formattedPurchase };
+  },
+
+  // Update Purchase Order Details & Sync Linked Purchase Bill
+  async updatePurchaseOrderDetails(
+    poId: string,
+    data: {
+      supplierInvoiceNumber: string;
+      items: Array<{
+        productId: string;
+        productName: string;
+        orderedQty: number;
+        receivedQty: number;
+        unit: string;
+        rate: number;
+        taxRate: number;
+        taxAmt: number;
+        total: number;
+        isUnregistered?: boolean;
+        isTemporary?: boolean;
+      }>;
+      additionalCharges: number;
+      subtotal: number;
+      taxTotal: number;
+      grandTotal: number;
+      notes?: string;
+    },
+    companyId?: string
+  ): Promise<{ po: PurchaseInvoice; linkedBill?: PurchaseInvoice }> {
+    const finalCompanyId = isValidUuid(companyId) ? companyId! : '00000000-0000-0000-0000-000000000001';
+
+    // 1. Fetch current PO
+    const { data: poRecord } = await supabase
+      .from('purchases')
+      .select('*, purchase_items (*)')
+      .eq('id', poId)
+      .maybeSingle();
+
+    const { cleanNotes, meta: existingMeta } = extractBillMetadata(poRecord?.notes);
+    const metaCache = getBillMetaCache(finalCompanyId);
+    const cachedMeta = metaCache[poId] || (poRecord?.invoice_number ? metaCache[poRecord.invoice_number] : {}) || {};
+    const mergedMeta = { ...cachedMeta, ...existingMeta };
+
+    // Determine completion status
+    const isBillComplete =
+      Boolean(data.supplierInvoiceNumber?.trim()) &&
+      data.items.length > 0 &&
+      data.items.every(it => Number(it.rate) > 0);
+
+    const billStatus: 'Complete' | 'Not Complete' = isBillComplete ? 'Complete' : 'Not Complete';
+    const verificationStatus: BillVerificationStatus = isBillComplete ? 'Approved for Payment' : 'Pending Review';
+
+    // Preserve PO status: updating bill details must NOT mark the PO as Received
+    const currentPoStatus = mergedMeta.poStatus || 'Ordered';
+
+    // 2. Update PO record & metadata
+    const updatedPOMeta: BillMetadata = {
+      ...mergedMeta,
+      supplierInvoiceNumber: data.supplierInvoiceNumber,
+      receivedItems: data.items,
+      billStatus,
+      poStatus: currentPoStatus
+    };
+
+    const newPONotes = injectBillMetadata(cleanNotes || poRecord?.notes, updatedPOMeta);
+
+    const poUpdatePayload = await filterSupportedPurchasePayload({
+      supplier_invoice_number: data.supplierInvoiceNumber || null,
+      subtotal: data.subtotal,
+      tax_total: data.taxTotal,
+      other_charges: data.additionalCharges,
+      grand_total: data.grandTotal,
+      notes: newPONotes
+    });
+
+    await supabase.from('purchases').update(poUpdatePayload).eq('id', poId);
+    saveBillMetaCache(finalCompanyId, poId, updatedPOMeta);
+    if (poRecord?.invoice_number) {
+      saveBillMetaCache(finalCompanyId, poRecord.invoice_number, updatedPOMeta);
+    }
+
+    // 3. Handle linked Purchase Bill (docType: 'purchase_invoice')
+    let linkedBillId = mergedMeta.linkedBillId;
+    if (!linkedBillId) {
+      const { data: existingLinkedBill } = await supabase
+        .from('purchases')
+        .select('id, invoice_number')
+        .eq('company_id', finalCompanyId)
+        .eq('purchase_order_id', poId)
+        .eq('doc_type', 'purchase_invoice')
+        .maybeSingle();
+      if (existingLinkedBill) {
+        linkedBillId = existingLinkedBill.id;
+      }
+    }
+
+    let linkedBillResult: PurchaseInvoice | undefined = undefined;
+
+    const billItems = data.items.map(it => ({
+      productId: it.productId,
+      productName: it.productName,
+      qty: Number(it.receivedQty) || Number(it.orderedQty) || 1,
+      unit: it.unit,
+      rate: Number(it.rate) || 0,
+      discount: 0,
+      taxRate: Number(it.taxRate) || 0,
+      taxAmt: Number(it.taxAmt) || 0,
+      total: Number(it.total) || 0,
+      isUnregistered: it.isUnregistered,
+      isTemporary: it.isTemporary
+    }));
+
+    if (linkedBillId) {
+      // Update existing bill without duplicate
+      const billMeta: BillMetadata = {
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus
+      };
+      const billNotes = injectBillMetadata(`Linked Bill for PO ${poRecord?.invoice_number}`, billMeta);
+      const billUpdatePayload = await filterSupportedPurchasePayload({
+        supplier_id: poRecord?.supplier_id,
+        supplier_name: poRecord?.supplier_name,
+        supplier_invoice_number: data.supplierInvoiceNumber || null,
+        subtotal: data.subtotal,
+        tax_total: data.taxTotal,
+        other_charges: data.additionalCharges,
+        grand_total: data.grandTotal,
+        notes: billNotes,
+        verification_status: verificationStatus
+      });
+
+      await supabase.from('purchases').update(billUpdatePayload).eq('id', linkedBillId);
+      await supabase.from('purchase_items').delete().eq('purchase_id', linkedBillId);
+      const dbBillItems = billItems.map(it => ({
+        purchase_id: linkedBillId,
+        product_id: isValidUuid(it.productId) ? it.productId : null,
+        product_name: it.productName,
+        qty: it.qty,
+        unit: it.unit,
+        rate: it.rate,
+        discount: 0,
+        tax_rate: it.taxRate,
+        tax_amt: it.taxAmt,
+        total: it.total
+      }));
+      await supabase.from('purchase_items').insert(dbBillItems);
+
+      saveBillMetaCache(finalCompanyId, linkedBillId, billMeta);
+
+      linkedBillResult = {
+        id: linkedBillId,
+        invoiceNumber: mergedMeta.linkedBillNumber || `PB-${poRecord?.invoice_number?.replace('PO-', '') || 'BILL'}`,
+        docType: 'purchase_invoice',
+        date: poRecord?.date || new Date().toISOString().split('T')[0],
+        dueDate: poRecord?.due_date || new Date().toISOString().split('T')[0],
+        supplierId: poRecord?.supplier_id || '',
+        supplierName: poRecord?.supplier_name || '',
+        supplierGstin: poRecord?.supplier_gstin || '',
+        warehouse: poRecord?.warehouse_id || '',
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus,
+        items: billItems,
+        subtotal: data.subtotal,
+        taxTotal: data.taxTotal,
+        freightCharges: 0,
+        otherCharges: data.additionalCharges,
+        grandTotal: data.grandTotal,
+        paidAmount: 0,
+        paymentStatus: 'Unpaid',
+        notes: billNotes,
+        createdAt: new Date().toISOString()
+      };
+    } else {
+      // Create new linked bill
+      const billNumber = `PB-${poRecord?.invoice_number ? poRecord.invoice_number.replace('PO-', '') : Date.now().toString().slice(-6)}`;
+      const billMeta: BillMetadata = {
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus
+      };
+      const billNotes = injectBillMetadata(`Linked Bill for PO ${poRecord?.invoice_number}`, billMeta);
+      const billInsertPayload = await filterSupportedPurchasePayload({
+        company_id: finalCompanyId,
+        invoice_number: billNumber,
+        doc_type: 'purchase_invoice',
+        date: poRecord?.date || new Date().toISOString().split('T')[0],
+        due_date: poRecord?.due_date || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+        supplier_id: poRecord?.supplier_id || null,
+        supplier_name: poRecord?.supplier_name || 'Supplier',
+        supplier_gstin: poRecord?.supplier_gstin || null,
+        supplier_invoice_number: data.supplierInvoiceNumber || null,
+        warehouse_id: poRecord?.warehouse_id || null,
+        purchase_order_id: poId,
+        purchase_order_number: poRecord?.invoice_number || null,
+        subtotal: data.subtotal,
+        tax_total: data.taxTotal,
+        freight_charges: 0,
+        other_charges: data.additionalCharges,
+        grand_total: data.grandTotal,
+        paid_amount: 0,
+        payment_status: 'Unpaid',
+        verification_status: verificationStatus,
+        notes: billNotes
+      });
+
+      const { data: newBill } = await supabase
+        .from('purchases')
+        .insert(billInsertPayload)
+        .select()
+        .single();
+
+      const newId = newBill?.id || `bill-linked-${Date.now()}`;
+      linkedBillId = newId;
+      updatedPOMeta.linkedBillId = newId;
+      updatedPOMeta.linkedBillNumber = billNumber;
+
+      saveBillMetaCache(finalCompanyId, newId, billMeta);
+      saveBillMetaCache(finalCompanyId, billNumber, billMeta);
+
+      const dbBillItems = billItems.map(it => ({
+        purchase_id: newId,
+        product_id: isValidUuid(it.productId) ? it.productId : null,
+        product_name: it.productName,
+        qty: it.qty,
+        unit: it.unit,
+        rate: it.rate,
+        discount: 0,
+        tax_rate: it.taxRate,
+        tax_amt: it.taxAmt,
+        total: it.total
+      }));
+      await supabase.from('purchase_items').insert(dbBillItems);
+
+      // Save PO metadata with linkedBillId
+      const poFinalNotes = injectBillMetadata(newPONotes, { linkedBillId: newId, linkedBillNumber: billNumber });
+      await supabase.from('purchases').update({ notes: poFinalNotes }).eq('id', poId);
+      saveBillMetaCache(finalCompanyId, poId, { ...updatedPOMeta, linkedBillId: newId, linkedBillNumber: billNumber });
+
+      linkedBillResult = {
+        id: newId,
+        invoiceNumber: billNumber,
+        docType: 'purchase_invoice',
+        date: poRecord?.date || new Date().toISOString().split('T')[0],
+        dueDate: poRecord?.due_date || new Date().toISOString().split('T')[0],
+        supplierId: poRecord?.supplier_id || '',
+        supplierName: poRecord?.supplier_name || '',
+        supplierGstin: poRecord?.supplier_gstin || '',
+        warehouse: poRecord?.warehouse_id || '',
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus,
+        items: billItems,
+        subtotal: data.subtotal,
+        taxTotal: data.taxTotal,
+        freightCharges: 0,
+        otherCharges: data.additionalCharges,
+        grandTotal: data.grandTotal,
+        paidAmount: 0,
+        paymentStatus: 'Unpaid',
+        notes: billNotes,
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    const updatedPO: PurchaseInvoice = {
+      id: poId,
+      invoiceNumber: poRecord?.invoice_number || '',
+      docType: 'purchase_order',
+      date: poRecord?.date || new Date().toISOString().split('T')[0],
+      dueDate: poRecord?.due_date || new Date().toISOString().split('T')[0],
+      supplierId: poRecord?.supplier_id || '',
+      supplierName: poRecord?.supplier_name || '',
+      supplierGstin: poRecord?.supplier_gstin || '',
+      warehouse: poRecord?.warehouse_id || '',
+      supplierInvoiceNumber: data.supplierInvoiceNumber,
+      poStatus: currentPoStatus,
+      billStatus,
+      items: data.items.map(it => ({
+        id: it.productId,
+        productId: it.productId,
+        productName: it.productName,
+        qty: it.orderedQty,
+        orderedQty: it.orderedQty,
+        receivedQty: it.receivedQty,
+        unit: it.unit,
+        rate: it.rate,
+        discount: 0,
+        taxRate: it.taxRate,
+        taxAmt: it.taxAmt,
+        total: it.total,
+        isUnregistered: it.isUnregistered,
+        isTemporary: it.isTemporary
+      })),
+      subtotal: data.subtotal,
+      taxTotal: data.taxTotal,
+      freightCharges: 0,
+      otherCharges: data.additionalCharges,
+      grandTotal: data.grandTotal,
+      paidAmount: 0,
+      paymentStatus: 'Unpaid',
+      notes: cleanNotes || poRecord?.notes,
+      createdAt: poRecord?.created_at || new Date().toISOString()
+    };
+
+    return { po: updatedPO, linkedBill: linkedBillResult };
+  },
+
+  // Receive & Save Purchase Order in One Action:
+  // 1. Validates & saves supplier invoice #, costs, GST, quantities to Supabase
+  // 2. Creates/updates linked Purchase Bill
+  // 3. Updates warehouse inventory using actual received quantities (preventing duplicate additions)
+  // 4. Updates PO status from ORDERED to RECEIVED
+  async receiveAndSavePurchaseOrder(
+    poId: string,
+    data: {
+      supplierInvoiceNumber: string;
+      items: Array<{
+        productId: string;
+        productName: string;
+        orderedQty: number;
+        receivedQty: number;
+        unit: string;
+        rate: number;
+        taxRate: number;
+        taxAmt: number;
+        total: number;
+        isUnregistered?: boolean;
+        isTemporary?: boolean;
+      }>;
+      additionalCharges: number;
+      subtotal: number;
+      taxTotal: number;
+      grandTotal: number;
+      notes?: string;
+    },
+    receivedBy?: string,
+    companyId?: string
+  ): Promise<{ po: PurchaseInvoice; linkedBill?: PurchaseInvoice }> {
+    const finalCompanyId = isValidUuid(companyId) ? companyId! : '00000000-0000-0000-0000-000000000001';
+
+    // 1. Fetch current PO
+    const { data: poRecord } = await supabase
+      .from('purchases')
+      .select('*, purchase_items (*)')
+      .eq('id', poId)
+      .maybeSingle();
+
+    const { cleanNotes, meta: existingMeta } = extractBillMetadata(poRecord?.notes);
+    const metaCache = getBillMetaCache(finalCompanyId);
+    const cachedMeta = metaCache[poId] || (poRecord?.invoice_number ? metaCache[poRecord.invoice_number] : {}) || {};
+    const mergedMeta = { ...cachedMeta, ...existingMeta };
+
+    // 2. Increment stock for destination store & insert stock transactions
+    const stockAddedForItems: Record<string, number> = { ...(mergedMeta.stockAddedForItems || {}) };
+
+    for (const item of data.items) {
+      const pid = item.productId;
+      const recQty = Number(item.receivedQty) || 0;
+      const alreadyAdded = stockAddedForItems[pid] || 0;
+      const deltaStock = Math.max(0, recQty - alreadyAdded);
+
+      if (deltaStock > 0 && isValidUuid(pid)) {
+        // Increment product current_stock in products table
+        const { data: prodData } = await supabase
+          .from('products')
+          .select('current_stock')
+          .eq('id', pid)
+          .maybeSingle();
+
+        if (prodData) {
+          await supabase
+            .from('products')
+            .update({ current_stock: Number(prodData.current_stock || 0) + deltaStock })
+            .eq('id', pid);
+        }
+
+        // Insert stock transaction
+        await supabase.from('stock_transactions').insert({
+          company_id: finalCompanyId,
+          date: new Date().toISOString().split('T')[0],
+          type: 'Purchase',
+          product_id: pid,
+          product_name: item.productName,
+          qty: deltaStock,
+          unit: item.unit || 'Piece',
+          unit_cost: item.rate || 0,
+          total_cost: (item.rate || 0) * deltaStock,
+          reference_type: 'Purchase Order Goods Receipt',
+          reference_id: poId,
+          reference_number: poRecord?.invoice_number || 'PO'
+        });
+
+        stockAddedForItems[pid] = alreadyAdded + deltaStock;
+      }
+    }
+
+    // 3. PO Status is updated from ORDERED to RECEIVED
+    const poStatus: 'Received' = 'Received';
+
+    const verificationStatus: BillVerificationStatus = 'Approved for Payment';
+    const billStatus: 'Complete' | 'Not Complete' = 'Complete';
+
+    // 4. Update PO metadata & record
+    const updatedPOMeta: BillMetadata = {
+      ...mergedMeta,
+      supplierInvoiceNumber: data.supplierInvoiceNumber,
+      receivedItems: data.items,
+      billStatus,
+      poStatus,
+      receivedAt: new Date().toISOString(),
+      receivedBy: receivedBy || 'Purchase Manager',
+      stockAddedForItems
+    };
+
+    const newPONotes = injectBillMetadata(cleanNotes || poRecord?.notes, updatedPOMeta);
+
+    const poUpdatePayload = await filterSupportedPurchasePayload({
+      supplier_invoice_number: data.supplierInvoiceNumber || null,
+      subtotal: data.subtotal,
+      tax_total: data.taxTotal,
+      other_charges: data.additionalCharges,
+      grand_total: data.grandTotal,
+      notes: newPONotes
+    });
+
+    await supabase.from('purchases').update(poUpdatePayload).eq('id', poId);
+    saveBillMetaCache(finalCompanyId, poId, updatedPOMeta);
+    if (poRecord?.invoice_number) {
+      saveBillMetaCache(finalCompanyId, poRecord.invoice_number, updatedPOMeta);
+    }
+
+    // 5. Create or update linked Purchase Bill (docType: 'purchase_invoice')
+    let linkedBillId = mergedMeta.linkedBillId;
+    if (!linkedBillId) {
+      const { data: existingLinkedBill } = await supabase
+        .from('purchases')
+        .select('id, invoice_number')
+        .eq('company_id', finalCompanyId)
+        .eq('purchase_order_id', poId)
+        .eq('doc_type', 'purchase_invoice')
+        .maybeSingle();
+      if (existingLinkedBill) {
+        linkedBillId = existingLinkedBill.id;
+      }
+    }
+
+    let linkedBillResult: PurchaseInvoice | undefined = undefined;
+
+    const billItems = data.items.map(it => ({
+      productId: it.productId,
+      productName: it.productName,
+      qty: Number(it.receivedQty) || Number(it.orderedQty) || 1,
+      unit: it.unit,
+      rate: Number(it.rate) || 0,
+      discount: 0,
+      taxRate: Number(it.taxRate) || 0,
+      taxAmt: Number(it.taxAmt) || 0,
+      total: Number(it.total) || 0,
+      isUnregistered: it.isUnregistered,
+      isTemporary: it.isTemporary
+    }));
+
+    if (linkedBillId) {
+      const billMeta: BillMetadata = {
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus: 'Complete',
+        poStatus: 'Received',
+        receivedItems: data.items.map(it => ({
+          productId: it.productId,
+          productName: it.productName,
+          orderedQty: it.orderedQty,
+          receivedQty: it.receivedQty,
+          unit: it.unit,
+          rate: it.rate,
+          taxRate: it.taxRate,
+          taxAmt: it.taxAmt,
+          total: it.total,
+          isUnregistered: it.isUnregistered,
+          isTemporary: it.isTemporary
+        }))
+      };
+      const billNotes = injectBillMetadata(`Linked Bill for PO ${poRecord?.invoice_number}`, billMeta);
+      const billUpdatePayload = await filterSupportedPurchasePayload({
+        supplier_id: poRecord?.supplier_id,
+        supplier_name: poRecord?.supplier_name,
+        supplier_invoice_number: data.supplierInvoiceNumber || null,
+        warehouse_id: poRecord?.warehouse_id || poRecord?.warehouse || null,
+        subtotal: data.subtotal,
+        tax_total: data.taxTotal,
+        other_charges: data.additionalCharges,
+        grand_total: data.grandTotal,
+        notes: billNotes,
+        verification_status: verificationStatus
+      });
+
+      await supabase.from('purchases').update(billUpdatePayload).eq('id', linkedBillId);
+      await supabase.from('purchase_items').delete().eq('purchase_id', linkedBillId);
+      const dbBillItems = billItems.map(it => ({
+        purchase_id: linkedBillId,
+        product_id: isValidUuid(it.productId) ? it.productId : null,
+        product_name: it.productName,
+        qty: it.qty,
+        unit: it.unit,
+        rate: it.rate,
+        discount: 0,
+        tax_rate: it.taxRate,
+        tax_amt: it.taxAmt,
+        total: it.total
+      }));
+      await supabase.from('purchase_items').insert(dbBillItems);
+
+      saveBillMetaCache(finalCompanyId, linkedBillId, billMeta);
+
+      linkedBillResult = {
+        id: linkedBillId,
+        invoiceNumber: mergedMeta.linkedBillNumber || `PB-${poRecord?.invoice_number?.replace('PO-', '') || 'BILL'}`,
+        docType: 'purchase_invoice',
+        date: poRecord?.date || new Date().toISOString().split('T')[0],
+        dueDate: poRecord?.due_date || new Date().toISOString().split('T')[0],
+        supplierId: poRecord?.supplier_id || '',
+        supplierName: poRecord?.supplier_name || '',
+        supplierGstin: poRecord?.supplier_gstin || '',
+        warehouse: poRecord?.warehouse || poRecord?.warehouse_id || 'Main Warehouse',
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus: 'Complete',
+        poStatus: 'Received',
+        items: data.items.map(it => {
+          const ord = it.orderedQty;
+          const recv = Number(it.receivedQty) || 0;
+          const rate = Number(it.rate) || 0;
+          const taxRate = Number(it.taxRate) || 0;
+          const totalCost = recv * rate;
+          const taxAmt = Number(it.taxAmt) || (totalCost * taxRate) / 100;
+          const lineTotal = Number(it.total) || totalCost + taxAmt;
+          return {
+            id: it.productId,
+            productId: it.productId,
+            productName: it.productName,
+            qty: recv,
+            orderedQty: ord,
+            receivedQty: recv,
+            unit: it.unit,
+            rate,
+            discount: 0,
+            taxRate,
+            taxAmt,
+            total: lineTotal,
+            isUnregistered: it.isUnregistered,
+            isTemporary: it.isTemporary
+          };
+        }),
+        subtotal: data.subtotal,
+        taxTotal: data.taxTotal,
+        freightCharges: 0,
+        otherCharges: data.additionalCharges,
+        grandTotal: data.grandTotal,
+        paidAmount: 0,
+        paymentStatus: 'Unpaid',
+        notes: billNotes,
+        createdAt: new Date().toISOString()
+      };
+    } else {
+      const billNumber = `PB-${poRecord?.invoice_number ? poRecord.invoice_number.replace('PO-', '') : Date.now().toString().slice(-6)}`;
+      const billMeta: BillMetadata = {
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus: 'Complete',
+        poStatus: 'Received',
+        receivedItems: data.items.map(it => ({
+          productId: it.productId,
+          productName: it.productName,
+          orderedQty: it.orderedQty,
+          receivedQty: it.receivedQty,
+          unit: it.unit,
+          rate: it.rate,
+          taxRate: it.taxRate,
+          taxAmt: it.taxAmt,
+          total: it.total,
+          isUnregistered: it.isUnregistered,
+          isTemporary: it.isTemporary
+        }))
+      };
+      const billNotes = injectBillMetadata(`Linked Bill for PO ${poRecord?.invoice_number}`, billMeta);
+      const billInsertPayload = await filterSupportedPurchasePayload({
+        company_id: finalCompanyId,
+        invoice_number: billNumber,
+        doc_type: 'purchase_invoice',
+        date: poRecord?.date || new Date().toISOString().split('T')[0],
+        due_date: poRecord?.due_date || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+        supplier_id: poRecord?.supplier_id || null,
+        supplier_name: poRecord?.supplier_name || 'Supplier',
+        supplier_gstin: poRecord?.supplier_gstin || null,
+        supplier_invoice_number: data.supplierInvoiceNumber || null,
+        warehouse_id: poRecord?.warehouse_id || poRecord?.warehouse || null,
+        purchase_order_id: poId,
+        purchase_order_number: poRecord?.invoice_number || null,
+        subtotal: data.subtotal,
+        tax_total: data.taxTotal,
+        freight_charges: 0,
+        other_charges: data.additionalCharges,
+        grand_total: data.grandTotal,
+        paid_amount: 0,
+        payment_status: 'Unpaid',
+        verification_status: verificationStatus,
+        notes: billNotes
+      });
+
+      const { data: newBill } = await supabase
+        .from('purchases')
+        .insert(billInsertPayload)
+        .select()
+        .single();
+
+      const newId = newBill?.id || `bill-linked-${Date.now()}`;
+      linkedBillId = newId;
+      updatedPOMeta.linkedBillId = newId;
+      updatedPOMeta.linkedBillNumber = billNumber;
+
+      saveBillMetaCache(finalCompanyId, newId, billMeta);
+      saveBillMetaCache(finalCompanyId, billNumber, billMeta);
+
+      const dbBillItems = billItems.map(it => ({
+        purchase_id: newId,
+        product_id: isValidUuid(it.productId) ? it.productId : null,
+        product_name: it.productName,
+        qty: it.qty,
+        unit: it.unit,
+        rate: it.rate,
+        discount: 0,
+        tax_rate: it.taxRate,
+        tax_amt: it.taxAmt,
+        total: it.total
+      }));
+      await supabase.from('purchase_items').insert(dbBillItems);
+
+      const poFinalNotes = injectBillMetadata(newPONotes, { linkedBillId: newId, linkedBillNumber: billNumber });
+      await supabase.from('purchases').update({ notes: poFinalNotes }).eq('id', poId);
+      saveBillMetaCache(finalCompanyId, poId, { ...updatedPOMeta, linkedBillId: newId, linkedBillNumber: billNumber });
+
+      linkedBillResult = {
+        id: newId,
+        invoiceNumber: billNumber,
+        docType: 'purchase_invoice',
+        date: poRecord?.date || new Date().toISOString().split('T')[0],
+        dueDate: poRecord?.due_date || new Date().toISOString().split('T')[0],
+        supplierId: poRecord?.supplier_id || '',
+        supplierName: poRecord?.supplier_name || '',
+        supplierGstin: poRecord?.supplier_gstin || '',
+        warehouse: poRecord?.warehouse || poRecord?.warehouse_id || 'Main Warehouse',
+        purchaseOrderId: poId,
+        purchaseOrderNumber: poRecord?.invoice_number,
+        supplierInvoiceNumber: data.supplierInvoiceNumber,
+        verificationStatus,
+        billStatus: 'Complete',
+        poStatus: 'Received',
+        items: data.items.map(it => {
+          const ord = it.orderedQty;
+          const recv = Number(it.receivedQty) || 0;
+          const rate = Number(it.rate) || 0;
+          const taxRate = Number(it.taxRate) || 0;
+          const totalCost = recv * rate;
+          const taxAmt = Number(it.taxAmt) || (totalCost * taxRate) / 100;
+          const lineTotal = Number(it.total) || totalCost + taxAmt;
+          return {
+            id: it.productId,
+            productId: it.productId,
+            productName: it.productName,
+            qty: recv,
+            orderedQty: ord,
+            receivedQty: recv,
+            unit: it.unit,
+            rate,
+            discount: 0,
+            taxRate,
+            taxAmt,
+            total: lineTotal,
+            isUnregistered: it.isUnregistered,
+            isTemporary: it.isTemporary
+          };
+        }),
+        subtotal: data.subtotal,
+        taxTotal: data.taxTotal,
+        freightCharges: 0,
+        otherCharges: data.additionalCharges,
+        grandTotal: data.grandTotal,
+        paidAmount: 0,
+        paymentStatus: 'Unpaid',
+        notes: billNotes,
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    const updatedPO: PurchaseInvoice = {
+      id: poId,
+      invoiceNumber: poRecord?.invoice_number || '',
+      docType: 'purchase_order',
+      date: poRecord?.date || new Date().toISOString().split('T')[0],
+      dueDate: poRecord?.due_date || new Date().toISOString().split('T')[0],
+      supplierId: poRecord?.supplier_id || '',
+      supplierName: poRecord?.supplier_name || '',
+      supplierGstin: poRecord?.supplier_gstin || '',
+      warehouse: poRecord?.warehouse_id || '',
+      supplierInvoiceNumber: data.supplierInvoiceNumber,
+      poStatus,
+      billStatus,
+      items: data.items.map(it => ({
+        id: it.productId,
+        productId: it.productId,
+        productName: it.productName,
+        qty: it.orderedQty,
+        orderedQty: it.orderedQty,
+        receivedQty: it.receivedQty,
+        unit: it.unit,
+        rate: it.rate,
+        discount: 0,
+        taxRate: it.taxRate,
+        taxAmt: it.taxAmt,
+        total: it.total,
+        isUnregistered: it.isUnregistered,
+        isTemporary: it.isTemporary
+      })),
+      subtotal: data.subtotal,
+      taxTotal: data.taxTotal,
+      freightCharges: 0,
+      otherCharges: data.additionalCharges,
+      grandTotal: data.grandTotal,
+      paidAmount: 0,
+      paymentStatus: 'Unpaid',
+      notes: cleanNotes || poRecord?.notes,
+      createdAt: poRecord?.created_at || new Date().toISOString()
+    };
+
+    return { po: updatedPO, linkedBill: linkedBillResult };
+  },
+
+  // Confirm Purchase Order Received: Increments stock, logs transaction, updates status
+  async confirmPurchaseOrderReceived(
+    poId: string,
+    receivedBy?: string,
+    companyId?: string
+  ): Promise<PurchaseInvoice> {
+    const finalCompanyId = isValidUuid(companyId) ? companyId! : '00000000-0000-0000-0000-000000000001';
+
+    // 1. Fetch current PO
+    const { data: poRecord } = await supabase
+      .from('purchases')
+      .select('*, purchase_items (*)')
+      .eq('id', poId)
+      .maybeSingle();
+
+    const { cleanNotes, meta: existingMeta } = extractBillMetadata(poRecord?.notes);
+    const metaCache = getBillMetaCache(finalCompanyId);
+    const cachedMeta = metaCache[poId] || (poRecord?.invoice_number ? metaCache[poRecord.invoice_number] : {}) || {};
+    const mergedMeta = { ...cachedMeta, ...existingMeta };
+
+    const itemsToEvaluate = (mergedMeta.receivedItems && mergedMeta.receivedItems.length > 0)
+      ? mergedMeta.receivedItems
+      : (poRecord?.purchase_items || []).map((pi: any) => ({
+          productId: pi.product_id,
+          productName: pi.product_name,
+          orderedQty: Number(pi.qty),
+          receivedQty: Number(pi.qty),
+          unit: pi.unit,
+          rate: Number(pi.rate || 0),
+          taxRate: Number(pi.tax_rate || 0)
+        }));
+
+    // Stock additions tracking to prevent duplicate increments
+    const stockAddedForItems: Record<string, number> = { ...(mergedMeta.stockAddedForItems || {}) };
+
+    // 2. Increment stock for destination store & insert stock transactions
+    for (const item of itemsToEvaluate) {
+      const pid = item.productId;
+      const recQty = Number(item.receivedQty) || 0;
+      const alreadyAdded = stockAddedForItems[pid] || 0;
+      const deltaStock = Math.max(0, recQty - alreadyAdded);
+
+      if (deltaStock > 0 && isValidUuid(pid)) {
+        // Increment product current_stock in products table
+        const { data: prodData } = await supabase
+          .from('products')
+          .select('current_stock')
+          .eq('id', pid)
+          .maybeSingle();
+
+        if (prodData) {
+          await supabase
+            .from('products')
+            .update({ current_stock: Number(prodData.current_stock || 0) + deltaStock })
+            .eq('id', pid);
+        }
+
+        // Insert stock transaction
+        await supabase.from('stock_transactions').insert({
+          company_id: finalCompanyId,
+          date: new Date().toISOString().split('T')[0],
+          type: 'Purchase',
+          product_id: pid,
+          product_name: item.productName,
+          qty: deltaStock,
+          unit: item.unit || 'Piece',
+          unit_cost: item.rate || 0,
+          total_cost: (item.rate || 0) * deltaStock,
+          reference_type: 'Purchase Order Goods Receipt',
+          reference_id: poId,
+          reference_number: poRecord?.invoice_number || 'PO'
+        });
+
+        stockAddedForItems[pid] = alreadyAdded + deltaStock;
+      }
+    }
+
+    // 3. Determine new PO status:
+    // RECEIVED if all ordered quantities have been received
+    // PARTIALLY RECEIVED if only part of the order has been received
+    const allReceived = itemsToEvaluate.length > 0 && itemsToEvaluate.every(
+      (it: any) => (Number(it.receivedQty) || 0) >= (Number(it.orderedQty) || 1)
+    );
+    const hasAnyReceived = itemsToEvaluate.some((it: any) => (Number(it.receivedQty) || 0) > 0);
+
+    const newPoStatus: 'Received' | 'Partially Received' | 'Ordered' =
+      allReceived ? 'Received' : hasAnyReceived ? 'Partially Received' : 'Ordered';
+
+    const updatedPOMeta: BillMetadata = {
+      ...mergedMeta,
+      poStatus: newPoStatus,
+      receivedAt: new Date().toISOString(),
+      receivedBy: receivedBy || 'Purchase Manager',
+      stockAddedForItems,
+      receivedItems: itemsToEvaluate
+    };
+
+    const newNotes = injectBillMetadata(cleanNotes || poRecord?.notes, updatedPOMeta);
+    await supabase.from('purchases').update({ notes: newNotes }).eq('id', poId);
+
+    saveBillMetaCache(finalCompanyId, poId, updatedPOMeta);
+    if (poRecord?.invoice_number) {
+      saveBillMetaCache(finalCompanyId, poRecord.invoice_number, updatedPOMeta);
+    }
+
+    return {
+      id: poId,
+      invoiceNumber: poRecord?.invoice_number || '',
+      docType: 'purchase_order',
+      date: poRecord?.date || new Date().toISOString().split('T')[0],
+      dueDate: poRecord?.due_date || new Date().toISOString().split('T')[0],
+      supplierId: poRecord?.supplier_id || '',
+      supplierName: poRecord?.supplier_name || '',
+      supplierGstin: poRecord?.supplier_gstin || '',
+      warehouse: poRecord?.warehouse_id || '',
+      supplierInvoiceNumber: updatedPOMeta.supplierInvoiceNumber,
+      poStatus: newPoStatus,
+      billStatus: updatedPOMeta.billStatus,
+      items: itemsToEvaluate.map((it: any) => ({
+        id: it.productId,
+        productId: it.productId,
+        productName: it.productName,
+        qty: Number(it.orderedQty) || 1,
+        orderedQty: Number(it.orderedQty) || 1,
+        receivedQty: Number(it.receivedQty) || 0,
+        unit: it.unit || 'Piece',
+        rate: Number(it.rate || 0),
+        discount: 0,
+        taxRate: Number(it.taxRate || 0),
+        taxAmt: Number(it.taxAmt || 0),
+        total: Number(it.total || 0),
+        isUnregistered: it.isUnregistered,
+        isTemporary: it.isTemporary
+      })),
+      subtotal: Number(poRecord?.subtotal || 0),
+      taxTotal: Number(poRecord?.tax_total || 0),
+      freightCharges: 0,
+      otherCharges: Number(poRecord?.other_charges || 0),
+      grandTotal: Number(poRecord?.grand_total || 0),
+      paidAmount: 0,
+      paymentStatus: 'Unpaid',
+      notes: cleanNotes || poRecord?.notes,
+      createdAt: poRecord?.created_at || new Date().toISOString()
+    };
   },
 
   // Delete purchase invoice with company scope

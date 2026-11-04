@@ -78,7 +78,7 @@ export const RoleQuickStartCard: React.FC = () => {
         ]
       : role === 'Warehouse Manager'
       ? [
-          { id: 'w1', label: '1. Inward Goods Intake (GRN)', desc: 'Record supplier delivery with batch & expiry', actionPath: '/purchases?tab=grn' },
+          { id: 'w1', label: '1. Inward Goods Intake (GRN)', desc: 'Record supplier delivery with batch & expiry', actionPath: '/inventory/receive' },
           { id: 'w2', label: '2. Low Stock Alerts Review', desc: 'Check reorder matrix and depleted inventory', actionPath: '/stock?tab=low' },
           { id: 'w3', label: '3. Shelf Stock Count Audit', desc: 'Perform physical shelf count and reconcile', actionPath: '/stock?tab=counts' }
         ]

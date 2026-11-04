@@ -167,6 +167,15 @@ export interface ERPContextType {
   // Purchases
   purchaseInvoices: PurchaseInvoice[];
   createPurchaseInvoice: (invoice: Omit<PurchaseInvoice, 'id' | 'createdAt'>) => Promise<PurchaseInvoice>;
+  updatePurchaseOrderDetails: (
+    poId: string,
+    data: Parameters<typeof purchaseService.updatePurchaseOrderDetails>[1]
+  ) => Promise<{ po: PurchaseInvoice; linkedBill?: PurchaseInvoice }>;
+  confirmPurchaseOrderReceived: (poId: string, receivedBy?: string) => Promise<PurchaseInvoice>;
+  receiveAndSavePurchaseOrder: (
+    poId: string,
+    data: Parameters<typeof purchaseService.receiveAndSavePurchaseOrder>[1]
+  ) => Promise<{ po: PurchaseInvoice; linkedBill?: PurchaseInvoice }>;
   processPurchaseReturn: (
     originalPurchaseId: string,
     returnedItems: { productId: string; qty: number; returnAmt: number; productName?: string; unit?: string; rate?: number }[],
@@ -1353,6 +1362,76 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     addAuditLog('Created Purchase Bill', 'Purchases', newPurchase.invoiceNumber, 'PO Recorded', `Total: ₹${newPurchase.grandTotal}`);
     return newPurchase;
+  };
+
+  const updatePurchaseOrderDetails = async (
+    poId: string,
+    data: Parameters<typeof purchaseService.updatePurchaseOrderDetails>[1]
+  ): Promise<{ po: PurchaseInvoice; linkedBill?: PurchaseInvoice }> => {
+    const res = await purchaseService.updatePurchaseOrderDetails(poId, data, company.id);
+    setPurchaseInvoices(prev => {
+      let next = prev.map(inv => inv.id === poId ? res.po : inv);
+      if (res.linkedBill) {
+        const billIdx = next.findIndex(inv => inv.id === res.linkedBill!.id || (inv.purchaseOrderId === poId && inv.docType === 'purchase_invoice'));
+        if (billIdx >= 0) {
+          next[billIdx] = res.linkedBill;
+        } else {
+          next = [res.linkedBill, ...next];
+        }
+      }
+      return next;
+    });
+    addAuditLog('Updated Purchase Order Details', 'Purchases', res.po.invoiceNumber, 'PO Updated', `Status: ${res.po.poStatus || 'Ordered'}`);
+    return res;
+  };
+
+  const confirmPurchaseOrderReceived = async (
+    poId: string,
+    receivedBy?: string
+  ): Promise<PurchaseInvoice> => {
+    const updated = await purchaseService.confirmPurchaseOrderReceived(poId, receivedBy, company.id);
+    setPurchaseInvoices(prev => prev.map(inv => inv.id === poId ? updated : inv));
+
+    // Refresh stock balances and product current stock
+    await refreshStockBalances();
+    const freshProducts = await productService.getProducts(undefined, company.id);
+    if (freshProducts && freshProducts.length > 0) {
+      setProducts(sortProductsAZ(freshProducts));
+      checkStockAlerts(freshProducts);
+    }
+
+    addAuditLog('Confirmed Goods Receipt', 'Purchases', updated.invoiceNumber, 'Goods Receipt', `PO Status: ${updated.poStatus || 'Received'}`);
+    return updated;
+  };
+
+  const receiveAndSavePurchaseOrder = async (
+    poId: string,
+    data: Parameters<typeof purchaseService.receiveAndSavePurchaseOrder>[1]
+  ): Promise<{ po: PurchaseInvoice; linkedBill?: PurchaseInvoice }> => {
+    const res = await purchaseService.receiveAndSavePurchaseOrder(poId, data, user?.email || 'Purchase Manager', company.id);
+    setPurchaseInvoices(prev => {
+      let next = prev.map(inv => inv.id === poId ? res.po : inv);
+      if (res.linkedBill) {
+        const billIdx = next.findIndex(inv => inv.id === res.linkedBill!.id || (inv.purchaseOrderId === poId && inv.docType === 'purchase_invoice'));
+        if (billIdx >= 0) {
+          next[billIdx] = res.linkedBill;
+        } else {
+          next = [res.linkedBill, ...next];
+        }
+      }
+      return next;
+    });
+
+    // Refresh stock balances and product current stock
+    await refreshStockBalances();
+    const freshProducts = await productService.getProducts(undefined, company.id);
+    if (freshProducts && freshProducts.length > 0) {
+      setProducts(sortProductsAZ(freshProducts));
+      checkStockAlerts(freshProducts);
+    }
+
+    addAuditLog('Confirmed Goods Receipt and Saved Bill', 'Purchases', res.po.invoiceNumber, 'PO Received', `Status: ${res.po.poStatus}`);
+    return res;
   };
 
   // Purchase Returns / Debit Note
@@ -2836,6 +2915,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     removeHeldInvoice,
     purchaseInvoices,
     createPurchaseInvoice,
+    updatePurchaseOrderDetails,
+    confirmPurchaseOrderReceived,
+    receiveAndSavePurchaseOrder,
     processPurchaseReturn,
     recordPurchasePayment,
     customerReturns,
@@ -2993,6 +3075,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     removeHeldInvoice,
     purchaseInvoices,
     createPurchaseInvoice,
+    updatePurchaseOrderDetails,
+    confirmPurchaseOrderReceived,
+    receiveAndSavePurchaseOrder,
     processPurchaseReturn,
     recordPurchasePayment,
     customerReturns,

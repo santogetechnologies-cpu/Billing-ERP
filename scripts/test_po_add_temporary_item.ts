@@ -73,14 +73,9 @@ async function runTests() {
   assert(!modalCode.includes('newItemGst'), '2.3 newItemGst state removed');
   console.log('  ✓ PASS: 2.3 Purchase Rate and GST Percentage fields removed completely');
 
-  // 2.4 Estimated Line Total directly below Quantity & Unit
-  const qtyUnitIdx = modalBlock.indexOf('grid grid-cols-2 gap-3');
-  const estTotalIdx = modalBlock.indexOf('Estimated Line Total:');
-  const footerIdx = modalBlock.indexOf('Not saved in Product Master');
-  assert(qtyUnitIdx !== -1 && estTotalIdx !== -1 && footerIdx !== -1, 'Elements must exist in modal');
-  assert(qtyUnitIdx < estTotalIdx, 'Quantity & Unit row must precede Estimated Line Total');
-  assert(estTotalIdx < footerIdx, 'Estimated Line Total must precede footer buttons');
-  console.log('  ✓ PASS: 2.4 Estimated Line Total placed directly below Quantity and Unit row');
+  // 2.4 Estimated Line Total removed to ensure no ₹0.00 or pricing appears in PO
+  assert(!modalBlock.includes('Estimated Line Total:'), '2.4 Estimated Line Total removed in accordance with zero-pricing PO requirement');
+  console.log('  ✓ PASS: 2.4 Estimated Line Total and zero-pricing confirmed removed');
 
   // 2.5 Footer buttons
   assert(modalBlock.includes('Not saved in Product Master'), '2.5 Footer has "Not saved in Product Master" text');

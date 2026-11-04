@@ -34,12 +34,23 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [viewingPayment, setViewingPayment] = useState<any | null>(null);
 
-  // Supplier outward payments
+  // Supplier outward payments (augmented with linked bill & PO numbers)
   const outwardPayments = useMemo(() => {
     return payments
       .filter(p => p.type === 'Paid' || p.partyType === 'Supplier')
+      .map(p => {
+        const linkedBill = purchaseInvoices.find(
+          b => b.id === p.invoiceId || (p.reference && b.invoiceNumber && p.reference.includes(b.invoiceNumber))
+        );
+        return {
+          ...p,
+          supplierInvoiceNumber: linkedBill?.supplierInvoiceNumber || linkedBill?.invoiceNumber || '',
+          purchaseOrderNumber: linkedBill?.purchaseOrderNumber || '',
+          billPaymentStatus: linkedBill?.paymentStatus || 'Paid'
+        };
+      })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [payments]);
+  }, [payments, purchaseInvoices]);
 
   // Outstanding bills for the selected supplier
   const unpaidBills = useMemo(() => {
@@ -137,13 +148,14 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
   const handleExportCSV = () => {
     const data = outwardPayments.map(p => ({
       'Voucher #': p.paymentNumber || p.id.slice(0, 8),
-      'Date': p.date,
-      'Supplier': p.partyName,
+      'Supplier Name': p.partyName,
+      'Supplier Invoice Number': p.supplierInvoiceNumber || '—',
+      'PO Number': p.purchaseOrderNumber || '—',
+      'Payment Date': p.date,
       'Payment Method': p.paymentMethod,
-      'Account': p.account || 'Bank',
-      'Reference': p.reference || '-',
-      'Amount': p.amount,
-      'Notes': p.notes || ''
+      'Transaction Reference': p.reference || '—',
+      'Amount Paid': p.amount,
+      'Payment Status': p.billPaymentStatus === 'Paid' ? 'COMPLETED' : 'PARTIALLY PAID'
     }));
     exportToCSV(data, 'Supplier_Disbursements');
   };
@@ -151,13 +163,14 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
   const handleExportXLSX = () => {
     const data = outwardPayments.map(p => ({
       'Voucher #': p.paymentNumber || p.id.slice(0, 8),
-      'Date': p.date,
-      'Supplier': p.partyName,
+      'Supplier Name': p.partyName,
+      'Supplier Invoice Number': p.supplierInvoiceNumber || '—',
+      'PO Number': p.purchaseOrderNumber || '—',
+      'Payment Date': p.date,
       'Payment Method': p.paymentMethod,
-      'Account': p.account || 'Bank',
-      'Reference': p.reference || '-',
-      'Amount': p.amount,
-      'Notes': p.notes || ''
+      'Transaction Reference': p.reference || '—',
+      'Amount Paid': p.amount,
+      'Payment Status': p.billPaymentStatus === 'Paid' ? 'COMPLETED' : 'PARTIALLY PAID'
     }));
     exportToExcel(data, 'Supplier_Disbursements');
   };
@@ -173,18 +186,36 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
       )
     },
     {
-      key: 'date',
-      header: 'Date',
-      render: row => formatDate(row.date)
-    },
-    {
       key: 'partyName',
-      header: 'Supplier',
+      header: 'Supplier Name',
       render: row => <span className="font-semibold text-slate-900">{row.partyName}</span>
     },
     {
+      key: 'supplierInvoiceNumber',
+      header: 'Supplier Invoice Number',
+      render: row => (
+        <span className="font-mono text-xs font-semibold text-purple-600">
+          {row.supplierInvoiceNumber || '—'}
+        </span>
+      )
+    },
+    {
+      key: 'purchaseOrderNumber',
+      header: 'PO Number',
+      render: row => (
+        <span className="font-mono text-xs text-slate-700">
+          {row.purchaseOrderNumber || '—'}
+        </span>
+      )
+    },
+    {
+      key: 'date',
+      header: 'Payment Date',
+      render: row => formatDate(row.date)
+    },
+    {
       key: 'paymentMethod',
-      header: 'Payment Mode',
+      header: 'Payment Method',
       render: row => (
         <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-medium">
           {row.paymentMethod}
@@ -193,13 +224,8 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
     },
     {
       key: 'reference',
-      header: 'Ref / UTR',
+      header: 'Transaction Reference',
       render: row => <span className="font-mono text-xs text-slate-600">{row.reference || '—'}</span>
-    },
-    {
-      key: 'account',
-      header: 'Account',
-      render: row => <span className="text-xs text-slate-500">{row.account || 'Primary Bank'}</span>
     },
     {
       key: 'amount',
@@ -210,6 +236,24 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
           - {formatCurrency(row.amount)}
         </span>
       )
+    },
+    {
+      key: 'status',
+      header: 'Payment Status',
+      render: row => {
+        const isPaid = row.billPaymentStatus === 'Paid';
+        return isPaid ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <span>COMPLETED</span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            <span>PARTIALLY PAID</span>
+          </span>
+        );
+      }
     }
   ];
 
@@ -282,8 +326,8 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
         subtitle={`Total ${outwardPayments.length} payment records`}
         columns={columns}
         data={outwardPayments}
-        searchPlaceholder="Search voucher #, supplier, or reference..."
-        searchKeys={['paymentNumber', 'partyName', 'reference', 'account']}
+        searchPlaceholder="Search voucher #, supplier, invoice #, PO #, or reference..."
+        searchKeys={['paymentNumber', 'partyName', 'supplierInvoiceNumber', 'purchaseOrderNumber', 'reference', 'account']}
         onRowClick={row => setViewingPayment(row)}
         actions={row => (
           <button

@@ -189,7 +189,8 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
   'Purchase Manager': {
     dashboard: { view: true, create: false, edit: false, delete: false, approve: false, export: false, manage: false },
     purchases: { view: true, create: true, edit: true, delete: false, approve: true, export: true, manage: false },
-    suppliers: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
+    suppliers: { view: true, create: true, edit: true, delete: true, approve: false, export: true, manage: true },
+    customers: { view: true, create: true, edit: true, delete: true, approve: false, export: true, manage: true },
     expenses: { view: true, create: true, edit: false, delete: false, approve: false, export: false, manage: false },
     // Authorized product management, initial stock, bundles, and stock updates
     products: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
@@ -200,7 +201,6 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     // Forbidden areas
     sales: ALL_DENIED,
     pos: ALL_DENIED,
-    customers: ALL_DENIED,
     payments: ALL_DENIED,
     accounting: ALL_DENIED,
     taxes: ALL_DENIED,
@@ -859,7 +859,10 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
   'Purchase Manager': [
     'Dashboard',
     'Purchases',
+    'Customers',
+    'Customer Details',
     'Suppliers',
+    'Supplier Details',
     'Product',
     'Inventory',
     'Warehouses / Godowns',
@@ -950,7 +953,15 @@ export function canRoleAccessNavItem(
     return normalizedRole === 'Accountant';
   }
 
-  if (id === 'parties' || id === 'customers' || id === 'suppliers' || id === 'customersvendors') {
+  if (id === 'customers' || id === 'customerdetails') {
+    return normalizedRole === 'Salesperson' || normalizedRole === 'Cashier' || normalizedRole === 'Accountant' || normalizedRole === 'Purchase Manager';
+  }
+
+  if (id === 'suppliers' || id === 'supplierdetails') {
+    return normalizedRole === 'Purchase Manager' || normalizedRole === 'Accountant';
+  }
+
+  if (id === 'parties' || id === 'customersvendors') {
     return normalizedRole === 'Salesperson' || normalizedRole === 'Cashier' || normalizedRole === 'Accountant' || normalizedRole === 'Purchase Manager';
   }
 
