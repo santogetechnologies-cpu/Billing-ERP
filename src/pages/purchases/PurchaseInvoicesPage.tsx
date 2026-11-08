@@ -270,20 +270,9 @@ export const PurchaseInvoicesPage: React.FC = () => {
                             )}
                           </td>
 
-                          {/* 6. Action: Bill Button & Pay Button */}
+                          {/* 6. Action: Pay Button & Bill Button */}
                           <td className="px-4 py-3 text-right">
                             <div className="inline-flex items-center gap-1.5 justify-end">
-                              {/* Bill Button - Opens professional invoice modal */}
-                              <button
-                                type="button"
-                                onClick={() => setSelectedInvoice(bill)}
-                                title="View Professional Bill"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold text-xs transition-colors cursor-pointer"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                                <span>Bill</span>
-                              </button>
-
                               {/* Pay Button - Opens payment form (Hidden once fully COMPLETED) */}
                               {!isCompleted && (
                                 <button
@@ -296,6 +285,17 @@ export const PurchaseInvoicesPage: React.FC = () => {
                                   <span>Pay</span>
                                 </button>
                               )}
+
+                              {/* Bill Button - Opens professional invoice modal */}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedInvoice(bill)}
+                                title="View Professional Bill"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold text-xs transition-colors cursor-pointer"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>Bill</span>
+                              </button>
                             </div>
                           </td>
                         </tr>

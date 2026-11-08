@@ -978,7 +978,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                   type="button"
                   onClick={() => navigate(`/purchases/new?poId=${selectedRequest.purchaseOrderId || ''}&requestId=${selectedRequest.id}`)}
                   className="h-9 px-4 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0"
-                  title="Record supplier bill and automatically transfer to Accountant"
+                  title="Record supplier bill and manage payments in Bills section"
                 >
                   <FileText className="w-3.5 h-3.5" />
                   <span>Record Supplier Bill</span>

@@ -362,7 +362,7 @@ export const purchaseService = {
               title: `New Supplier Bill: ${invoice.invoiceNumber}`,
               message: `${invoice.supplierName} — ₹${invoice.grandTotal.toLocaleString('en-IN')} (PO: ${invoice.purchaseOrderNumber || 'Direct'}) awaiting payment verification.`,
               type: 'supplier_bill',
-              link: '/payments/bills?tab=pending',
+              link: '/purchases?tab=bills',
               dedupKey: `supplier_bill_${purchaseId}`,
               actionText: 'Review Bill'
             }, finalCompanyId);
@@ -496,7 +496,7 @@ export const purchaseService = {
           title: `New Supplier Bill: ${invoice.invoiceNumber}`,
           message: `${invoice.supplierName} — ₹${invoice.grandTotal.toLocaleString('en-IN')} (PO: ${invoice.purchaseOrderNumber || 'Direct'}) awaiting payment verification.`,
           type: 'supplier_bill',
-          link: '/payments/bills?tab=pending',
+          link: '/purchases?tab=bills',
           dedupKey: `supplier_bill_${purData.id}`,
           actionText: 'Review Bill'
         }, finalCompanyId);

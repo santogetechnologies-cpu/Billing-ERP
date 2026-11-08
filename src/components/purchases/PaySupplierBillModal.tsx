@@ -21,9 +21,9 @@ export const PaySupplierBillModal: React.FC<PaySupplierBillModalProps> = ({
   const { recordPurchasePayment } = useERP();
   const { profile } = useAuth();
 
-  // Role verification: Only Accountant, Admin, or Owner can confirm payments
-  const isAuthorizedAccountant =
-    profile?.role === 'Accountant' ||
+  // Role verification: Only Purchase Manager, Admin, or Owner can confirm payments
+  const isAuthorizedPayer =
+    profile?.role === 'Purchase Manager' ||
     profile?.role === 'Admin' ||
     profile?.role === 'Owner';
 
@@ -70,9 +70,9 @@ export const PaySupplierBillModal: React.FC<PaySupplierBillModalProps> = ({
     e.preventDefault();
 
     // 1. Validate authorization
-    if (!isAuthorizedAccountant) {
+    if (!isAuthorizedPayer) {
       setErrorMessage(
-        `Unauthorized (403): Only authorized Accountant users can process payments. Your current role is '${profile?.role || 'Guest'}'.`
+        `Unauthorized (403): Only authorized Purchase Manager users can process payments. Your current role is '${profile?.role || 'Guest'}'.`
       );
       return;
     }
@@ -184,13 +184,13 @@ export const PaySupplierBillModal: React.FC<PaySupplierBillModalProps> = ({
           )}
 
           {/* Role Warning Banner if Unauthorized */}
-          {!isAuthorizedAccountant && (
+          {!isAuthorizedPayer && (
             <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold block">Accountant Authorization Required</span>
+                <span className="font-bold block">Purchase Manager Authorization Required</span>
                 <span className="text-[11px]">
-                  Only authorized Accountant users can confirm supplier payments. You are signed in as{' '}
+                  Only authorized Purchase Manager users can confirm supplier payments. You are signed in as{' '}
                   <strong>{profile?.role || 'Guest'}</strong>.
                 </span>
               </div>
@@ -403,7 +403,7 @@ export const PaySupplierBillModal: React.FC<PaySupplierBillModalProps> = ({
 
               <button
                 type="submit"
-                disabled={isSubmitting || !isAuthorizedAccountant || numAmount <= 0 || numAmount > balanceDue}
+                disabled={isSubmitting || !isAuthorizedPayer || numAmount <= 0 || numAmount > balanceDue}
                 className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 {isSubmitting ? (

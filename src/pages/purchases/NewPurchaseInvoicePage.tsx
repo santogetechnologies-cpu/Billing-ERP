@@ -483,7 +483,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
             <p className="text-xs text-slate-500 mt-0.5">
               {docType === 'purchase_order'
                 ? 'Create a direct purchase order for supplier delivery tracking and destination warehouse receipt.'
-                : 'Record actual supplier invoice against purchase orders and automatically transfer to Accountant for payment review.'}
+                : 'Record actual supplier invoice against purchase orders and manage payments with real-time balance tracking.'}
             </p>
           </div>
         </div>
@@ -509,7 +509,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
             ) : (
               <>
                 <Save className="w-3.5 h-3.5" />
-                <span>{docType === 'purchase_order' ? 'Save Purchase Order' : 'Save & Transfer to Accountant'}</span>
+                <span>{docType === 'purchase_order' ? 'Save Purchase Order' : 'Save Supplier Bill'}</span>
               </>
             )}
           </button>
@@ -557,7 +557,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
                 ))}
               </ul>
               <p className="text-[10px] text-amber-700 font-medium pt-1 border-t border-amber-200/70">
-                Notice: Discrepancies will be prominently reported to the Accountant in their review queue before payment disbursement.
+                Notice: Discrepancies will be prominently reported in the bill review queue before payment disbursement.
               </p>
             </div>
           )}

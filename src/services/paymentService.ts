@@ -325,6 +325,7 @@ export const paymentService = {
   },
 
   async createCashAccount(account: { name: string; openingBalance?: number }, companyId?: string): Promise<CashAccount> {
+    await assertCallerPermission('payments', 'create');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const { data, error } = await supabase
       .from('cash_accounts')
@@ -374,6 +375,7 @@ export const paymentService = {
   },
 
   async createBankAccount(account: { bankName: string; accountName: string; accountNumber: string; ifsc: string; openingBalance?: number }, companyId?: string): Promise<BankAccount> {
+    await assertCallerPermission('payments', 'create');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const { data, error } = await supabase
       .from('bank_accounts')
@@ -407,6 +409,7 @@ export const paymentService = {
 
   // Delete payment record with company scope
   async deletePayment(id: string, companyId?: string): Promise<boolean> {
+    await assertCallerPermission('payments', 'delete');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const { error } = await supabase
       .from('payments')

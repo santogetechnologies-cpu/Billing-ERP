@@ -138,7 +138,7 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
   Accountant: {
     dashboard: { view: true, create: false, edit: false, delete: false, approve: false, export: true, manage: false },
     accounting: { view: true, create: true, edit: true, delete: true, approve: true, export: true, manage: true },
-    payments: { view: true, create: true, edit: true, delete: false, approve: true, export: true, manage: false },
+    payments: ALL_DENIED,
     expenses: { view: true, create: true, edit: true, delete: false, approve: true, export: true, manage: false },
     taxes: { view: true, create: true, edit: true, delete: false, approve: true, export: true, manage: true },
     reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true, manage: false },
@@ -201,7 +201,7 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     // Forbidden areas
     sales: ALL_DENIED,
     pos: ALL_DENIED,
-    payments: ALL_DENIED,
+    payments: { view: true, create: true, edit: true, delete: false, approve: true, export: true, manage: false },
     accounting: ALL_DENIED,
     taxes: ALL_DENIED,
     reports: ALL_DENIED,
@@ -559,6 +559,22 @@ export function canAccessRoute(
   // Clean trailing slashes
   const cleanPath = path === '/' ? '/' : path.replace(/\/$/, '');
 
+  // Strictly block Accountant from accessing payment routes directly
+  if (normalizedRole === 'Accountant') {
+    if (
+      cleanPath === '/payments' ||
+      cleanPath.startsWith('/payments/') ||
+      cleanPath === '/cash-bank' ||
+      cleanPath.startsWith('/cash-bank/') ||
+      cleanPath === '/receivables' ||
+      cleanPath.startsWith('/receivables/') ||
+      cleanPath === '/payables' ||
+      cleanPath.startsWith('/payables/')
+    ) {
+      return false;
+    }
+  }
+
   // Product Master, Initial Stock & Update Stock: restricted strictly to Owner, Admin, Purchase Manager
   if (
     cleanPath === '/products' ||
@@ -842,7 +858,6 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
   ],
   Accountant: [
     'Dashboard',
-    'Payments',
     'Expenses',
     'Accounting',
     'Reports',
@@ -868,6 +883,7 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Warehouses / Godowns',
     'Warehouse Details',
     'Expenses',
+        'Payments',
     'Barcodes & Labels',
     'Barcode',
     'Settings'
@@ -912,6 +928,10 @@ export function canRoleAccessNavItem(
   const id = (navItemId || navItemName).toLowerCase().replace(/[^a-z0-9]/g, '');
 
   if (id === 'dashboard' || id === 'home') return true;
+
+  if (id === 'payments' || id === 'payment' || id === 'paymentsmanagement') {
+    return normalizedRole === 'Purchase Manager';
+  }
 
   if (id === 'pos' || id === 'billingpos' || id === 'billing') {
     return normalizedRole === 'Cashier' || normalizedRole === 'Salesperson';

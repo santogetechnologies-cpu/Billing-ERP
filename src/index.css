@@ -216,7 +216,6 @@ aside *::-webkit-scrollbar:horizontal,
   body.invoice-modal-open aside,
   body.invoice-modal-open header,
   body.invoice-modal-open nav,
-  body.invoice-modal-open main > *:not(.invoice-modal-backdrop),
   body:has(.invoice-modal-backdrop) aside,
   body:has(.invoice-modal-backdrop) header,
   body:has(.invoice-modal-backdrop) nav {

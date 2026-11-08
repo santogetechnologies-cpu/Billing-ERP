@@ -23,7 +23,8 @@ import {
   QrCode,
   Store,
   Wallet,
-  Scale
+  Scale,
+  CreditCard
 } from 'lucide-react';
 
 import { useERP } from '../../context/ERPContext';
@@ -188,6 +189,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     // Section 3: Finance & People
     {
+      id: 'payments',
+      name: 'Payments',
+      path: '/payments',
+      icon: CreditCard,
+      section: 'Finance & Staff'
+    },
+    {
       id: 'accounts',
       name: 'Accounts & Daybook',
       path: '/accounting',
@@ -329,18 +337,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return cur === '/pricing' || cur.startsWith('/pricing/');
     }
 
-    if (item.id === 'accounts') {
+    if (item.id === 'payments') {
       return (
-        cur === '/accounting' ||
-        cur.startsWith('/accounting/') ||
         cur === '/payments' ||
         cur.startsWith('/payments/') ||
-        cur === '/expenses' ||
-        cur.startsWith('/expenses/') ||
         cur === '/cash-bank' ||
         cur.startsWith('/cash-bank/') ||
         cur === '/receivables' ||
         cur === '/payables'
+      );
+    }
+
+    if (item.id === 'accounts') {
+      return (
+        cur === '/accounting' ||
+        cur.startsWith('/accounting/') ||
+        cur === '/expenses' ||
+        cur.startsWith('/expenses/')
       );
     }
 

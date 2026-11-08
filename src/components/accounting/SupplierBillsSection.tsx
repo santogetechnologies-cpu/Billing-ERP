@@ -94,8 +94,8 @@ export const SupplierBillsSection: React.FC<SupplierBillsSectionProps> = ({
   // Feedback Notification banner
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const canApprove = hasPermission(profile?.role, 'payments', 'approve') || profile?.role === 'Accountant' || profile?.role === 'Admin' || profile?.role === 'Owner';
-  const canPay = hasPermission(profile?.role, 'payments', 'create') || profile?.role === 'Accountant' || profile?.role === 'Admin' || profile?.role === 'Owner';
+  const canApprove = hasPermission(profile?.role, 'payments', 'approve') || profile?.role === 'Purchase Manager' || profile?.role === 'Admin' || profile?.role === 'Owner';
+  const canPay = hasPermission(profile?.role, 'payments', 'create') || profile?.role === 'Purchase Manager' || profile?.role === 'Admin' || profile?.role === 'Owner';
 
   // Load bills
   const loadBills = useCallback(async () => {
@@ -120,7 +120,7 @@ export const SupplierBillsSection: React.FC<SupplierBillsSectionProps> = ({
 
   // Check and send due notifications periodically
   useEffect(() => {
-    if (profile?.role === 'Accountant' || profile?.role === 'Admin' || profile?.role === 'Owner') {
+    if (profile?.role === 'Purchase Manager' || profile?.role === 'Admin' || profile?.role === 'Owner') {
       supplierBillService.checkAndSendBillDueNotifications(company?.id);
     }
   }, [company?.id, profile?.role]);

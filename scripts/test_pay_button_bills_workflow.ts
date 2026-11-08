@@ -91,12 +91,12 @@ function runTests() {
   }
   console.log('✓ Verified Payment Confirmation calls recordPurchasePayment and displays success confirmation');
 
-  // 9. Verify Strict Role Enforcement: Only Accountant / Admin / Owner
-  if (!payModalContent.includes("profile?.role === 'Accountant'") ||
-      !payModalContent.includes('Only authorized Accountant users can process payments')) {
-    throw new Error('Strict Accountant role enforcement is missing in Pay modal');
+  // 9. Verify Strict Role Enforcement: Only Purchase Manager / Admin / Owner
+  if (!payModalContent.includes("profile?.role === 'Purchase Manager'") ||
+      !payModalContent.includes('Only authorized Purchase Manager users can process payments')) {
+    throw new Error('Strict Purchase Manager role enforcement is missing in Pay modal');
   }
-  console.log('✓ Verified strict Accountant role enforcement');
+  console.log('✓ Verified strict Purchase Manager role enforcement');
 
   // 10. Verify Payments Made Tab Integration: Required columns
   const requiredPaymentsMadeColumns = [

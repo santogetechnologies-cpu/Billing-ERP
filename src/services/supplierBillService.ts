@@ -220,10 +220,10 @@ export const supplierBillService = {
     },
     companyId?: string
   ): Promise<SupplierBillItem> {
-    // Strict RBAC: Only Accountant, Admin, Owner can verify bills
+    // Strict RBAC: Only Purchase Manager, Admin, Owner can verify bills
     const role = (await getActiveUserRole()) || (params.userProfile?.role as UserRole);
-    if (role !== 'Accountant' && role !== 'Admin' && role !== 'Owner') {
-      throw new Error(`Unauthorized (403): Only authorized Accountants can verify bills for payment. Role '${role || 'Unknown'}' is not permitted.`);
+    if (role !== 'Purchase Manager' && role !== 'Admin' && role !== 'Owner') {
+      throw new Error(`Unauthorized (403): Only authorized Purchase Managers can verify bills for payment. Role '${role || 'Unknown'}' is not permitted.`);
     }
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
@@ -345,10 +345,10 @@ export const supplierBillService = {
     },
     companyId?: string
   ): Promise<{ payment: PaymentRecord; updatedBill: SupplierBillItem }> {
-    // Strict RBAC: Only Accountant, Admin, Owner can record bill payments
+    // Strict RBAC: Only Purchase Manager, Admin, Owner can record bill payments
     const role = (await getActiveUserRole()) || (params.userProfile?.role as UserRole);
-    if (role !== 'Accountant' && role !== 'Admin' && role !== 'Owner') {
-      throw new Error(`Unauthorized (403): Only authorized Accountants can record supplier bill payments. Role '${role || 'Unknown'}' is not permitted.`);
+    if (role !== 'Purchase Manager' && role !== 'Admin' && role !== 'Owner') {
+      throw new Error(`Unauthorized (403): Only authorized Purchase Managers can record supplier bill payments. Role '${role || 'Unknown'}' is not permitted.`);
     }
 
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
@@ -465,7 +465,7 @@ export const supplierBillService = {
               title: `Overdue Supplier Bill: #${bill.invoiceNumber}`,
               message: `Bill #${bill.invoiceNumber} from ${bill.supplierName} is ${daysOverdue} day(s) overdue. Outstanding: ₹${bill.balanceDue.toLocaleString('en-IN')}.`,
               type: 'bill_overdue',
-              link: '/payments/bills?tab=overdue',
+              link: '/purchases?tab=bills',
               dedupKey: `bill_overdue_${bill.id}_${todayDateStr}`,
               actionText: 'View Overdue'
             },
@@ -481,7 +481,7 @@ export const supplierBillService = {
               title: `Supplier Bill Due Soon: #${bill.invoiceNumber}`,
               message: `Bill #${bill.invoiceNumber} (${bill.supplierName}) is ${dueMsg}. Amount payable: ₹${bill.balanceDue.toLocaleString('en-IN')}.`,
               type: 'bill_due_date',
-              link: '/payments/bills?tab=approved',
+              link: '/purchases?tab=bills',
               dedupKey: `bill_due_soon_${bill.id}_${bill.dueDate}`,
               actionText: 'Review Due'
             },

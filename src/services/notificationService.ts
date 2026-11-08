@@ -271,7 +271,6 @@ export const notificationService = {
         const linkLower = item.link.toLowerCase();
         if (
           linkLower.startsWith('/sales') ||
-          linkLower.startsWith('/payments') ||
           linkLower.startsWith('/accounting') ||
           linkLower.startsWith('/users/activity') ||
           linkLower.startsWith('/users')
@@ -329,6 +328,15 @@ export const notificationService = {
     // Strictly blocks: stock alerts and customer support.
     if (role === 'Accountant') {
       if (isStockAlert(item.type) || isCustomerSupportNotification(item)) {
+        return false;
+      }
+      // Strictly block payment notifications and payment links for Accountant
+      if (
+        item.type === 'payment' ||
+        item.type === 'payment_received' ||
+        item.type === 'payment_paid' ||
+        (item.link && item.link.toLowerCase().startsWith('/payments'))
+      ) {
         return false;
       }
       if (

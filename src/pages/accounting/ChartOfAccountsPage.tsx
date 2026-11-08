@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { hasPermission } from '../../utils/rbac';
 import {
   BookOpen,
   CreditCard,
@@ -26,11 +28,20 @@ export const ChartOfAccountsPage: React.FC = () => {
     if (tab) setActiveTab(tab);
   }, [searchParams]);
 
-  // Part C: Accounts Tabs:
-  // Ledgers · Payments · Expenses · Day Book · Bank · Tax
+  const { profile } = useAuth();
+  const canViewPayments = hasPermission(profile?.role, 'payments', 'view');
+
+  // If user lacks payments permission and tab is payments, reset to ledgers
+  useEffect(() => {
+    if (activeTab === 'payments' && !canViewPayments) {
+      setActiveTab('ledgers');
+    }
+  }, [activeTab, canViewPayments]);
+
+  // Part C: Accounts Tabs (Payments tab hidden for roles without payments permission):
   const accountsTabs: TabItem[] = [
     { id: 'ledgers', label: 'Ledgers', icon: BookOpen },
-    { id: 'payments', label: 'Payments', icon: CreditCard },
+    ...(canViewPayments ? [{ id: 'payments', label: 'Payments', icon: CreditCard }] : []),
     { id: 'expenses', label: 'Expenses', icon: DollarSign },
     { id: 'daybook', label: 'Day Book', icon: Calendar },
     { id: 'bank', label: 'Bank', icon: Building },

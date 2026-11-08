@@ -116,20 +116,9 @@ export const PurchaseOrdersTab: React.FC<PurchaseOrdersTabProps> = ({ onNewPO })
                         )}
                       </td>
 
-                      {/* 6. Action: Eye Icon (Always) & Update Button (Hidden when Received) */}
+                      {/* 6. Action: Update Button (Hidden when Received) & Eye Icon (Always) */}
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-1.5 justify-end">
-                          {/* Eye Icon - View Details */}
-                          <button
-                            type="button"
-                            onClick={() => setViewingPO(po)}
-                            title="View PO Details"
-                            aria-label="View PO Details"
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-
                           {/* Update Button - Only when PO is not Received */}
                           {!isReceived && (
                             <button
@@ -142,6 +131,17 @@ export const PurchaseOrdersTab: React.FC<PurchaseOrdersTabProps> = ({ onNewPO })
                               <span>Update</span>
                             </button>
                           )}
+
+                          {/* Eye Icon - View Details */}
+                          <button
+                            type="button"
+                            onClick={() => setViewingPO(po)}
+                            title="View PO Details"
+                            aria-label="View PO Details"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
