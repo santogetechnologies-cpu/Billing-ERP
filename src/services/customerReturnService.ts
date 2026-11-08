@@ -20,6 +20,39 @@ const CUSTOMER_RETURNS_STORAGE_KEY = (cId: string) => `universal_billing_custome
 
 export const customerReturnService = {
   /**
+   * Uploads a product return photo to Supabase Storage with resilient base64 fallback
+   */
+  async uploadReturnPhoto(file: File, companyId?: string): Promise<string> {
+    const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    const fileExt = file.name.split('.').pop() || 'jpg';
+    const fileName = `${finalCompanyId}/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+
+    try {
+      // 1. Try product-returns bucket, fallback to receipts
+      let uploadResult = await supabase.storage.from('product-returns').upload(fileName, file, { upsert: true });
+      if (uploadResult.error) {
+        uploadResult = await supabase.storage.from('receipts').upload(fileName, file, { upsert: true });
+      }
+
+      if (!uploadResult.error) {
+        const bucket = uploadResult.data?.fullPath?.startsWith('product-returns') ? 'product-returns' : 'receipts';
+        const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+        if (data?.publicUrl) return data.publicUrl;
+      }
+    } catch (err) {
+      console.warn('Storage upload note, falling back to base64 Data URL:', err);
+    }
+
+    // Fallback to base64 data URL
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  },
+
+  /**
    * Generates a sequential, professional customer return reference: RET-YYYY-XXXX
    */
   generateReturnNumber(existingCount: number = 0): string {
@@ -59,6 +92,7 @@ export const customerReturnService = {
               originalInvoiceId: d.original_invoice_id,
               originalInvoiceNumber: d.original_invoice_number,
               returnDate: d.return_date,
+              purchaseDate: d.purchase_date || d.purchaseDate || undefined,
               customerId: d.customer_id,
               customerName: d.customer_name,
               customerPhone: d.customer_phone,
@@ -72,6 +106,9 @@ export const customerReturnService = {
               unitPrice: Number(d.unit_price || 0),
               refundAmount: Number(d.refund_amount || 0),
               reason: d.reason || '',
+              returnProblem: d.return_problem || d.returnProblem || d.reason || undefined,
+              complaintDescription: d.complaint_description || d.complaintDescription || d.notes || undefined,
+              photos: Array.isArray(d.photos) ? d.photos : (typeof d.photos === 'string' ? JSON.parse(d.photos || '[]') : (d.photos || [])),
               condition: (d.condition || 'Resalable') as CustomerReturnCondition,
               warehouseId: d.warehouse_id,
               warehouseName: d.warehouse_name,
@@ -260,6 +297,7 @@ export const customerReturnService = {
       originalInvoiceId: input.originalInvoiceId,
       originalInvoiceNumber: input.originalInvoiceNumber,
       returnDate: input.returnDate || nowIso.split('T')[0],
+      purchaseDate: input.purchaseDate,
       customerId: input.customerId,
       customerName: input.customerName,
       customerPhone: input.customerPhone,
@@ -273,6 +311,9 @@ export const customerReturnService = {
       unitPrice: input.unitPrice,
       refundAmount: calculatedRefundAmount,
       reason: input.reason,
+      returnProblem: input.returnProblem || input.reason,
+      complaintDescription: input.complaintDescription || input.notes,
+      photos: input.photos || [],
       condition: input.condition || 'Resalable',
       warehouseId: input.warehouseId,
       warehouseName: input.warehouseName,
@@ -402,6 +443,7 @@ export const customerReturnService = {
           original_invoice_id: returnRecord.originalInvoiceId,
           original_invoice_number: returnRecord.originalInvoiceNumber,
           return_date: returnRecord.returnDate,
+          purchase_date: returnRecord.purchaseDate || null,
           customer_id: returnRecord.customerId,
           customer_name: returnRecord.customerName,
           customer_phone: returnRecord.customerPhone,
@@ -415,6 +457,9 @@ export const customerReturnService = {
           unit_price: returnRecord.unitPrice,
           refund_amount: returnRecord.refundAmount,
           reason: returnRecord.reason,
+          return_problem: returnRecord.returnProblem || returnRecord.reason || null,
+          complaint_description: returnRecord.complaintDescription || returnRecord.notes || null,
+          photos: returnRecord.photos || [],
           condition: returnRecord.condition,
           warehouse_id: returnRecord.warehouseId,
           warehouse_name: returnRecord.warehouseName,

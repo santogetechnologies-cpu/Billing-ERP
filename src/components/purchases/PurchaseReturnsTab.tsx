@@ -1,502 +1,420 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   RotateCcw,
   Plus,
-  Building2,
-  FileText,
-  Download,
-  Printer,
-  CheckCircle,
-  AlertCircle,
+  Search,
   Eye,
-  ArrowRight
+  Download,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Filter,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
-import { DataTable, Column } from '../common/DataTable';
-import { StatusBadge } from '../common/StatusBadge';
-import { formatCurrency, formatDate } from '../../utils/formatters';
-import { Modal } from '../common/Modal';
+import { CustomerReturn, CustomerReturnStatus } from '../../types';
+import { formatDate } from '../../utils/formatters';
 import { exportToExcel, exportToCSV } from '../../utils/exportUtils';
-import { sortProductsAZ } from '../../utils/sortUtils';
+import { AddCustomerReturnModal } from './AddCustomerReturnModal';
+import { ReturnComplaintDetailModal } from './ReturnComplaintDetailModal';
 
 export const PurchaseReturnsTab: React.FC = () => {
-  const { purchaseInvoices, suppliers, products, processPurchaseReturn } = useERP();
+  const {
+    customerReturns = [],
+    customers = [],
+    products = [],
+    addCustomerReturn,
+    updateCustomerReturn,
+    approveCustomerReturn,
+    rejectCustomerReturn,
+    company
+  } = useERP();
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedSupplierId, setSelectedSupplierId] = useState('');
-  const [selectedPurchaseId, setSelectedPurchaseId] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState('');
-  const [returnQty, setReturnQty] = useState<string>('1');
-  const [returnReason, setReturnReason] = useState('Damaged / Defective material rejected upon delivery');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [viewingReturn, setViewingReturn] = useState<any | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [viewingReturn, setViewingReturn] = useState<CustomerReturn | null>(null);
+  const hasSeededRef = useRef(false);
 
-  // Available original purchase bills for selected supplier
-  const supplierPurchases = useMemo(() => {
-    if (!selectedSupplierId) return [];
-    return purchaseInvoices.filter(p => p.supplierId === selectedSupplierId && p.docType !== 'purchase_return');
-  }, [purchaseInvoices, selectedSupplierId]);
+  // Seed initial realistic customer return records using actual database products/customers if empty
+  useEffect(() => {
+    if (hasSeededRef.current) return;
+    if (customerReturns.length === 0 && products.length > 0 && company?.id) {
+      hasSeededRef.current = true;
+      const wireProd = products.find(p => p.name.toLowerCase() === 'wire') || products[0];
+      const glassProd = products.find(p => p.name.toLowerCase() === 'glass') || products[1] || products[0];
+      const arunCust = customers.find(c => c.name.toLowerCase() === 'arun') || { id: 'cust-arun', name: 'Arun', phone: '9876543210' };
+      const raviCust = customers.find(c => c.name.toLowerCase() === 'ravi') || { id: 'cust-ravi', name: 'Ravi', phone: '9876543211' };
 
-  // Selected original invoice
-  const activePurchase = useMemo(() => {
-    return purchaseInvoices.find(p => p.id === selectedPurchaseId);
-  }, [purchaseInvoices, selectedPurchaseId]);
+      // Sample returns matching exact requirements
+      const sampleReturns: any[] = [
+        {
+          originalInvoiceId: 'inv-wire-101',
+          originalInvoiceNumber: 'INV-2026-101',
+          returnDate: '2026-11-04',
+          purchaseDate: '2026-11-01',
+          customerId: arunCust.id,
+          customerName: arunCust.name,
+          customerPhone: arunCust.phone || '9876543210',
+          productId: wireProd.id,
+          productName: wireProd.name,
+          soldQty: 5,
+          returnedQty: 2,
+          unit: wireProd.primaryUnit || 'Piece',
+          unitPrice: wireProd.salePrice || 50,
+          refundAmount: 100,
+          reason: 'Damaged Product',
+          returnProblem: 'Damaged Product',
+          complaintDescription: 'The wire spool was damaged when received by the customer. The outer insulation was cut and frayed.',
+          photos: [
+            'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&auto=format&fit=crop&q=60',
+            'https://images.unsplash.com/photo-1544717305-2782549b5136?w=800&auto=format&fit=crop&q=60'
+          ],
+          condition: 'Damaged',
+          returnStatus: 'Pending',
+          directRestock: false
+        },
+        {
+          originalInvoiceId: 'inv-glass-102',
+          originalInvoiceNumber: 'INV-2026-102',
+          returnDate: '2026-11-04',
+          purchaseDate: '2026-11-02',
+          customerId: raviCust.id,
+          customerName: raviCust.name,
+          customerPhone: raviCust.phone || '9876543211',
+          productId: glassProd.id,
+          productName: glassProd.name,
+          soldQty: 3,
+          returnedQty: 1,
+          unit: glassProd.primaryUnit || 'Piece',
+          unitPrice: glassProd.salePrice || 100,
+          refundAmount: 100,
+          reason: 'Broken Product',
+          returnProblem: 'Broken Product',
+          complaintDescription: 'The tempered glass sheet arrived broken with fine stress cracks along the frame edge.',
+          photos: [
+            'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=800&auto=format&fit=crop&q=60'
+          ],
+          condition: 'Damaged',
+          returnStatus: 'Approved',
+          directRestock: false
+        }
+      ];
 
-  // Products available in the selected original invoice or catalog
-  const availableItems = useMemo(() => {
-    if (!activePurchase || !activePurchase.items || activePurchase.items.length === 0) {
-      const list = products.map(p => ({
-        id: p.id,
-        name: p.name,
-        rate: p.purchasePrice,
-        unit: p.primaryUnit,
-        maxQty: p.currentStock,
-        sku: p.sku
-      }));
-      return sortProductsAZ(list);
-    }
-    const list = activePurchase.items.map(it => {
-      const prod = products.find(p => p.id === it.productId);
-      return {
-        id: it.productId,
-        name: it.productName,
-        rate: it.rate,
-        unit: it.unit,
-        maxQty: it.qty,
-        sku: prod?.sku || ''
-      };
-    });
-    return sortProductsAZ(list);
-  }, [activePurchase, products]);
-
-  // Calculate rate and amount
-  const selectedItemMeta = useMemo(() => {
-    return availableItems.find(i => i.id === selectedProductId) || availableItems[0];
-  }, [availableItems, selectedProductId]);
-
-  const unitRate = selectedItemMeta?.rate || products.find(p => p.id === selectedProductId)?.purchasePrice || 0;
-  const returnSubtotal = (Number(returnQty) || 0) * unitRate;
-  const returnTax = returnSubtotal * 0.18;
-  const returnGrandTotal = returnSubtotal + returnTax;
-
-  const handleOpenModal = () => {
-    setSelectedSupplierId(suppliers[0]?.id || '');
-    const firstBill = purchaseInvoices.find(p => p.supplierId === suppliers[0]?.id && p.docType !== 'purchase_return');
-    setSelectedPurchaseId(firstBill?.id || '');
-    setSelectedProductId(firstBill?.items?.[0]?.productId || products[0]?.id || '');
-    setReturnQty('1');
-    setReturnReason('Damaged / Defective material rejected upon delivery');
-    setErrorMessage('');
-    setIsModalOpen(true);
-  };
-
-  const handleCreateDebitNote = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedSupplierId) {
-      setErrorMessage('Please select a supplier.');
-      return;
-    }
-    const numReturnQty = Number(returnQty) || 0;
-    if (!selectedProductId || numReturnQty <= 0) {
-      setErrorMessage('Please enter a valid product and positive return quantity.');
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      setErrorMessage('');
-
-      const selectedSup = suppliers.find(s => s.id === selectedSupplierId);
-
-      await processPurchaseReturn(
-        selectedPurchaseId || '',
-        [
-          {
-            productId: selectedProductId,
-            qty: numReturnQty,
-            returnAmt: returnSubtotal,
-            productName: selectedItemMeta?.name || 'Returned Product',
-            unit: selectedItemMeta?.unit || 'Pcs',
-            rate: unitRate
-          }
-        ],
-        returnReason,
-        selectedSupplierId,
-        selectedSup?.name
-      );
-
-      setIsModalOpen(false);
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to process Debit Note.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const purchaseReturns = useMemo(() => {
-    return purchaseInvoices
-      .filter(p => p.docType === 'purchase_return')
-      .map(p => {
-        const origBill = purchaseInvoices.find(b => b.id === p.originalPurchaseId);
-        return {
-          id: p.id,
-          returnNumber: p.invoiceNumber,
-          date: p.date,
-          originalBillNo: origBill?.invoiceNumber || p.referenceNumber || (p.originalPurchaseId ? 'PO-' + p.originalPurchaseId.slice(0, 8) : 'Direct Return'),
-          supplierName: p.supplierName,
-          itemsReturned: (p.items || []).map(i => `${i.productName} (${i.qty} ${i.unit || 'PCS'})`).join(', ') || 'Returned Items',
-          returnAmount: p.subtotal,
-          taxReversed: p.taxTotal,
-          totalCredit: p.grandTotal,
-          reason: p.notes || 'Purchase Return',
-          status: p.paymentStatus === 'Paid' ? 'Approved' : 'Sent'
-        };
+      sampleReturns.forEach(s => {
+        addCustomerReturn(s).catch(() => {});
       });
-  }, [purchaseInvoices]);
-
-  const handleExportXLSX = () => {
-    const data = purchaseReturns.map(r => ({
-      'Debit Note #': r.returnNumber,
-      'Date': r.date,
-      'Supplier': r.supplierName,
-      'Returned Items': r.itemsReturned,
-      'Debit Amount': r.returnAmount,
-      'Tax Reversed': r.taxReversed,
-      'Total Debit Note Value': r.totalCredit,
-      'Reason': r.reason,
-      'Status': r.status
-    }));
-    exportToExcel(data, 'Supplier_Debit_Notes');
-  };
-
-  const handleExportCSV = () => {
-    const data = purchaseReturns.map(r => ({
-      'Debit Note #': r.returnNumber,
-      'Date': r.date,
-      'Supplier': r.supplierName,
-      'Returned Items': r.itemsReturned,
-      'Debit Amount': r.returnAmount,
-      'Tax Reversed': r.taxReversed,
-      'Total Debit Note Value': r.totalCredit,
-      'Reason': r.reason,
-      'Status': r.status
-    }));
-    exportToCSV(data, 'Supplier_Debit_Notes');
-  };
-
-  const columns: Column<any>[] = [
-    {
-      key: 'returnNumber',
-      header: 'Debit Note #',
-      render: row => <span className="font-mono font-bold text-blue-600">{row.returnNumber}</span>
-    },
-    {
-      key: 'date',
-      header: 'Date',
-      render: row => formatDate(row.date)
-    },
-    {
-      key: 'supplierName',
-      header: 'Supplier',
-      render: row => <span className="font-medium text-slate-900">{row.supplierName}</span>
-    },
-    {
-      key: 'originalBillNo',
-      header: 'Against Bill / PO',
-      render: row => (
-        <span className="font-mono text-xs text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-          {row.originalBillNo}
-        </span>
-      )
-    },
-    {
-      key: 'itemsReturned',
-      header: 'Returned Products',
-      render: row => <span className="text-xs text-slate-600 truncate max-w-xs block">{row.itemsReturned}</span>
-    },
-    {
-      key: 'totalCredit',
-      header: 'Total Value',
-      align: 'right',
-      render: row => <span className="font-bold text-slate-900 tabular-nums">{formatCurrency(row.totalCredit)}</span>
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      align: 'center',
-      render: row => (
-        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-          row.status === 'Approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-        }`}>
-          {row.status}
-        </span>
-      )
     }
-  ];
+  }, [customerReturns.length, products, customers, company?.id, addCustomerReturn]);
+
+  // Filtered customer returns (deduplicated by id/returnNumber and filtered)
+  const filteredReturns = useMemo(() => {
+    const seen = new Set<string>();
+    const deduplicated = customerReturns.filter(ret => {
+      const key = ret.id || ret.returnNumber;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return deduplicated.filter(ret => {
+      // 1. Status Filter
+      if (statusFilter !== 'All') {
+        const retStatus = ret.returnStatus || 'Pending';
+        if (statusFilter === 'Pending' && !retStatus.toLowerCase().includes('pending')) return false;
+        if (statusFilter === 'Approved' && !retStatus.toLowerCase().includes('approved')) return false;
+        if (statusFilter === 'Rejected' && !retStatus.toLowerCase().includes('rejected')) return false;
+      }
+
+      // 2. Search query filter
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
+        ret.productName?.toLowerCase().includes(q) ||
+        ret.customerName?.toLowerCase().includes(q) ||
+        ret.customerPhone?.toLowerCase().includes(q) ||
+        ret.returnProblem?.toLowerCase().includes(q) ||
+        ret.returnNumber?.toLowerCase().includes(q) ||
+        ret.originalInvoiceNumber?.toLowerCase().includes(q)
+      );
+    });
+  }, [customerReturns, search, statusFilter]);
+
+  // Status Badge Component
+  const renderStatusBadge = (status?: string) => {
+    const norm = (status || 'Pending').toLowerCase();
+    if (norm.includes('approved')) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>Approved</span>
+        </span>
+      );
+    }
+    if (norm.includes('rejected')) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+          <span>Rejected</span>
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+        <span>Pending</span>
+      </span>
+    );
+  };
+
+  // Export data
+  const handleExportCSV = () => {
+    const data = filteredReturns.map(r => ({
+      'Product Name': r.productName,
+      'Customer Name': r.customerName,
+      'Customer Phone': r.customerPhone || '—',
+      'Return Date': r.returnDate,
+      'Return Quantity': `${r.returnedQty} ${r.unit || 'Piece'}`,
+      'Return Problem': r.returnProblem || r.reason || 'General Return',
+      'Status': r.returnStatus || 'Pending',
+      'Reference Number': r.returnNumber
+    }));
+    exportToCSV(data, 'Customer_Product_Returns');
+  };
+
+  const handleExportExcel = () => {
+    const data = filteredReturns.map(r => ({
+      'Product Name': r.productName,
+      'Customer Name': r.customerName,
+      'Customer Phone': r.customerPhone || '—',
+      'Return Date': r.returnDate,
+      'Return Quantity': `${r.returnedQty} ${r.unit || 'Piece'}`,
+      'Return Problem': r.returnProblem || r.reason || 'General Return',
+      'Status': r.returnStatus || 'Pending',
+      'Reference Number': r.returnNumber
+    }));
+    exportToExcel(data, 'Customer_Product_Returns');
+  };
+
+  // Status Change handler from popup modal
+  const handleStatusChange = async (returnId: string, newStatus: 'Approved' | 'Rejected', remarks?: string) => {
+    if (newStatus === 'Approved') {
+      await approveCustomerReturn(returnId);
+    } else {
+      await rejectCustomerReturn(returnId, remarks || 'Rejected by manager');
+    }
+    if (viewingReturn && viewingReturn.id === returnId) {
+      setViewingReturn({
+        ...viewingReturn,
+        returnStatus: newStatus,
+        notes: remarks || viewingReturn.notes
+      });
+    }
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <RotateCcw className="w-4 h-4 text-rose-600" />
-            Purchase Returns & Debit Notes
-          </h2>
-          <p className="text-xs text-slate-500">
-            Issue supplier debit notes for rejected material, damaged shipments, or price revisions.
-          </p>
+    <div className="space-y-4 animate-fadeIn">
+      {/* Search Bar, Status Filters & Add Return Button */}
+      <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        {/* Left: Search Input */}
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search returns by product, customer, or phone..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Center/Right: Status Filters, Export & Add Return Action */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Status Pills */}
+          <div className="inline-flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+            {(['All', 'Pending', 'Approved', 'Rejected'] as const).map(st => {
+              const active = statusFilter === st;
+              return (
+                <button
+                  key={st}
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    active
+                      ? 'bg-purple-600 text-white shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {st}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Export Buttons */}
           <button
             onClick={handleExportCSV}
-            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+            className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 flex items-center gap-1 transition-colors cursor-pointer"
+            title="Export CSV"
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Export CSV</span>
+            <span className="hidden sm:inline">CSV</span>
           </button>
+
           <button
-            onClick={handleExportXLSX}
-            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+            onClick={handleExportExcel}
+            className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 flex items-center gap-1 transition-colors cursor-pointer"
+            title="Export Excel"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Excel</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
+            <span className="hidden sm:inline">Excel</span>
           </button>
+
+          {/* Add Return Button */}
           <button
-            onClick={handleOpenModal}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Debit Note</span>
+            <span>Add Return</span>
           </button>
         </div>
       </div>
 
-      <DataTable
-        title="Supplier Returns List"
-        subtitle={`Total ${purchaseReturns.length} debit notes recorded`}
-        columns={columns}
-        data={purchaseReturns}
-        searchPlaceholder="Search debit note #, supplier, or items..."
-        searchKeys={['returnNumber', 'supplierName', 'originalBillNo', 'itemsReturned']}
-        onRowClick={row => setViewingReturn(row)}
-        actions={row => (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setViewingReturn(row);
-            }}
-            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-            title="View Details"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
-        )}
+      {/* Customer Product Returns Table - Cleanly Aligned 8 Columns */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                {/* 1. Product Name */}
+                <th className="px-4 py-3.5 text-left font-semibold">Product Name</th>
+                {/* 2. Customer Name */}
+                <th className="px-4 py-3.5 text-left font-semibold">Customer Name</th>
+                {/* 3. Customer Phone */}
+                <th className="px-4 py-3.5 text-left font-semibold">Customer Phone</th>
+                {/* 4. Return Date */}
+                <th className="px-4 py-3.5 text-left font-semibold whitespace-nowrap">Return Date</th>
+                {/* 5. Return Quantity */}
+                <th className="px-4 py-3.5 text-left font-semibold whitespace-nowrap">Return Quantity</th>
+                {/* 6. Return Problem */}
+                <th className="px-4 py-3.5 text-left font-semibold">Return Problem</th>
+                {/* 7. Status */}
+                <th className="px-4 py-3.5 text-left font-semibold whitespace-nowrap">Status</th>
+                {/* 8. Action */}
+                <th className="px-4 py-3.5 text-right font-semibold whitespace-nowrap">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-normal">
+              {filteredReturns.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                    <RotateCcw className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm font-semibold text-slate-500">No customer product returns found</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Click "Add Return" to record a new customer return complaint.</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredReturns.map(ret => {
+                  const returnDate = ret.returnDate || ret.createdAt?.split('T')[0] || '—';
+                  const returnProblem = ret.returnProblem || ret.reason || 'General Return';
+                  const status = ret.returnStatus || 'Pending';
+
+                  return (
+                    <tr
+                      key={ret.id}
+                      onClick={() => setViewingReturn(ret)}
+                      className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors cursor-pointer group"
+                    >
+                      {/* 1. Product Name */}
+                      <td className="px-4 py-3 text-left">
+                        <div className="font-bold text-slate-900 dark:text-white text-xs">
+                          {ret.productName}
+                        </div>
+                        <div className="font-mono text-[11px] font-semibold text-purple-600 dark:text-purple-400 mt-0.5">
+                          {ret.returnNumber}
+                        </div>
+                      </td>
+
+                      {/* 2. Customer Name */}
+                      <td className="px-4 py-3 text-left">
+                        <span className="font-semibold text-slate-900 dark:text-white">
+                          {ret.customerName}
+                        </span>
+                      </td>
+
+                      {/* 3. Customer Phone */}
+                      <td className="px-4 py-3 text-left">
+                        <span className="font-mono text-slate-600 dark:text-slate-300">
+                          {ret.customerPhone || '—'}
+                        </span>
+                      </td>
+
+                      {/* 4. Return Date */}
+                      <td className="px-4 py-3 text-left whitespace-nowrap text-slate-600 dark:text-slate-300 font-mono">
+                        {formatDate(returnDate)}
+                      </td>
+
+                      {/* 5. Return Quantity */}
+                      <td className="px-4 py-3 text-left whitespace-nowrap">
+                        <span className="font-bold text-slate-900 dark:text-white tabular-nums">
+                          {ret.returnedQty}
+                        </span>
+                        <span className="text-[11px] text-slate-400 ml-1.5 font-medium">
+                          {ret.unit || 'Piece'}
+                        </span>
+                      </td>
+
+                      {/* 6. Return Problem */}
+                      <td className="px-4 py-3 text-left">
+                        <span className="inline-block px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                          {returnProblem}
+                        </span>
+                      </td>
+
+                      {/* 7. Status */}
+                      <td className="px-4 py-3 text-left whitespace-nowrap">
+                        {renderStatusBadge(status)}
+                      </td>
+
+                      {/* 8. Action - Eye Icon Button */}
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewingReturn(ret);
+                          }}
+                          className="inline-flex items-center justify-center p-2 text-purple-600 dark:text-purple-400 bg-white dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs transition-colors cursor-pointer hover:border-purple-300 dark:hover:border-purple-600"
+                          title="View Complete Return Details"
+                          aria-label="View Complete Return Details"
+                        >
+                          <Eye className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add Customer Return Form Modal */}
+      <AddCustomerReturnModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={() => setIsAddModalOpen(false)}
       />
 
-      {/* Modal: Create Debit Note */}
-      {isModalOpen && (
-        <Modal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          title="Create Supplier Debit Note (Purchase Return)"
-          subtitle="Generate a debit note to reverse stock and credit accounts payable."
-          size="lg"
-        >
-          <form onSubmit={handleCreateDebitNote} className="space-y-4 pt-2">
-            {errorMessage && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Supplier <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={selectedSupplierId}
-                  onChange={e => {
-                    setSelectedSupplierId(e.target.value);
-                    const bills = purchaseInvoices.filter(p => p.supplierId === e.target.value && p.docType !== 'purchase_return');
-                    setSelectedPurchaseId(bills[0]?.id || '');
-                  }}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select Supplier</option>
-                  {suppliers.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.gstin || 'Unregistered'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Original Purchase Invoice
-                </label>
-                <select
-                  value={selectedPurchaseId}
-                  onChange={e => setSelectedPurchaseId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Direct Return (No linked bill)</option>
-                  {supplierPurchases.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.invoiceNumber} - {formatDate(p.date)} ({formatCurrency(p.grandTotal)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Product to Return <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={selectedProductId}
-                  onChange={e => setSelectedProductId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select Product</option>
-                  {availableItems.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} {item.sku ? `(${item.sku})` : ''} - ₹{item.rate}/{item.unit}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Return Quantity <span className="text-rose-500">*</span>
-                </label>
-                <div className="flex">
-                  <input
-                    type="number"
-                    min="1"
-                    step="any"
-                    value={returnQty}
-                    onChange={e => setReturnQty(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums"
-                    required
-                  />
-                  <span className="px-3 py-2 text-xs bg-slate-100 border border-l-0 border-slate-200 rounded-r-lg text-slate-600 font-medium">
-                    {selectedItemMeta?.unit || 'Pcs'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Reason for Rejection / Return <span className="text-rose-500">*</span>
-              </label>
-              <textarea
-                value={returnReason}
-                onChange={e => setReturnReason(e.target.value)}
-                rows={2}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Explain defect, damage, rate variance or expiry issue..."
-                required
-              />
-            </div>
-
-            {/* Financial Summary Card */}
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>Unit Rate:</span>
-                <span className="font-semibold text-slate-900">{formatCurrency(unitRate)}</span>
-              </div>
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>Return Subtotal:</span>
-                <span className="font-semibold text-slate-900">{formatCurrency(returnSubtotal)}</span>
-              </div>
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>GST Reversed (18% est.):</span>
-                <span className="font-semibold text-slate-900">{formatCurrency(returnTax)}</span>
-              </div>
-              <div className="pt-2 border-t border-slate-200 flex justify-between text-sm font-bold text-slate-900">
-                <span>Total Debit Note Value:</span>
-                <span className="text-blue-700">{formatCurrency(returnGrandTotal)}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {isSubmitting ? 'Posting Debit Note...' : 'Confirm & Post Debit Note'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* Modal: View Details */}
-      {viewingReturn && (
-        <Modal
-          isOpen={Boolean(viewingReturn)}
-          onClose={() => setViewingReturn(null)}
-          title={`Debit Note: ${viewingReturn.returnNumber}`}
-          subtitle={`Issued to ${viewingReturn.supplierName} on ${formatDate(viewingReturn.date)}`}
-          size="md"
-        >
-          <div className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl text-xs">
-              <div>
-                <span className="text-slate-400 block">Against Bill:</span>
-                <span className="font-mono font-bold text-slate-800">{viewingReturn.originalBillNo}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Status:</span>
-                <span className="font-semibold text-emerald-700">{viewingReturn.status}</span>
-              </div>
-              <div className="col-span-2">
-                <span className="text-slate-400 block">Items Returned:</span>
-                <span className="font-medium text-slate-800">{viewingReturn.itemsReturned}</span>
-              </div>
-              <div className="col-span-2">
-                <span className="text-slate-400 block">Reason:</span>
-                <span className="font-medium text-slate-800">{viewingReturn.reason}</span>
-              </div>
-            </div>
-
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex justify-between items-center text-sm">
-              <span className="font-semibold text-blue-900">Credit Claimed:</span>
-              <span className="font-bold text-blue-700 text-base tabular-nums">{formatCurrency(viewingReturn.totalCredit)}</span>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setViewingReturn(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {/* View Return Complaint Details Popup Modal */}
+      <ReturnComplaintDetailModal
+        isOpen={Boolean(viewingReturn)}
+        onClose={() => setViewingReturn(null)}
+        returnRecord={viewingReturn}
+        onStatusChange={handleStatusChange}
+        canManageStatus={true}
+      />
     </div>
   );
 };
-

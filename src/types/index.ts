@@ -1128,7 +1128,7 @@ export interface BarcodeValidationResult {
 // ---------------------------------------------------------------------------
 
 export type CustomerReturnCondition = 'Resalable' | 'Damaged' | 'Defective' | 'Expired';
-export type CustomerReturnStatus = 'Pending Review' | 'Approved' | 'Rejected' | 'Stock Restocked';
+export type CustomerReturnStatus = 'Pending Review' | 'Pending' | 'Approved' | 'Rejected' | 'Stock Restocked';
 export type CustomerReturnRefundStatus = 'Pending' | 'Refunded' | 'Rejected' | 'No Refund Required';
 
 export interface CustomerReturn {
@@ -1138,6 +1138,7 @@ export interface CustomerReturn {
   originalInvoiceId: string;
   originalInvoiceNumber: string;
   returnDate: string;
+  purchaseDate?: string;
   customerId: string;
   customerName: string;
   customerPhone?: string;
@@ -1151,6 +1152,9 @@ export interface CustomerReturn {
   unitPrice: number;
   refundAmount: number;
   reason: string;
+  returnProblem?: string;
+  complaintDescription?: string;
+  photos?: string[];
   condition: CustomerReturnCondition;
   warehouseId?: string;
   warehouseName?: string;
@@ -1192,6 +1196,7 @@ export interface CreateCustomerReturnInput {
   originalInvoiceId: string;
   originalInvoiceNumber: string;
   returnDate: string;
+  purchaseDate?: string;
   customerId: string;
   customerName: string;
   customerPhone?: string;
@@ -1205,6 +1210,9 @@ export interface CreateCustomerReturnInput {
   unitPrice: number;
   refundAmount?: number;
   reason: string;
+  returnProblem?: string;
+  complaintDescription?: string;
+  photos?: string[];
   condition: CustomerReturnCondition;
   warehouseId?: string;
   warehouseName?: string;
@@ -1219,10 +1227,14 @@ export interface UpdateCustomerReturnInput {
   customerName?: string;
   customerPhone?: string;
   reason?: string;
+  returnProblem?: string;
+  complaintDescription?: string;
+  photos?: string[];
   condition?: CustomerReturnCondition;
   returnedQty?: number;
   warehouseId?: string;
   warehouseName?: string;
+  returnStatus?: CustomerReturnStatus;
   notes?: string;
   refundAmount?: number;
   updatedBy?: string;

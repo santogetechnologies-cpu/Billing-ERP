@@ -27,7 +27,8 @@ export const PurchaseInvoicesPage: React.FC = () => {
   const { profile } = useAuth();
   const {
     purchaseInvoices = [],
-    payments = []
+    payments = [],
+    customerReturns = []
   } = useERP();
 
   const [activeTab, setActiveTab] = useState<string>(() => searchParams.get('tab') || 'bills');
@@ -68,7 +69,7 @@ export const PurchaseInvoicesPage: React.FC = () => {
   const purchaseTabs: TabItem[] = [
     { id: 'orders', label: 'Orders (PO)', count: purchaseOrders.length, icon: Truck },
     { id: 'bills', label: 'Bills', count: standardBills.length, icon: FileText },
-    { id: 'returns', label: 'Returns', count: purchaseReturnsList.length, icon: RotateCcw },
+    { id: 'returns', label: 'Returns', count: customerReturns.length > 0 ? customerReturns.length : purchaseReturnsList.length, icon: RotateCcw },
     { id: 'payments', label: 'Payments made', count: outwardPaymentsList.length, icon: CreditCard }
   ];
 
@@ -123,7 +124,7 @@ export const PurchaseInvoicesPage: React.FC = () => {
               <Plus className="w-3.5 h-3.5" />
               <span>Create Purchase Order</span>
             </button>
-          ) : (
+          ) : activeTab === 'bills' ? (
             <button
               onClick={() => {
                 setDocumentModalType('standard_invoice');
@@ -134,7 +135,7 @@ export const PurchaseInvoicesPage: React.FC = () => {
               <Plus className="w-3.5 h-3.5" />
               <span>New Purchase Bill</span>
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
