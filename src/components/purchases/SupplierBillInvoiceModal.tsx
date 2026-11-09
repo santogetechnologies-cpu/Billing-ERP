@@ -627,15 +627,6 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handlePrint}
-              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Print Bill"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print Bill</span>
-            </button>
-            <button
-              type="button"
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               title="Close"

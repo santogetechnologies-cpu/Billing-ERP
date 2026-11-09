@@ -124,11 +124,17 @@ async function main() {
 
   // --- Group 4: Print Bill Option ---
   console.log('\n--- 4. Print Bill Option Verification ---');
-  runTest('Has clearly visible Print Bill button at top-right', () => {
+  runTest('Top action bar has only the Close button (Print button removed from top-right)', () => {
     const topBarSnippet = modalCode.slice(modalCode.indexOf('SCREEN ACTION BAR'), modalCode.indexOf('ON-SCREEN MODAL PREVIEW'));
-    assert(topBarSnippet.includes('Print Bill'), 'Top action bar must contain Print Bill button');
-    assert(topBarSnippet.includes('handlePrint'), 'Print Bill button must trigger handlePrint');
-    assert(topBarSnippet.includes('Printer'), 'Print Bill button must render Printer icon');
+    assert(!topBarSnippet.includes('Print Bill'), 'Top action bar must NOT contain Print Bill button');
+    assert(topBarSnippet.includes('title="Close"'), 'Top action bar must contain Close button');
+  });
+
+  runTest('Bottom footer contains Print Bill button', () => {
+    const footerSnippet = modalCode.slice(modalCode.indexOf('MODAL FOOTER'));
+    assert(footerSnippet.includes('Print Bill'), 'Modal footer must contain Print Bill button');
+    assert(footerSnippet.includes('handlePrint'), 'Print Bill button in footer must trigger handlePrint');
+    assert(footerSnippet.includes('Printer'), 'Print Bill button must render Printer icon');
   });
 
   runTest('handlePrint uses isolated hidden iframe for clean A4 printing', () => {
@@ -156,3 +162,4 @@ main().catch(err => {
   console.error('Fatal error running tests:', err);
   process.exit(1);
 });
+
