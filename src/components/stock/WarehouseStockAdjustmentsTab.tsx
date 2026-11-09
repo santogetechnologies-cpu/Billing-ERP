@@ -530,7 +530,7 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">
                 <th className="py-3 px-3.5">Adjustment Number</th>
                 <th className="py-3 px-3.5">Warehouse</th>
                 <th className="py-3 px-3.5">Product Name</th>

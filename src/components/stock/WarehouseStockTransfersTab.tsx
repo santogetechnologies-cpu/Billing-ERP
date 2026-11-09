@@ -555,7 +555,7 @@ export const WarehouseStockTransfersTab = React.forwardRef<
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">
                 <th className="py-3 px-3.5">Transfer Number</th>
                 <th className="py-3 px-3.5">Source Warehouse</th>
                 <th className="py-3 px-3.5">Destination Warehouse</th>
@@ -634,12 +634,15 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       </td>
 
                       {/* Product Name */}
-                      <td className="py-3 px-3.5">
+                      <td className="py-3 px-3.5 whitespace-nowrap">
                         {firstItem ? (
-                          <div>
+                          <div className="inline-flex items-center gap-1.5">
                             <span className="font-medium text-slate-900">{firstItem.productName}</span>
                             {otherItemsCount > 0 && (
-                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-semibold border border-blue-200">
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-semibold border border-blue-200 whitespace-nowrap shrink-0"
+                                title={trf.items?.map(i => `${i.productName} (${i.qty} ${i.unit})`).join(', ')}
+                              >
                                 +{otherItemsCount} more
                               </span>
                             )}
