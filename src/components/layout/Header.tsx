@@ -77,6 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
     if (path.startsWith('/sales/pos')) return 'Point of Sale (POS)';
     if (path.startsWith('/sales')) return 'Sales';
     if (path.startsWith('/purchases')) return 'Purchases';
+    if (path.startsWith('/inventory/warehouses') || path.startsWith('/warehouses')) return 'Warehouse';
     if (path.startsWith('/inventory') || path.startsWith('/stock')) return 'Stock Management';
     if (path.startsWith('/products')) return 'Products';
     if (path.startsWith('/customers') || path.startsWith('/suppliers') || path.startsWith('/parties')) return 'Parties Directory';

@@ -17,6 +17,8 @@ import {
   User,
   AlertTriangle,
   ArrowRightLeft,
+  ArrowLeftRight,
+  SlidersHorizontal,
   LayoutGrid,
   List,
   ShieldCheck,
@@ -29,9 +31,12 @@ import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
 import { Warehouse, WarehouseType } from '../../types';
 import { Modal } from '../../components/common/Modal';
+import { Tabs, TabItem } from '../../components/common/Tabs';
 import { formatCurrency } from '../../utils/formatters';
 import { sortProductsAZ } from '../../utils/sortUtils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { WarehouseStockTransfersTab } from '../../components/stock/WarehouseStockTransfersTab';
+import { WarehouseStockAdjustmentsTab } from '../../components/stock/WarehouseStockAdjustmentsTab';
 
 const LOCATION_TYPES: WarehouseType[] = [
   'Main Warehouse',
@@ -43,6 +48,7 @@ const LOCATION_TYPES: WarehouseType[] = [
 
 export const WarehousesPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { profile } = useAuth();
   const canManageWarehouse =
     profile?.role === 'Owner' ||
@@ -53,6 +59,7 @@ export const WarehousesPage: React.FC = () => {
     warehouses,
     stockBalances,
     stockTransfers,
+    inventoryTransactions,
     purchaseInvoices,
     products,
     users,
@@ -63,6 +70,54 @@ export const WarehousesPage: React.FC = () => {
     refreshStockBalances,
     getWarehouseStock
   } = useERP();
+
+  // Internal Navigation Tab state
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const t = searchParams.get('tab');
+    if (t === 'transfers' || t === 'adjustments' || t === 'warehouse') return t;
+    return 'warehouse';
+  });
+
+  // Sync tab with URL search params
+  React.useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t === 'transfers' || t === 'adjustments' || t === 'warehouse') {
+      setActiveTab(t);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (tabId: string) => {
+    setActiveTab(tabId);
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', tabId);
+    setSearchParams(next, { replace: true });
+  };
+
+  const stockAdjustmentCount = useMemo(() => {
+    return (inventoryTransactions || []).filter(tx => tx.type === 'Stock Adjustment').length;
+  }, [inventoryTransactions]);
+
+  // Tab definitions: 1. Warehouse, 2. Stock Transfer, 3. Stock Adjustment
+  const tabs: TabItem[] = [
+    {
+      id: 'warehouse',
+      label: 'Warehouse',
+      icon: WarehouseIcon,
+      count: warehouses.length
+    },
+    {
+      id: 'transfers',
+      label: 'Stock Transfer',
+      icon: ArrowLeftRight,
+      count: stockTransfers.length
+    },
+    {
+      id: 'adjustments',
+      label: 'Stock Adjustment',
+      icon: SlidersHorizontal,
+      count: stockAdjustmentCount
+    }
+  ];
 
   const eligibleManagers = useMemo(() => {
     return (users || []).filter(u => u.role === 'Warehouse Manager' || u.role === 'Admin' || u.role === 'Owner');
@@ -413,17 +468,35 @@ export const WarehousesPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2.5">
             <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600">
-              <WarehouseIcon className="w-6 h-6" />
+              {activeTab === 'transfers' ? (
+                <ArrowLeftRight className="w-6 h-6" />
+              ) : activeTab === 'adjustments' ? (
+                <SlidersHorizontal className="w-6 h-6" />
+              ) : (
+                <WarehouseIcon className="w-6 h-6" />
+              )}
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                Multi-Warehouse Management
+                {activeTab === 'transfers'
+                  ? 'Stock Transfer Management'
+                  : activeTab === 'adjustments'
+                  ? 'Stock Adjustment Management'
+                  : 'Multi-Warehouse Management'}
                 <span className="text-xs px-2.5 py-0.5 font-semibold bg-blue-50 text-blue-700 border border-blue-200/60 rounded-full">
-                  {warehouses.length} Locations
+                  {activeTab === 'transfers'
+                    ? `${stockTransfers.length} Transfers`
+                    : activeTab === 'adjustments'
+                    ? `${stockAdjustmentCount} Adjustments`
+                    : `${warehouses.length} Locations`}
                 </span>
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Maintain distinct inventory balances across central warehouses, godowns, branch hubs, and retail outlets.
+                {activeTab === 'transfers'
+                  ? 'Dispatch and receive inter-warehouse inventory shipments with automated stock tracking.'
+                  : activeTab === 'adjustments'
+                  ? 'Adjust, reconcile, and audit inventory discrepancies, write-offs, and damages.'
+                  : 'Maintain distinct inventory balances across central warehouses, godowns, branch hubs, and retail outlets.'}
               </p>
             </div>
           </div>
@@ -433,15 +506,15 @@ export const WarehousesPage: React.FC = () => {
           <button
             onClick={() => refreshStockBalances()}
             title="Refresh Live Balances"
-            className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+            className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors cursor-pointer"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
 
-          {canManageWarehouse && (
+          {canManageWarehouse && activeTab === 'warehouse' && (
             <button
               onClick={handleOpenCreateModal}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Add Warehouse</span>
@@ -449,6 +522,21 @@ export const WarehousesPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* 2. Top Internal Navigation Tabs */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl px-3 pt-1 shadow-2xs">
+        <Tabs
+          tabs={tabs}
+          activeTab={activeTab}
+          onChange={handleTabChange}
+          syncWithUrlQuery="tab"
+          variant="underline"
+        />
+      </div>
+
+      {/* Tab 1: Warehouse Locations Management */}
+      {activeTab === 'warehouse' && (
+        <div className="space-y-6">
 
       {/* Key Metric Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -885,6 +973,18 @@ export const WarehousesPage: React.FC = () => {
             </table>
           </div>
         </div>
+      )}
+        </div>
+      )}
+
+      {/* Tab 2: Stock Transfer */}
+      {activeTab === 'transfers' && (
+        <WarehouseStockTransfersTab />
+      )}
+
+      {/* Tab 3: Stock Adjustment */}
+      {activeTab === 'adjustments' && (
+        <WarehouseStockAdjustmentsTab />
       )}
 
       {/* Warehouse Create / Edit Modal */}

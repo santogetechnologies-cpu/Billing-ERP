@@ -456,7 +456,7 @@ export interface StockBalance {
   updatedAt?: string;
 }
 
-export type TransferStatus = 'Completed' | 'Requested' | 'Approved' | 'Sent' | 'Received' | 'Cancelled' | 'Rejected' | 'In Transit';
+export type TransferStatus = 'Completed' | 'Requested' | 'Approved' | 'Sent' | 'Received' | 'Cancelled' | 'Rejected' | 'In Transit' | 'Pending';
 
 export interface StockTransferItem {
   id?: string;

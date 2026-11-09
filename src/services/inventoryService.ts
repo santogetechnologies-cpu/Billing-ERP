@@ -556,7 +556,7 @@ export const inventoryService = {
         }
       }
 
-      // Status 'Cancelled' / 'Rejected': If goods were already Sent, refund back to source
+      // Status 'Cancelled' / 'Rejected': If goods were already Sent or Completed, refund back
       if ((status === 'Cancelled' || status === 'Rejected') && oldStatus === 'Sent') {
         for (const item of items) {
           await this.updateStockBalance(fromWhId, item.product_id, Number(item.qty), finalCompanyId);
@@ -573,6 +573,30 @@ export const inventoryService = {
             reference_id: transferId,
             reference_number: currentTransfer.transfer_number,
             notes: 'Reversed transfer dispatch upon cancellation'
+          });
+        }
+      } else if ((status === 'Cancelled' || status === 'Rejected') && oldStatus === 'Completed') {
+        for (const item of items) {
+          // Re-add to source warehouse
+          await this.updateStockBalance(fromWhId, item.product_id, Number(item.qty), finalCompanyId);
+          // Deduct from destination warehouse
+          if (toWhId) {
+            await this.updateStockBalance(toWhId, item.product_id, -Number(item.qty), finalCompanyId);
+          }
+          await supabase.from('stock_transactions').insert({
+            company_id: finalCompanyId,
+            date: new Date().toISOString().split('T')[0],
+            type: 'Stock Transfer',
+            product_id: item.product_id,
+            product_name: item.product_name,
+            warehouse_id: fromWhId,
+            warehouse_to_id: toWhId,
+            qty: Number(item.qty),
+            unit: item.unit,
+            reference_type: 'Transfer Reversal',
+            reference_id: transferId,
+            reference_number: currentTransfer.transfer_number,
+            notes: 'Reversed completed transfer upon cancellation'
           });
         }
       }
@@ -910,7 +934,7 @@ export const inventoryService = {
     warehouse: string,
     companyId?: string,
     currentUser?: { id: string; name: string; role?: string },
-    options?: { productName?: string; warehouseName?: string; unit?: string }
+    options?: { productName?: string; warehouseName?: string; unit?: string; referenceDoc?: string }
   ): Promise<InventoryTransaction> {
     // 0. Strict RBAC Enforcement: Only Owner, Admin, and Purchase Manager can adjust stock.
     // Warehouse Manager, Salesperson, Cashier, Accountant are strictly blocked with 403 Forbidden.
@@ -1026,7 +1050,7 @@ export const inventoryService = {
 
     // 3. Record stock transaction
     const dateStr = new Date().toISOString().split('T')[0];
-    const refDoc = 'ADJ-' + new Date().toISOString().replace(/\D/g, '').slice(2, 10);
+    const refDoc = options?.referenceDoc || ('ADJ-' + new Date().toISOString().replace(/\D/g, '').slice(2, 10));
     let txnId = 'txn-' + Date.now();
 
     try {

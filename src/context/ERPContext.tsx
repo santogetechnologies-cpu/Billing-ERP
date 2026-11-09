@@ -213,7 +213,13 @@ export interface ERPContextType {
   toggleWarehouseStatus: (id: string, isActive: boolean) => Promise<void>;
   createStockTransfer: (transfer: Omit<StockTransfer, 'id' | 'createdAt'>) => Promise<StockTransfer>;
   updateTransferStatus: (id: string, status: StockTransfer['status'], actorName?: string) => Promise<void>;
-  adjustStock: (productId: string, adjustmentQty: number, reason: string, warehouse: string) => Promise<void>;
+  adjustStock: (
+    productId: string,
+    adjustmentQty: number,
+    reason: string,
+    warehouse: string,
+    options?: { referenceDoc?: string; productName?: string; warehouseName?: string; unit?: string }
+  ) => Promise<void>;
   recordOpeningStock: (params: Parameters<typeof inventoryService.recordOpeningStock>[0]) => Promise<InventoryTransaction>;
   recordStockBundle: (bundle: Parameters<typeof inventoryService.recordStockBundle>[0]) => Promise<{ success: boolean; count: number }>;
   getWarehouseStock: (warehouseIdOrCode: string | undefined, productId: string) => number;
@@ -1824,14 +1830,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Stock Adjustment
-  const adjustStock = async (productId: string, adjustmentQty: number, reason: string, warehouse: string) => {
+  const adjustStock = async (
+    productId: string,
+    adjustmentQty: number,
+    reason: string,
+    warehouse: string,
+    options?: { referenceDoc?: string; productName?: string; warehouseName?: string; unit?: string }
+  ) => {
     const txn = await inventoryService.adjustStock(
       productId,
       adjustmentQty,
       reason,
       warehouse,
       company.id,
-      user ? { id: user.id, name: profile?.full_name || user.email || 'User', role: profile?.role } : undefined
+      user ? { id: user.id, name: profile?.full_name || user.email || 'User', role: profile?.role } : undefined,
+      options
     );
     setInventoryTransactions(prev => [txn, ...prev.filter(t => t.id !== txn.id)]);
 
