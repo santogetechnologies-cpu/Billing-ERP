@@ -22,7 +22,8 @@ import {
   ShieldCheck,
   RefreshCw,
   Loader2,
-  Package
+  Package,
+  Mail
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -43,10 +44,16 @@ const LOCATION_TYPES: WarehouseType[] = [
 export const WarehousesPage: React.FC = () => {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const canManageWarehouse = profile?.role === 'Owner' || profile?.role === 'Admin' || profile?.role === 'Warehouse Manager';
+  const canManageWarehouse =
+    profile?.role === 'Owner' ||
+    profile?.role === 'Admin' ||
+    profile?.role === 'Warehouse Manager' ||
+    profile?.role === 'Purchase Manager';
   const {
     warehouses,
     stockBalances,
+    stockTransfers,
+    purchaseInvoices,
     products,
     users,
     addWarehouse,
@@ -61,8 +68,8 @@ export const WarehousesPage: React.FC = () => {
     return (users || []).filter(u => u.role === 'Warehouse Manager' || u.role === 'Admin' || u.role === 'Owner');
   }, [users]);
 
-  // View state
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  // View state: defaults to table as requested
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -83,23 +90,35 @@ export const WarehousesPage: React.FC = () => {
   const [formContactPerson, setFormContactPerson] = useState('');
   const [formManagerId, setFormManagerId] = useState<string>('');
   const [formPhone, setFormPhone] = useState('');
+  const [formEmail, setFormEmail] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formIsActive, setFormIsActive] = useState(true);
   const [formIsDefault, setFormIsDefault] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Helper to generate a clean, unique warehouse code (e.g. WH-001, WH-002)
+  const generateUniqueWarehouseCode = (): string => {
+    const existing = new Set(warehouses.map(w => (w.code || '').trim().toUpperCase()));
+    let num = warehouses.length + 1;
+    let code = `WH-${num.toString().padStart(3, '0')}`;
+    while (existing.has(code)) {
+      num++;
+      code = `WH-${num.toString().padStart(3, '0')}`;
+    }
+    return code;
+  };
+
   // Open Create Modal
   const handleOpenCreateModal = () => {
     setSelectedWarehouse(null);
     setFormName('');
-    // Auto generate code prefix
-    const count = warehouses.length + 1;
-    setFormCode(`WH-LOC-${count.toString().padStart(2, '0')}`);
-    setFormType('Branch Warehouse');
+    setFormCode(generateUniqueWarehouseCode());
+    setFormType('Main Warehouse');
     setFormAddress('');
     setFormContactPerson('');
     setFormManagerId('');
     setFormPhone('');
+    setFormEmail('');
     setFormDescription('');
     setFormIsActive(true);
     setFormIsDefault(warehouses.length === 0);
@@ -117,6 +136,7 @@ export const WarehousesPage: React.FC = () => {
     setFormContactPerson(wh.contactPerson || wh.managerName || '');
     setFormManagerId(wh.managerId || wh.managerIds?.[0] || '');
     setFormPhone(wh.phone || '');
+    setFormEmail(wh.email || '');
     setFormDescription(wh.description || '');
     setFormIsActive(wh.isActive ?? true);
     setFormIsDefault(Boolean(wh.isDefault));
@@ -181,6 +201,7 @@ export const WarehousesPage: React.FC = () => {
           address: formAddress.trim(),
           contactPerson: resolvedContact,
           phone: formPhone.trim(),
+          email: formEmail.trim(),
           description: formDescription.trim(),
           isActive: formIsActive,
           isDefault: formIsDefault,
@@ -195,6 +216,7 @@ export const WarehousesPage: React.FC = () => {
           address: formAddress.trim(),
           contactPerson: resolvedContact,
           phone: formPhone.trim(),
+          email: formEmail.trim(),
           description: formDescription.trim(),
           isActive: formIsActive,
           isDefault: formIsDefault,
@@ -210,9 +232,51 @@ export const WarehousesPage: React.FC = () => {
     }
   };
 
+  // Helper to validate whether a warehouse is safe to delete
+  const checkWarehouseUsage = (wh: Warehouse | null): string | null => {
+    if (!wh) return null;
+
+    // 1. Check stock balances
+    const hasStock = products.some(p => getWarehouseStock(wh.id, p.id) > 0);
+    if (hasStock) {
+      return 'This warehouse contains active inventory stock. Stock must be transferred or adjusted to zero first.';
+    }
+
+    // 2. Check linked purchase orders and purchase bills
+    const linkedPO = (purchaseInvoices || []).find(
+      inv => inv.warehouse === wh.id ||
+        inv.warehouse === wh.name ||
+        inv.warehouse === wh.code ||
+        (inv as any).warehouseId === wh.id ||
+        (inv as any).destinationWarehouseId === wh.id
+    );
+    if (linkedPO) {
+      const docNum = linkedPO.purchaseOrderNumber || linkedPO.supplierInvoiceNumber || linkedPO.invoiceNumber || linkedPO.id;
+      return `This warehouse is linked to existing purchase records (#${docNum}). Deleting it would compromise order history.`;
+    }
+
+    // 3. Check stock transfers
+    const hasTransfers = (stockTransfers || []).some(
+      st => (st.fromWarehouseId === wh.id || st.toWarehouseId === wh.id) &&
+        (st.status === 'Requested' || st.status === 'Approved' || st.status === 'Sent')
+    );
+    if (hasTransfers) {
+      return 'This warehouse has pending or in-transit stock transfers.';
+    }
+
+    return null;
+  };
+
+  const deleteUsageWarning = checkWarehouseUsage(selectedWarehouse);
+
   // Confirm Delete
   const handleConfirmDelete = async () => {
     if (!selectedWarehouse || isSubmitting) return;
+    const warning = checkWarehouseUsage(selectedWarehouse);
+    if (warning) {
+      alert(`Cannot delete warehouse: ${warning}\nPlease mark this warehouse as Inactive instead.`);
+      return;
+    }
     setIsSubmitting(true);
     try {
       await deleteWarehouse(selectedWarehouse.id);
@@ -282,7 +346,9 @@ export const WarehousesPage: React.FC = () => {
         w.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         w.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (w.contactPerson && w.contactPerson.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (w.address && w.address.toLowerCase().includes(searchTerm.toLowerCase()));
+        (w.address && w.address.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (w.phone && w.phone.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (w.email && w.email.toLowerCase().includes(searchTerm.toLowerCase()));
 
       const locType = w.locationType || w.type || 'Main Warehouse';
       const matchesType = typeFilter === 'All' || locType === typeFilter;
@@ -681,125 +747,140 @@ export const WarehousesPage: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-500 font-semibold uppercase text-[10px] tracking-wider">
-                  <th className="py-3 px-4">Warehouse</th>
-                  <th className="py-3 px-3">Type</th>
-                  <th className="py-3 px-3">Contact & Phone</th>
-                  <th className="py-3 px-3 text-center">SKUs</th>
-                  <th className="py-3 px-3 text-right">Stock Qty</th>
-                  <th className="py-3 px-3 text-right">Asset Value</th>
-                  <th className="py-3 px-3 text-center">Status</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
+                  <th className="py-3.5 px-4">Warehouse Name</th>
+                  <th className="py-3.5 px-3">Warehouse Code</th>
+                  <th className="py-3.5 px-3">Location</th>
+                  <th className="py-3.5 px-3">Contact Person</th>
+                  <th className="py-3.5 px-3">Contact Number</th>
+                  <th className="py-3.5 px-3 text-center">Status</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredWarehouses.map(wh => {
-                  const locType = wh.locationType || wh.type || 'Main Warehouse';
-                  const isActive = wh.isActive ?? true;
-                  const stats = getWarehouseStats(wh.id, wh.code);
+                {filteredWarehouses.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-500">
+                      <WarehouseIcon className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="font-semibold text-slate-700">No warehouses found</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Try adjusting your search or filters, or add a new warehouse location.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredWarehouses.map(wh => {
+                    const locType = wh.locationType || wh.type || 'Main Warehouse';
+                    const isActive = wh.isActive ?? true;
 
-                  return (
-                    <tr key={wh.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/60">
+                    return (
+                      <tr key={wh.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                            <span>{wh.name}</span>
+                            {wh.isDefault && (
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                Primary Hub
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5">
+                            <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded border ${getTypeBadge(locType)}`}>
+                              {locType}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3">
+                          <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200/60">
                             {wh.code}
-                          </div>
-                          <div>
-                            <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                              {wh.name}
-                              {wh.isDefault && (
-                                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
-                                  Default
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-slate-500 truncate max-w-xs">{wh.address || '—'}</div>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border ${getTypeBadge(locType)}`}>
-                          {locType}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        <div className="font-semibold text-slate-800 flex items-center gap-1">
-                          <User className="w-3 h-3 text-blue-500 shrink-0" />
-                          {wh.managerName || wh.contactPerson || <span className="text-slate-400 font-normal italic">Unassigned</span>}
-                        </div>
-                        <div className="text-[11px] text-slate-500">{wh.phone || '—'}</div>
-                      </td>
-
-                      <td className="py-3 px-3 text-center font-bold text-slate-700">{stats.skuCount}</td>
-
-                      <td className="py-3 px-3 text-right font-bold text-indigo-700">
-                        {stats.totalUnits.toLocaleString()}
-                      </td>
-
-                      <td className="py-3 px-3 text-right font-bold text-emerald-700">
-                        {formatCurrency(stats.totalValuation)}
-                      </td>
-
-                      <td className="py-3 px-3 text-center">
-                        {canManageWarehouse ? (
-                          <button
-                            onClick={() => handleToggleStatus(wh)}
-                            className={`px-2 py-0.5 text-[10px] font-bold rounded-full border cursor-pointer ${
-                              isActive
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                                : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                            }`}
-                          >
-                            {isActive ? 'Active' : 'Inactive'}
-                          </button>
-                        ) : (
-                          <span
-                            className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                              isActive
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-rose-50 text-rose-700 border-rose-200'
-                            }`}
-                          >
-                            {isActive ? 'Active' : 'Inactive'}
                           </span>
-                        )}
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleOpenStockModal(wh)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                            title="View Stock Breakdown"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {canManageWarehouse && (
-                            <>
-                              <button
-                                onClick={() => handleOpenEditModal(wh)}
-                                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                                title="Edit"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleOpenDeleteModal(wh)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </>
+                        <td className="py-3.5 px-3 text-slate-600">
+                          <div className="flex items-start gap-1 max-w-xs">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                            <span className="truncate">{wh.address || '—'}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3">
+                          <div className="font-semibold text-slate-800 flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span>{wh.contactPerson || wh.managerName || <span className="text-slate-400 font-normal italic">Unassigned</span>}</span>
+                          </div>
+                          {wh.email && (
+                            <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                              <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span>{wh.email}</span>
+                            </div>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        </td>
+
+                        <td className="py-3.5 px-3 text-slate-700">
+                          <div className="flex items-center gap-1">
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{wh.phone || '—'}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3 text-center">
+                          {canManageWarehouse ? (
+                            <button
+                              onClick={() => handleToggleStatus(wh)}
+                              className={`px-2.5 py-0.5 text-[10px] font-bold rounded-full border cursor-pointer transition-colors ${
+                                isActive
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                              }`}
+                              title={`Click to toggle warehouse status (${isActive ? 'Active' : 'Inactive'})`}
+                            >
+                              {isActive ? 'Active' : 'Inactive'}
+                            </button>
+                          ) : (
+                            <span
+                              className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-full border ${
+                                isActive
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}
+                            >
+                              {isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenStockModal(wh)}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                              title="View & Manage Warehouse Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            {canManageWarehouse && (
+                              <>
+                                <button
+                                  onClick={() => handleOpenEditModal(wh)}
+                                  className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                  title="Edit Warehouse"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleOpenDeleteModal(wh)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Delete Warehouse"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -866,13 +947,13 @@ export const WarehousesPage: React.FC = () => {
 
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
-                Unique Warehouse Code <span className="text-rose-500">*</span>
+                Warehouse Code (Auto-generated & Unique) <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
                 value={formCode}
                 onChange={e => setFormCode(e.target.value.toUpperCase())}
-                placeholder="e.g. WH-EAST-01"
+                placeholder="e.g. WH-001"
                 required
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono font-bold"
               />
@@ -908,6 +989,12 @@ export const WarehousesPage: React.FC = () => {
                   if (matched && !formContactPerson) {
                     setFormContactPerson(matched.name);
                   }
+                  if (matched && matched.email && !formEmail) {
+                    setFormEmail(matched.email);
+                  }
+                  if (matched && matched.phone && !formPhone) {
+                    setFormPhone(matched.phone);
+                  }
                 }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-medium"
               >
@@ -921,20 +1008,18 @@ export const WarehousesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Contact Person Name</label>
+              <label className="block font-semibold text-slate-700 mb-1">Contact Person</label>
               <input
                 type="text"
                 value={formContactPerson}
                 onChange={e => setFormContactPerson(e.target.value)}
-                placeholder="e.g. Rajesh Sharma (Manager)"
+                placeholder="e.g. Rajesh Sharma"
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-medium"
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Phone Number</label>
+              <label className="block font-semibold text-slate-700 mb-1">Contact Number</label>
               <input
                 type="tel"
                 value={formPhone}
@@ -943,14 +1028,30 @@ export const WarehousesPage: React.FC = () => {
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-medium"
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Email Address</label>
+              <input
+                type="email"
+                value={formEmail}
+                onChange={e => setFormEmail(e.target.value)}
+                placeholder="e.g. warehouse@company.com"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-medium"
+              />
+            </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Address / Location Details</label>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Warehouse Location / Address <span className="text-rose-500">*</span>
+              </label>
               <input
                 type="text"
                 value={formAddress}
                 onChange={e => setFormAddress(e.target.value)}
                 placeholder="e.g. Shed 14, Industrial Area Phase II, Chennai"
+                required
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-medium"
               />
             </div>
@@ -970,9 +1071,9 @@ export const WarehousesPage: React.FC = () => {
           <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
             <div className="flex items-center justify-between">
               <div>
-                <span className="font-semibold text-slate-900 block">Active Status</span>
+                <span className="font-semibold text-slate-900 block">Warehouse Status (Active / Inactive)</span>
                 <span className="text-[11px] text-slate-500">
-                  Active locations can receive purchase goods and participate in stock transfers.
+                  Active warehouses can receive purchase goods, participate in POs, and manage stock. Inactive warehouses cannot be selected for new purchase orders.
                 </span>
               </div>
               <input
@@ -1001,12 +1102,12 @@ export const WarehousesPage: React.FC = () => {
         </form>
       </Modal>
 
-      {/* Warehouse Stock Breakdown Modal */}
+      {/* View & Manage Warehouse Details Modal */}
       <Modal
         isOpen={isStockModalOpen}
         onClose={() => setIsStockModalOpen(false)}
-        title={`Stock Inventory: ${selectedWarehouse?.name || ''}`}
-        subtitle={`Warehouse Code: ${selectedWarehouse?.code || ''} • Location Type: ${selectedWarehouse?.locationType || selectedWarehouse?.type || ''}`}
+        title={`Warehouse Details: ${selectedWarehouse?.name || ''}`}
+        subtitle={`Warehouse Code: ${selectedWarehouse?.code || ''} • Location Type: ${selectedWarehouse?.locationType || selectedWarehouse?.type || 'Main Warehouse'}`}
         size="lg"
         footer={
           <div className="flex justify-between items-center w-full">
@@ -1014,6 +1115,20 @@ export const WarehousesPage: React.FC = () => {
               Showing <span className="font-bold text-slate-800">{selectedWarehouseProducts.length}</span> stocked products
             </div>
             <div className="flex gap-2">
+              {canManageWarehouse && selectedWarehouse && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const wh = selectedWarehouse;
+                    setIsStockModalOpen(false);
+                    handleOpenEditModal(wh);
+                  }}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Warehouse</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -1023,13 +1138,55 @@ export const WarehousesPage: React.FC = () => {
                 className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <ArrowRightLeft className="w-3.5 h-3.5" />
-                <span>Transfer From This Warehouse</span>
+                <span>Stock Transfers</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsStockModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>
         }
       >
-        <div className="space-y-3.5 text-xs">
+        <div className="space-y-4 text-xs">
+          {/* Warehouse Information Overview Card */}
+          {selectedWarehouse && (
+            <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Location / Address</div>
+                  <div className="font-medium text-slate-800 mt-0.5">{selectedWarehouse.address || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Contact Person</div>
+                  <div className="font-semibold text-slate-900 mt-0.5">{selectedWarehouse.contactPerson || selectedWarehouse.managerName || '—'}</div>
+                  {selectedWarehouse.phone && <div className="text-[11px] text-slate-500">{selectedWarehouse.phone}</div>}
+                  {selectedWarehouse.email && <div className="text-[11px] text-slate-500">{selectedWarehouse.email}</div>}
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Status & Hub</div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      (selectedWarehouse.isActive ?? true)
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-rose-100 text-rose-800 border border-rose-300'
+                    }`}>
+                      {(selectedWarehouse.isActive ?? true) ? 'Active' : 'Inactive'}
+                    </span>
+                    {selectedWarehouse.isDefault && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                        Primary Hub
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Search inside modal */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1045,13 +1202,13 @@ export const WarehousesPage: React.FC = () => {
           {selectedWarehouseProducts.length === 0 ? (
             <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
               <Package className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <p className="font-semibold text-slate-700">No products stocked in this warehouse</p>
+              <p className="font-semibold text-slate-700">No products currently stocked in this warehouse</p>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Transfer stock to this location or receive purchase bills here.
+                Transfer stock to this location or assign it as the destination warehouse for purchase orders.
               </p>
             </div>
           ) : (
-            <div className="max-h-[380px] overflow-y-auto border border-slate-200 rounded-xl">
+            <div className="max-h-[340px] overflow-y-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-[10px] uppercase font-semibold text-slate-500">
                   <tr>
@@ -1095,41 +1252,69 @@ export const WarehousesPage: React.FC = () => {
               type="button"
               disabled={isSubmitting}
               onClick={() => setIsDeleteModalOpen(false)}
-              className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+              className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50"
             >
               Cancel
             </button>
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={handleConfirmDelete}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Deleting...</span>
-                </>
-              ) : (
-                <span>Confirm Delete</span>
-              )}
-            </button>
+            {deleteUsageWarning ? (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={async () => {
+                  if (selectedWarehouse) {
+                    await toggleWarehouseStatus(selectedWarehouse.id, false);
+                    setIsDeleteModalOpen(false);
+                  }
+                }}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg flex items-center gap-1.5 shadow-xs"
+              >
+                Inactivate Warehouse Instead
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleConfirmDelete}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Confirm Delete</span>
+                )}
+              </button>
+            )}
           </div>
         }
       >
         <div className="space-y-3 text-xs">
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold">Are you sure you want to delete this warehouse?</p>
-              <p className="text-[11px] text-amber-700 mt-1">
-                Warehouse: <strong className="text-slate-900">{selectedWarehouse?.name}</strong> ({selectedWarehouse?.code})
+          {deleteUsageWarning ? (
+            <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-amber-800">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Cannot Delete Warehouse</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-800">
+                {deleteUsageWarning}
+              </p>
+              <p className="text-[10px] text-amber-700 pt-1.5 border-t border-amber-200/80 leading-normal">
+                To prevent inventory inconsistencies and preserve purchase order history, active warehouses with transactions cannot be deleted. You can mark this warehouse as <strong>Inactive</strong> instead.
               </p>
             </div>
-          </div>
-          <p className="text-slate-500">
-            Note: Warehouses containing active in-stock inventory or pending stock transfers cannot be deleted and will be archived instead to prevent inventory corruption.
-          </p>
+          ) : (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Are you sure you want to permanently delete this warehouse?</p>
+                <p className="text-[11px] text-rose-700 mt-1">
+                  Warehouse: <strong className="text-slate-900">{selectedWarehouse?.name}</strong> ({selectedWarehouse?.code})
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

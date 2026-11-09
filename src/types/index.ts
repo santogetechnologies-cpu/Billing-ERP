@@ -437,6 +437,7 @@ export interface Warehouse {
   address: string;
   contactPerson?: string;
   phone?: string;
+  email?: string;
   description?: string;
   isActive?: boolean;
   isDefault?: boolean;

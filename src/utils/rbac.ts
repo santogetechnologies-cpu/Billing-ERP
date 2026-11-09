@@ -636,11 +636,13 @@ export function canAccessRoute(
     );
   }
 
-  // Warehouse Details & Locations (/inventory/warehouses):
-  // Authorized: Owner, Admin, Warehouse Manager, and Purchase Manager (View-only for stock visibility & purchasing destinations)
+  // Warehouse Details & Locations (/inventory/warehouses, /warehouses):
+  // Authorized: Owner, Admin, Warehouse Manager, and Purchase Manager
   if (
     cleanPath === '/inventory/warehouses' ||
-    cleanPath.startsWith('/inventory/warehouses/')
+    cleanPath.startsWith('/inventory/warehouses/') ||
+    cleanPath === '/warehouses' ||
+    cleanPath.startsWith('/warehouses/')
   ) {
     return (
       normalizedRole === 'Owner' ||
@@ -822,6 +824,7 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Purchases',
     'Product',
     'Inventory',
+    'Warehouse',
     'Warehouses / Godowns',
     'Customers',
     'Suppliers',
@@ -843,6 +846,7 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Purchases',
     'Product',
     'Inventory',
+    'Warehouse',
     'Warehouses / Godowns',
     'Customers',
     'Suppliers',
@@ -880,10 +884,10 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Supplier Details',
     'Product',
     'Inventory',
+    'Warehouse',
     'Warehouses / Godowns',
     'Warehouse Details',
     'Expenses',
-        'Payments',
     'Barcodes & Labels',
     'Barcode',
     'Settings'
@@ -891,6 +895,7 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
   'Warehouse Manager': [
     'Dashboard',
     'Inventory',
+    'Warehouse',
     'Warehouses / Godowns',
     'Barcode',
     'Settings'
@@ -930,7 +935,7 @@ export function canRoleAccessNavItem(
   if (id === 'dashboard' || id === 'home') return true;
 
   if (id === 'payments' || id === 'payment' || id === 'paymentsmanagement') {
-    return normalizedRole === 'Purchase Manager';
+    return false;
   }
 
   if (id === 'pos' || id === 'billingpos' || id === 'billing') {
@@ -951,6 +956,10 @@ export function canRoleAccessNavItem(
 
   if (id === 'stock' || id === 'inventory' || id === 'stockgodowns') {
     return normalizedRole === 'Warehouse Manager';
+  }
+
+  if (id === 'warehouses' || id === 'warehouse' || id === 'warehousesgodowns' || id === 'warehousedetails' || id === 'warehousemanagement') {
+    return normalizedRole === 'Purchase Manager' || normalizedRole === 'Warehouse Manager';
   }
 
   if (id === 'conversion' || id === 'repackaging' || id === 'repackagingbom') {

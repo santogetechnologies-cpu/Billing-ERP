@@ -422,7 +422,15 @@ export function App() {
               <Route
                 path="inventory/warehouses"
                 element={
-                  <ProtectedRoute requiredModule="inventory" requiredAction="manage">
+                  <ProtectedRoute requiredModule="inventory">
+                    <WarehousesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="warehouses"
+                element={
+                  <ProtectedRoute requiredModule="inventory">
                     <WarehousesPage />
                   </ProtectedRoute>
                 }

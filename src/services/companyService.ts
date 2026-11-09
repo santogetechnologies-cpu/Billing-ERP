@@ -234,6 +234,7 @@ export const companyService = {
         address: w.address || '',
         contactPerson: w.contact_person || meta.contactPerson || '',
         phone: w.phone || meta.phone || '',
+        email: meta.email || (w as any).email || '',
         description: w.description || meta.description || '',
         isActive,
         isDefault: Boolean(w.is_default),
@@ -305,6 +306,7 @@ export const companyService = {
       address?: string;
       contactPerson?: string;
       phone?: string;
+      email?: string;
       description?: string;
       isActive?: boolean;
       isDefault?: boolean;
@@ -393,6 +395,7 @@ export const companyService = {
       type: locType,
       contactPerson: warehouse.contactPerson || '',
       phone: warehouse.phone || '',
+      email: warehouse.email || '',
       description: warehouse.description || '',
       isActive,
       managerId: warehouse.managerId || null,
@@ -412,6 +415,7 @@ export const companyService = {
       address: insertedData.address || '',
       contactPerson: warehouse.contactPerson || '',
       phone: warehouse.phone || '',
+      email: warehouse.email || '',
       description: warehouse.description || '',
       isActive,
       isDefault: Boolean(insertedData.is_default),
@@ -505,6 +509,7 @@ export const companyService = {
       ...(locType ? { locationType: locType, type: locType } : {}),
       ...(updates.contactPerson !== undefined ? { contactPerson: updates.contactPerson } : {}),
       ...(updates.phone !== undefined ? { phone: updates.phone } : {}),
+      ...(updates.email !== undefined ? { email: updates.email } : {}),
       ...(updates.description !== undefined ? { description: updates.description } : {}),
       ...(updates.isActive !== undefined ? { isActive: updates.isActive } : {}),
       ...(updates.managerId !== undefined ? { managerId: updates.managerId } : {}),
@@ -521,6 +526,9 @@ export const companyService = {
       name: updates.name || '',
       code: updates.code || '',
       address: updates.address || '',
+      phone: updates.phone || '',
+      email: updates.email || '',
+      contactPerson: updates.contactPerson || '',
       isActive: updates.isActive ?? true,
       managerId: updates.managerId,
       managerName: updates.managerName,
@@ -557,6 +565,36 @@ export const companyService = {
 
     if (transfers && transfers.length > 0) {
       throw new Error('Cannot delete warehouse with active pending or in-transit stock transfers.');
+    }
+
+    // Check purchase orders linked to this warehouse
+    try {
+      const { data: pos } = await supabase
+        .from('purchase_orders')
+        .select('id, po_number')
+        .or(`warehouse_id.eq.${id},destination_warehouse_id.eq.${id}`)
+        .limit(1);
+
+      if (pos && pos.length > 0) {
+        throw new Error('Cannot delete warehouse: It is linked to existing purchase orders. Please inactivate this warehouse instead.');
+      }
+    } catch (e: any) {
+      if (e?.message && e.message.includes('Cannot delete warehouse')) throw e;
+    }
+
+    // Check inventory transactions linked to this warehouse
+    try {
+      const { data: txs } = await supabase
+        .from('inventory_transactions')
+        .select('id')
+        .eq('warehouse_id', id)
+        .limit(1);
+
+      if (txs && txs.length > 0) {
+        throw new Error('Cannot delete warehouse: It is linked to existing inventory transactions and stock history. Please inactivate this warehouse instead.');
+      }
+    } catch (e: any) {
+      if (e?.message && e.message.includes('Cannot delete warehouse')) throw e;
     }
 
     // Execute deletion from warehouses

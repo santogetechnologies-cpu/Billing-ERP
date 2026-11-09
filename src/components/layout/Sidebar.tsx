@@ -24,7 +24,7 @@ import {
   Store,
   Wallet,
   Scale,
-  CreditCard
+  Warehouse
 } from 'lucide-react';
 
 import { useERP } from '../../context/ERPContext';
@@ -166,6 +166,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: 'Inventory & Stock'
     },
     {
+      id: 'warehouses',
+      name: 'Warehouse',
+      path: '/inventory/warehouses',
+      icon: Warehouse,
+      section: 'Inventory & Stock'
+    },
+    {
       id: 'conversion',
       name: 'Repackaging / BOM',
       path: '/inventory/conversion',
@@ -188,13 +195,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
 
     // Section 3: Finance & People
-    {
-      id: 'payments',
-      name: 'Payments',
-      path: '/payments',
-      icon: CreditCard,
-      section: 'Finance & Staff'
-    },
     {
       id: 'accounts',
       name: 'Accounts & Daybook',
@@ -313,7 +313,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return cur === '/purchases' || cur.startsWith('/purchases/');
     }
 
+    if (item.id === 'warehouses' || item.id === 'warehouse') {
+      return (
+        cur === '/inventory/warehouses' ||
+        cur.startsWith('/inventory/warehouses/') ||
+        cur === '/warehouses' ||
+        cur.startsWith('/warehouses/')
+      );
+    }
+
     if (item.id === 'stock') {
+      if (cur === '/inventory/warehouses' || cur.startsWith('/inventory/warehouses/')) return false;
       return cur === '/inventory' || cur.startsWith('/inventory/') || cur === '/stock' || cur.startsWith('/stock/');
     }
 
@@ -335,17 +345,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     if (item.id === 'pricing') {
       return cur === '/pricing' || cur.startsWith('/pricing/');
-    }
-
-    if (item.id === 'payments') {
-      return (
-        cur === '/payments' ||
-        cur.startsWith('/payments/') ||
-        cur === '/cash-bank' ||
-        cur.startsWith('/cash-bank/') ||
-        cur === '/receivables' ||
-        cur === '/payables'
-      );
     }
 
     if (item.id === 'accounts') {

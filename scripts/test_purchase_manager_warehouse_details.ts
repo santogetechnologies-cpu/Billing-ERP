@@ -54,22 +54,22 @@ runTest('Salesperson, Cashier, and Accountant CANNOT access /inventory/warehouse
   assert.strictEqual(canAccessRoute('Accountant', '/inventory/warehouses'), false);
 });
 
-runTest('Sidebar.tsx labels warehouse item as "Warehouse Details" for Purchase Manager', () => {
+runTest('Sidebar.tsx includes Warehouse item for Purchase Manager', () => {
   const sidebarContent = fs.readFileSync(path.resolve('src/components/layout/Sidebar.tsx'), 'utf8');
   assert.ok(
-    sidebarContent.includes("profile?.role === 'Purchase Manager' ? 'Warehouse Details' : 'Warehouses / Godowns'"),
-    'Sidebar must dynamically label top-level item as Warehouse Details for Purchase Manager'
+    sidebarContent.includes("name: 'Warehouse',") || sidebarContent.includes("name: 'Warehouse'"),
+    'Sidebar must include Warehouse menu item'
   );
   assert.ok(
-    sidebarContent.includes("name: 'Warehouse Details', path: '/inventory/warehouses'"),
-    'Sidebar Inventory sub-items must include Warehouse Details for Purchase Manager'
+    sidebarContent.includes("path: '/inventory/warehouses'"),
+    'Sidebar warehouse path must be /inventory/warehouses'
   );
 });
 
 // -----------------------------------------------------------------------------
 // 2. WarehousesPage.tsx Permissions & Boundaries
 // -----------------------------------------------------------------------------
-console.log('\n--- 2. WarehousesPage Read-Only Security for Purchase Manager ---');
+console.log('\n--- 2. WarehousesPage Security & Permissions ---');
 
 runTest('WarehousesPage checks canManageWarehouse guarding add/edit/delete operations', () => {
   const pageContent = fs.readFileSync(path.resolve('src/pages/inventory/WarehousesPage.tsx'), 'utf8');
@@ -78,8 +78,8 @@ runTest('WarehousesPage checks canManageWarehouse guarding add/edit/delete opera
     'WarehousesPage must define canManageWarehouse'
   );
   assert.ok(
-    pageContent.includes("profile?.role === 'Owner' || profile?.role === 'Admin' || profile?.role === 'Warehouse Manager'"),
-    'canManageWarehouse must be restricted to Owner, Admin, and Warehouse Manager'
+    pageContent.includes("profile?.role === 'Purchase Manager'"),
+    'canManageWarehouse must include Purchase Manager'
   );
   assert.ok(
     pageContent.includes('{canManageWarehouse && ('),
