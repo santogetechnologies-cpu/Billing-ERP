@@ -122,6 +122,9 @@ export const productService = {
       code: p.code || '',
       sku: p.sku,
       barcode: p.barcode || '',
+      barcodeType: p.barcode_type || (p.manufacturer_barcode ? 'Manufacturer / Manual' : 'Auto Generated'),
+      manufacturerBarcode: p.manufacturer_barcode || undefined,
+      isManufacturerBarcodeActive: Boolean(p.is_manufacturer_barcode_active),
       category: p.category || p.subcategory || 'General',
       subcategory: p.subcategory || '',
       brand: p.brand || '',
@@ -219,6 +222,9 @@ export const productService = {
       code: p.code || p.sku,
       sku: p.sku,
       barcode: p.barcode || p.sku,
+      barcode_type: p.barcodeType || 'Auto Generated',
+      manufacturer_barcode: p.manufacturerBarcode || (p.barcodeType === 'Manufacturer / Manual' ? p.barcode : null),
+      is_manufacturer_barcode_active: p.isManufacturerBarcodeActive !== undefined ? p.isManufacturerBarcodeActive : (p.barcodeType === 'Manufacturer / Manual'),
       category: p.category || 'General',
       subcategory: p.subcategory || p.category,
       brand: p.brand || '',
@@ -365,7 +371,7 @@ export const productService = {
           product_id: data.id,
           barcode: p.barcode,
           barcode_value: p.barcode,
-          barcode_type: 'Code 128',
+          barcode_type: p.barcodeType === 'Manufacturer / Manual' ? 'Manufacturer' : 'Auto Generated',
           is_primary: true
         });
       }
@@ -430,6 +436,9 @@ export const productService = {
     if (updates.code !== undefined) dbPayload.code = updates.code;
     if (updates.sku !== undefined) dbPayload.sku = updates.sku;
     if (updates.barcode !== undefined) dbPayload.barcode = updates.barcode;
+    if (updates.barcodeType !== undefined) dbPayload.barcode_type = updates.barcodeType;
+    if (updates.manufacturerBarcode !== undefined) dbPayload.manufacturer_barcode = updates.manufacturerBarcode;
+    if (updates.isManufacturerBarcodeActive !== undefined) dbPayload.is_manufacturer_barcode_active = updates.isManufacturerBarcodeActive;
     if (updates.category !== undefined) {
       dbPayload.category = updates.category;
       dbPayload.subcategory = updates.category;

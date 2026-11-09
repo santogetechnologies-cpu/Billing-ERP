@@ -20,7 +20,8 @@ import {
   Link as LinkIcon,
   Lock,
   Barcode as BarcodeIcon,
-  Sparkles
+  Sparkles,
+  Scan
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -42,6 +43,7 @@ export interface ProductEntryItem {
   sku: string;
   code: string;
   barcode: string;
+  barcodeType?: 'Auto Generated' | 'Manufacturer / Manual';
   category: string;
   subcategory: string;
   brand: string;
@@ -283,6 +285,7 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
       sku: sku,
       code: sku,
       barcode: `890${Math.floor(100000000 + Math.random() * 900000000)}`,
+      barcodeType: 'Auto Generated',
       category: defaultCat,
       subcategory: '',
       brand: '',
@@ -471,12 +474,35 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
   const handleAutoGenerateBarcode = (index: number) => {
     const item = items[index];
     const baseVal = item.sku.trim() || 'PROD';
+    let newBarcode = '';
     if (generateBarcode) {
-      handleUpdateItem(index, 'barcode', generateBarcode(baseVal));
+      newBarcode = generateBarcode(baseVal);
     } else {
       const rand = Math.floor(100000000000 + Math.random() * 900000000000);
-      handleUpdateItem(index, 'barcode', String(rand));
+      newBarcode = String(rand);
     }
+    setItems(prev =>
+      prev.map((it, idx) => {
+        if (idx !== index) return it;
+        return {
+          ...it,
+          barcode: newBarcode,
+          barcodeType: 'Auto Generated'
+        };
+      })
+    );
+  };
+
+  const handleSwitchBarcodeManual = (index: number) => {
+    setItems(prev =>
+      prev.map((it, idx) => {
+        if (idx !== index) return it;
+        return {
+          ...it,
+          barcodeType: 'Manufacturer / Manual'
+        };
+      })
+    );
   };
 
   const handleAutoGenerateBatch = async (index: number) => {
@@ -786,6 +812,9 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
             code: item.code.trim() || item.sku.trim(),
             sku: item.sku.trim(),
             barcode: item.barcode.trim() || item.sku.trim(),
+            barcodeType: item.barcodeType || 'Auto Generated',
+            manufacturerBarcode: item.barcodeType === 'Manufacturer / Manual' ? item.barcode.trim() : undefined,
+            isManufacturerBarcodeActive: item.barcodeType === 'Manufacturer / Manual',
             category: item.category.trim() || 'General',
             subcategory: item.subcategory.trim() || item.category.trim(),
             brand: item.brand.trim(),
@@ -1512,7 +1541,7 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {/* Barcode */}
+                    {/* Barcode Section with Auto Generate and Manual Buttons */}
                     <div>
                       <div className="flex items-center justify-between mb-1 min-h-[18px]">
                         <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
@@ -1523,39 +1552,98 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
                             </span>
                           )}
                         </label>
-                        {isBarcodeEditable && (
+                      </div>
+
+                      {/* 1. Button Alignment: [ Auto Generate ] [ Manual ] in the same row */}
+                      {isBarcodeEditable && (
+                        <div className="flex items-center gap-2 mb-2">
                           <button
                             type="button"
                             onClick={() => handleAutoGenerateBarcode(idx)}
-                            className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                            className={`flex-1 h-8 px-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                              item.barcodeType !== 'Manufacturer / Manual'
+                                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs ring-1 ring-blue-500/20'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
                           >
-                            Generate Barcode
+                            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Auto Generate</span>
                           </button>
-                        )}
-                      </div>
-                      <input
-                        type="text"
-                        disabled={!isBarcodeEditable}
-                        placeholder={
-                          isBarcodeEditable
-                            ? 'Scan, enter or generate barcode'
-                            : 'No barcode assigned'
-                        }
-                        value={item.barcode}
-                        onChange={e => handleUpdateItem(idx, 'barcode', e.target.value)}
-                        className={`h-9 w-full text-xs font-mono px-3 py-1.5 rounded-lg border transition-all ${
-                          !isBarcodeEditable
-                            ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
-                            : 'border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900'
-                        }`}
-                      />
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        {!canAssign
-                          ? 'Requires Owner, Admin, or Purchase Manager permission.'
-                          : isBarcodePreAssigned && !canOverride
-                          ? 'Existing barcode is locked. Requires Owner or Admin permission to overwrite.'
-                          : 'Product identifier barcode (EAN-13 / Code 128)'}
-                      </p>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchBarcodeManual(idx)}
+                            className={`flex-1 h-8 px-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                              item.barcodeType === 'Manufacturer / Manual'
+                                ? 'bg-purple-50 border-purple-500 text-purple-700 shadow-2xs ring-1 ring-purple-500/20'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Scan className="w-3.5 h-3.5 text-purple-600" />
+                            <span>Manual</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* When Auto Generate is selected: display generated barcode number */}
+                      {item.barcodeType !== 'Manufacturer / Manual' && (
+                        <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs text-slate-800">
+                          <div className="flex items-center gap-2">
+                            <BarcodeIcon className="w-4 h-4 text-blue-600 shrink-0" />
+                            <span className="font-bold">{item.barcode || 'Click Auto Generate to create'}</span>
+                          </div>
+                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700 shrink-0">
+                            Auto
+                          </span>
+                        </div>
+                      )}
+
+                      {/* When Manual is selected, show the barcode input field directly below these buttons */}
+                      {item.barcodeType === 'Manufacturer / Manual' && (
+                        <div className="space-y-1">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              autoFocus
+                              disabled={!isBarcodeEditable}
+                              placeholder="Scan manufacturer barcode or type manually..."
+                              value={item.barcode}
+                              onChange={e => handleUpdateItem(idx, 'barcode', e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') e.preventDefault(); // Scanner sending Enter key
+                              }}
+                              className={`h-9 w-full text-xs font-mono pl-3 pr-16 py-1.5 rounded-lg border transition-all ${
+                                !isBarcodeEditable
+                                  ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
+                                  : 'border-slate-200 bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 text-slate-900'
+                              }`}
+                            />
+                            {item.barcode && isBarcodeEditable && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateItem(idx, 'barcode', '')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 text-[10px] font-semibold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                title="Clear barcode"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-400">
+                            Scan manufacturer packaging with USB/wireless scanner or enter barcode digits manually.
+                          </p>
+                        </div>
+                      )}
+
+                      {!isBarcodeEditable && (
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          {!canAssign
+                            ? 'Requires Owner, Admin, or Purchase Manager permission.'
+                            : isBarcodePreAssigned && !canOverride
+                            ? 'Existing barcode is locked. Requires Owner or Admin permission to overwrite.'
+                            : 'Product identifier barcode (EAN-13 / Code 128)'}
+                        </p>
+                      )}
                     </div>
 
                     {/* Batch Number */}

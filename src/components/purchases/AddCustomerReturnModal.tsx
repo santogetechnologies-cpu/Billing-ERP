@@ -68,7 +68,7 @@ export const AddCustomerReturnModal: React.FC<AddCustomerReturnModalProps> = ({
   const [productName, setProductName] = useState('');
   const [productPurchaseDate, setProductPurchaseDate] = useState('');
   const [purchasedQty, setPurchasedQty] = useState<number>(1);
-  const [returnQty, setReturnQty] = useState<number>(1);
+  const [returnQty, setReturnQty] = useState<string>('1');
   const [productUnit, setProductUnit] = useState<string>('Piece');
   const [unitPrice, setUnitPrice] = useState<number>(0);
 
@@ -110,7 +110,7 @@ export const AddCustomerReturnModal: React.FC<AddCustomerReturnModalProps> = ({
           setSelectedProductId(firstProd.id);
           setProductName(firstProd.name);
           setPurchasedQty(5);
-          setReturnQty(2);
+          setReturnQty('1');
           setProductUnit(firstProd.primaryUnit || 'Piece');
           setUnitPrice(firstProd.salePrice || 50);
         }
@@ -191,7 +191,7 @@ export const AddCustomerReturnModal: React.FC<AddCustomerReturnModalProps> = ({
         setSelectedProductId(item.productId);
         setProductName(item.productName);
         setPurchasedQty(item.qty || 1);
-        setReturnQty(Math.min(1, item.qty || 1));
+        setReturnQty('1');
         setProductUnit(item.unit || prod?.primaryUnit || 'Piece');
         setUnitPrice((item as any).unitPrice || item.rate || prod?.salePrice || 0);
       }
@@ -204,7 +204,7 @@ export const AddCustomerReturnModal: React.FC<AddCustomerReturnModalProps> = ({
         setSelectedProductId(p.id);
         setProductName(p.name);
         setPurchasedQty(5);
-        setReturnQty(1);
+        setReturnQty('1');
         setProductUnit(p.primaryUnit || 'Piece');
         setUnitPrice(p.salePrice || 50);
       }
@@ -225,7 +225,7 @@ export const AddCustomerReturnModal: React.FC<AddCustomerReturnModalProps> = ({
         setSelectedProductId(item.productId);
         setProductName(item.productName);
         setPurchasedQty(item.qty || 1);
-        setReturnQty(Math.min(1, item.qty || 1));
+        setReturnQty('1');
         setProductUnit(item.unit || prod?.primaryUnit || 'Piece');
         setUnitPrice((item as any).unitPrice || item.rate || prod?.salePrice || 0);
       }
@@ -239,7 +239,7 @@ export const AddCustomerReturnModal: React.FC<AddCustomerReturnModalProps> = ({
     if (item) {
       setProductName(item.productName);
       setPurchasedQty(item.qty);
-      setReturnQty(Math.min(1, item.qty));
+      setReturnQty('1');
       setProductUnit(item.unit);
       setUnitPrice(item.unitPrice);
     }
@@ -639,7 +639,30 @@ export const AddCustomerReturnModal: React.FC<AddCustomerReturnModalProps> = ({
                   min="1"
                   max={purchasedQty}
                   value={returnQty}
-                  onChange={e => setReturnQty(Math.max(1, Math.min(purchasedQty, Number(e.target.value) || 1)))}
+                  onFocus={e => e.target.select()}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                      setReturnQty('');
+                      return;
+                    }
+                    const num = parseInt(raw, 10);
+                    if (!isNaN(num)) {
+                      if (num > purchasedQty) {
+                        setReturnQty(String(purchasedQty));
+                      } else {
+                        setReturnQty(String(num));
+                      }
+                    }
+                  }}
+                  onBlur={() => {
+                    const num = parseInt(returnQty, 10);
+                    if (isNaN(num) || num < 1) {
+                      setReturnQty('1');
+                    } else if (num > purchasedQty) {
+                      setReturnQty(String(purchasedQty));
+                    }
+                  }}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 font-bold font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

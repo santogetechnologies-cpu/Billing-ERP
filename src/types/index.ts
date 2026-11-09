@@ -119,6 +119,7 @@ export interface Product {
   rateB?: number;
   rateC?: number;
   rateD?: number;
+  barcodeType?: 'Auto Generated' | 'Manufacturer / Manual';
   manufacturerBarcode?: string;
   isManufacturerBarcodeActive?: boolean;
   maxDiscountPercent?: number;

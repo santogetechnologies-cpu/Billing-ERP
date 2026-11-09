@@ -496,7 +496,7 @@ export function DataTable<T extends Record<string, any>>({
               {actions && (
                 <th
                   style={{ width: effectiveActionsWidth, minWidth: effectiveActionsWidth }}
-                  className="px-2.5 sm:px-3 py-3 text-right align-middle font-semibold text-[11px] tracking-normal uppercase text-slate-600 whitespace-nowrap"
+                  className={`${hideHorizontalScroll ? 'px-2.5 py-3' : 'px-2.5 sm:px-3 py-3'} text-right align-middle font-semibold text-[11px] tracking-normal uppercase text-slate-600 whitespace-nowrap`}
                 >
                   Actions
                 </th>
@@ -566,7 +566,7 @@ export function DataTable<T extends Record<string, any>>({
                     {actions && (
                       <td
                         style={{ width: effectiveActionsWidth, minWidth: effectiveActionsWidth }}
-                        className="px-2.5 sm:px-3 py-2.5 text-right font-medium align-middle whitespace-nowrap"
+                        className={`${hideHorizontalScroll ? 'px-2.5 py-2.5' : 'px-2.5 sm:px-3 py-2.5'} text-right font-medium align-middle whitespace-nowrap`}
                         onClick={e => e.stopPropagation()}
                       >
                         {actions(row)}

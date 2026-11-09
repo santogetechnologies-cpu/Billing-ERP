@@ -13,6 +13,7 @@ import {
   Percent,
   Barcode,
   Sparkles,
+  Scan,
   CheckCircle,
   AlertCircle,
   Check,
@@ -135,6 +136,7 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
   const [code, setCode] = useState('');
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
+  const [barcodeMode, setBarcodeMode] = useState<'auto' | 'manual'>('auto');
   const [category, setCategory] = useState('Building Materials');
   const [subcategory, setSubcategory] = useState('');
   const [brand, setBrand] = useState('');
@@ -322,6 +324,11 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
         setCode(existing.code || '');
         setSku(existing.sku || '');
         setBarcode(existing.barcode || '');
+        setBarcodeMode(
+          existing.barcodeType === 'Manufacturer / Manual' || existing.manufacturerBarcode
+            ? 'manual'
+            : 'auto'
+        );
         setCategory(existing.category || 'General');
         setSubcategory(existing.subcategory || '');
         setBrand(existing.brand || '');
@@ -396,10 +403,25 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
   const handleRegenerateSKU = () => {
     const newSku = generateSKU(category, name || 'Item');
     setSku(newSku);
-    setBarcode(generateBarcode(newSku));
+    if (barcodeMode === 'auto') {
+      setBarcode(generateBarcode(newSku));
+    }
     setErrors(prev => {
       const copy = { ...prev };
       delete copy.sku;
+      return copy;
+    });
+  };
+
+  const handleAutoGenerateBarcode = () => {
+    setBarcodeMode('auto');
+    const targetSku = sku.trim() || generateSKU(category, name || 'Item');
+    if (!sku.trim()) setSku(targetSku);
+    const newBarcode = generateBarcode(targetSku);
+    setBarcode(newBarcode);
+    setErrors(prev => {
+      const copy = { ...prev };
+      delete copy.barcode;
       return copy;
     });
   };
@@ -717,6 +739,9 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
         code: code.trim() || sku.trim(),
         sku: sku.trim(),
         barcode: barcode.trim() || sku.trim(),
+        barcodeType: (barcodeMode === 'manual' ? 'Manufacturer / Manual' : 'Auto Generated') as 'Auto Generated' | 'Manufacturer / Manual',
+        manufacturerBarcode: barcodeMode === 'manual' ? barcode.trim() : undefined,
+        isManufacturerBarcodeActive: barcodeMode === 'manual',
         category: category.trim() || 'General',
         subcategory: subcategory.trim() || category.trim(),
         brand: brand.trim(),
@@ -1210,23 +1235,92 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
                 {errors.sku && <p className="text-[11px] text-rose-600">{errors.sku}</p>}
               </div>
 
-              {/* Barcode Display */}
+              {/* Barcode Display with Auto Generate & Manual Buttons */}
               <div className="sm:col-span-1 p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                <span className="font-bold text-slate-800 block">Barcode (EAN-13 / Code 128)</span>
-                <input
-                  id="field-barcode"
-                  type="text"
-                  value={barcode}
-                  onChange={e => {
-                    setBarcode(e.target.value);
-                    if (errors.barcode) setErrors(prev => ({ ...prev, barcode: '' }));
-                  }}
-                  placeholder="8901234567890"
-                  className={`w-full px-3 py-1.5 bg-white border rounded-lg font-mono text-slate-900 text-xs ${
-                    errors.barcode ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-300'
-                  }`}
-                />
+                <span className="font-bold text-slate-800 block text-xs">Barcode (EAN-13 / Code 128)</span>
+
+                {/* 1. Button Alignment: [ Auto Generate ] [ Manual ] in same row */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAutoGenerateBarcode}
+                    className={`flex-1 h-8 px-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      barcodeMode === 'auto'
+                        ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs ring-1 ring-blue-500/20'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Auto Generate</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBarcodeMode('manual');
+                      if (errors.barcode) setErrors(prev => ({ ...prev, barcode: '' }));
+                    }}
+                    className={`flex-1 h-8 px-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      barcodeMode === 'manual'
+                        ? 'bg-purple-50 border-purple-500 text-purple-700 shadow-2xs ring-1 ring-purple-500/20'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Scan className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Manual</span>
+                  </button>
+                </div>
+
+                {/* When Auto Generate is selected: display generated barcode number */}
+                {barcodeMode === 'auto' && (
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-lg font-mono text-xs text-slate-800">
+                    <span className="font-bold">{barcode || 'Auto-generated on save'}</span>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                      Auto
+                    </span>
+                  </div>
+                )}
+
+                {/* When Manual is selected, show the barcode input field directly below these buttons */}
+                {barcodeMode === 'manual' && (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <input
+                        id="field-barcode"
+                        type="text"
+                        autoFocus
+                        value={barcode}
+                        onChange={e => {
+                          setBarcode(e.target.value);
+                          if (errors.barcode) setErrors(prev => ({ ...prev, barcode: '' }));
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') e.preventDefault();
+                        }}
+                        placeholder="Scan or type barcode..."
+                        className={`w-full pl-3 pr-14 py-1.5 bg-white border rounded-lg font-mono text-slate-900 text-xs ${
+                          errors.barcode ? 'border-rose-300 ring-1 ring-rose-400' : 'border-slate-300'
+                        }`}
+                      />
+                      {barcode && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBarcode('');
+                            if (errors.barcode) setErrors(prev => ({ ...prev, barcode: '' }));
+                          }}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                          title="Clear barcode"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {errors.barcode && <p className="text-[11px] text-rose-600 font-medium">{errors.barcode}</p>}
+
                 <div className="pt-1 flex justify-center bg-white p-1 rounded border border-slate-200">
                   <BarcodeCanvas value={barcode || '8901234567890'} height={35} showText={false} />
                 </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
+import { WifiOff } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { GlobalSearch } from '../common/GlobalSearch';
@@ -22,8 +23,22 @@ export const AppLayout: React.FC = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSetupWizardOpen, setIsSetupWizardOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const handleToggleCollapse = () => {
     setIsCollapsed(prev => {
@@ -73,6 +88,14 @@ export const AppLayout: React.FC = () => {
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenSetupWizard={() => setIsSetupWizardOpen(true)}
         />
+
+        {/* Offline Network Warning Banner */}
+        {!isOnline && (
+          <div className="bg-amber-600 dark:bg-amber-700 text-white text-xs font-semibold px-4 py-2 flex items-center justify-center gap-2 shadow-xs shrink-0 animate-fadeIn border-b border-amber-700">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            <span>Internet connection lost (Offline mode). Requests to cloud database are paused until connection is restored.</span>
+          </div>
+        )}
 
         <main
           style={{ overscrollBehavior: 'contain' }}

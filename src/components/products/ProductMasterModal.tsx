@@ -17,6 +17,7 @@ import {
   DollarSign,
   Percent,
   Barcode as BarcodeIcon,
+  Scan,
   ShieldCheck,
   Layers3,
   Wrench
@@ -54,7 +55,8 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
     addProduct,
     updateProduct,
     generateSKU,
-    generateBarcode
+    generateBarcode,
+    products
   } = useERP();
 
   const isEdit = Boolean(productToEdit);
@@ -70,6 +72,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
   const [warehouseId, setWarehouseId] = useState<string>('');
   const [code, setCode] = useState('');
   const [barcode, setBarcode] = useState('');
+  const [barcodeMode, setBarcodeMode] = useState<'auto' | 'manual'>('auto');
 
   // Progressive Disclosure Toggle
   const [showMoreOptions, setShowMoreOptions] = useState(false);
@@ -108,6 +111,11 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
       setWarehouseId(productToEdit.warehouse || warehouses[0]?.name || '');
       setCode(productToEdit.code || productToEdit.sku || '');
       setBarcode(productToEdit.barcode || '');
+      setBarcodeMode(
+        productToEdit.barcodeType === 'Manufacturer / Manual' || productToEdit.manufacturerBarcode
+          ? 'manual'
+          : 'auto'
+      );
 
       setBatchTracking(Boolean(productToEdit.batchTracking));
       setExpiryTracking(Boolean(productToEdit.expiryTracking));
@@ -147,6 +155,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
     setWarehouseId(warehouses[0]?.name || 'Main Warehouse');
     setCode('');
     setBarcode('');
+    setBarcodeMode('auto');
 
     setShowMoreOptions(false);
     setBatchTracking(false);
@@ -170,7 +179,24 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
 
   const handleGenerateCodes = () => {
     if (!code) setCode(generateSKU(category, name));
-    if (!barcode) setBarcode(generateBarcode(code || 'PROD'));
+    if (!barcode) {
+      setBarcode(generateBarcode(code || 'PROD'));
+      setBarcodeMode('auto');
+    }
+  };
+
+  const handleAutoGenerateBarcode = () => {
+    setBarcodeMode('auto');
+    const baseSku = code.trim() || generateSKU(category, name.trim() || 'Item');
+    if (!code.trim()) setCode(baseSku);
+    const newBarcode = generateBarcode(baseSku);
+    setBarcode(newBarcode);
+    setErrorMsg(null);
+  };
+
+  const handleManualBarcode = () => {
+    setBarcodeMode('manual');
+    setErrorMsg(null);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -188,13 +214,28 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
     const parsedCost = parseFloat(purchasePrice) || 0;
     const parsedStock = parseFloat(openingStock) || 0;
     const finalCode = code.trim() || generateSKU(category, trimmedName);
-    const finalBarcode = barcode.trim() || generateBarcode(finalCode);
+    const finalBarcode = barcode.trim() || (barcodeMode === 'auto' ? generateBarcode(finalCode) : finalCode);
+
+    // Prevent duplicate barcode assignments
+    if (finalBarcode) {
+      const isDuplicate = products.some(
+        p => p.barcode && p.barcode.trim().toLowerCase() === finalBarcode.toLowerCase() && (!isEdit || p.id !== productToEdit?.id)
+      );
+      if (isDuplicate) {
+        setErrorMsg(`Barcode "${finalBarcode}" is already assigned to another product. Duplicate barcodes are not allowed.`);
+        setIsSubmitting(false);
+        return;
+      }
+    }
 
     const productPayload: Omit<Product, 'id' | 'createdAt'> = {
       name: trimmedName,
       code: finalCode,
       sku: finalCode,
       barcode: finalBarcode,
+      barcodeType: (barcodeMode === 'manual' ? 'Manufacturer / Manual' : 'Auto Generated') as 'Auto Generated' | 'Manufacturer / Manual',
+      manufacturerBarcode: barcodeMode === 'manual' ? finalBarcode : undefined,
+      isManufacturerBarcodeActive: barcodeMode === 'manual',
       category,
       brand: brand.trim() || company.name || 'General',
       description: description.trim(),
@@ -516,17 +557,91 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
                 />
               </div>
 
+              {/* Barcode Section with Auto Generate & Manual Buttons */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                   Barcode (EAN-13 / Code128)
                 </label>
-                <input
-                  type="text"
-                  placeholder="Auto-generated if blank"
-                  value={barcode}
-                  onChange={e => setBarcode(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+
+                {/* 1. Button Alignment: [ Auto Generate ] [ Manual ] in same row */}
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    type="button"
+                    disabled={readOnly}
+                    onClick={handleAutoGenerateBarcode}
+                    className={`flex-1 sm:flex-initial h-8 px-3 text-xs font-semibold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      barcodeMode === 'auto'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 text-blue-700 dark:text-blue-300 shadow-2xs ring-1 ring-blue-500/20'
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Auto Generate</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={readOnly}
+                    onClick={handleManualBarcode}
+                    className={`flex-1 sm:flex-initial h-8 px-3 text-xs font-semibold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      barcodeMode === 'manual'
+                        ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-500 text-purple-700 dark:text-purple-300 shadow-2xs ring-1 ring-purple-500/20'
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                    }`}
+                  >
+                    <Scan className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Manual</span>
+                  </button>
+                </div>
+
+                {/* When Auto Generate is selected: display generated barcode number */}
+                {barcodeMode === 'auto' && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-xs text-slate-800 dark:text-slate-200">
+                    <div className="flex items-center gap-2">
+                      <BarcodeIcon className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span className="font-bold">{barcode || 'Auto-generated on save or click Auto Generate'}</span>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 shrink-0">
+                      Auto Generated
+                    </span>
+                  </div>
+                )}
+
+                {/* When Manual is selected, show the barcode input field directly below these buttons */}
+                {barcodeMode === 'manual' && (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        autoFocus
+                        disabled={readOnly}
+                        placeholder="Scan manufacturer barcode or type manually..."
+                        value={barcode}
+                        onChange={e => {
+                          setBarcode(e.target.value);
+                          if (errorMsg) setErrorMsg(null);
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') e.preventDefault(); // Scanner sending Enter key
+                        }}
+                        className="w-full pl-3 pr-16 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      {barcode && !readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setBarcode('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 text-[10px] font-semibold text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
+                          title="Clear barcode"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                      Scan manufacturer packaging with USB/wireless scanner or enter digits manually.
+                    </p>
+                  </div>
+                )}
               </div>
             </fieldset>
 
