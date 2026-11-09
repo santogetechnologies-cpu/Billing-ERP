@@ -546,17 +546,6 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                 </option>
               ))}
             </select>
-
-            {/* Create Stock Transfer Button */}
-            {isAuthorized && (
-              <button
-                onClick={handleOpenCreateModal}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create Stock Transfer</span>
-              </button>
-            )}
           </div>
         </div>
       </div>

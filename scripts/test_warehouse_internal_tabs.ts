@@ -202,6 +202,14 @@ assert(
   '22. Page title and description dynamically update when switching tabs'
 );
 
+// 7. Verify Lower Sections contain NO duplicate action buttons
+assert(
+  !transfersContent.includes('<span>Create Stock Transfer</span>') &&
+  !adjustmentsContent.includes('<span>Create Adjustment</span>') &&
+  !warehousesContent.includes('<span>Add First Warehouse</span>'),
+  '23. Action buttons removed from lower sections; each action button appears exclusively in top-right header'
+);
+
 console.log(`\nResults: ${passCount} Passed, ${failCount} Failed.`);
 if (failCount > 0) {
   process.exit(1);

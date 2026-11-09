@@ -709,15 +709,6 @@ export const WarehousesPage: React.FC = () => {
               ? 'No warehouse locations match your current search and filter criteria.'
               : 'Add your primary warehouse, storage godowns, and branch stores to maintain segregated stock.'}
           </p>
-          {canManageWarehouse && (
-            <button
-              onClick={handleOpenCreateModal}
-              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add First Warehouse</span>
-            </button>
-          )}
         </div>
       ) : viewMode === 'cards' ? (
         /* Card Layout */
