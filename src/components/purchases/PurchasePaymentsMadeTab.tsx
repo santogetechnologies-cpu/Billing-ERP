@@ -16,7 +16,7 @@ import { DataTable, Column } from '../common/DataTable';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { Modal } from '../common/Modal';
 import { PaymentMethod, PurchaseInvoice } from '../../types';
-import { exportToExcel, exportToCSV } from '../../utils/exportUtils';
+import { exportToExcel, exportToCSV, exportSupplierPaymentsToExcel } from '../../utils/exportUtils';
 import { SupplierBillInvoiceModal } from './SupplierBillInvoiceModal';
 
 export const PurchasePaymentsMadeTab: React.FC = () => {
@@ -277,32 +277,29 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
 
   const handleExportCSV = () => {
     const data = outwardPayments.map(p => ({
-      'Voucher #': p.paymentNumber || p.id.slice(0, 8),
+      'Voucher Number': p.paymentNumber || (p.id ? `PAY-${p.id.slice(0, 6).toUpperCase()}` : '—'),
       'Supplier Name': p.partyName,
       'Supplier Invoice Number': p.supplierInvoiceNumber || '—',
       'PO Number': p.purchaseOrderNumber || '—',
-      'Payment Date': p.date,
+      'Payment Date': p.date ? formatDate(p.date) : '—',
       'Payment Method': p.paymentMethod,
       'Transaction Reference': p.reference || '—',
-      'Amount Paid': p.amount,
+      'Amount Paid': `₹${Number(p.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       'Payment Status': p.billPaymentStatus === 'Paid' ? 'COMPLETED' : 'PARTIALLY PAID'
     }));
     exportToCSV(data, 'Supplier_Disbursements');
   };
 
   const handleExportXLSX = () => {
-    const data = outwardPayments.map(p => ({
-      'Voucher #': p.paymentNumber || p.id.slice(0, 8),
-      'Supplier Name': p.partyName,
-      'Supplier Invoice Number': p.supplierInvoiceNumber || '—',
-      'PO Number': p.purchaseOrderNumber || '—',
-      'Payment Date': p.date,
-      'Payment Method': p.paymentMethod,
-      'Transaction Reference': p.reference || '—',
-      'Amount Paid': p.amount,
-      'Payment Status': p.billPaymentStatus === 'Paid' ? 'COMPLETED' : 'PARTIALLY PAID'
-    }));
-    exportToExcel(data, 'Supplier_Disbursements');
+    exportSupplierPaymentsToExcel(outwardPayments, 'Supplier_Disbursements');
+  };
+
+  const handleExportSelectedExcel = (selectedRows: any[]) => {
+    if (!selectedRows || selectedRows.length === 0) {
+      alert('Please select at least one payment record to export.');
+      return;
+    }
+    exportSupplierPaymentsToExcel(selectedRows, `Supplier_Payment_History_Selected_${new Date().toISOString().split('T')[0]}`);
   };
 
   const columns: Column<any>[] = [
@@ -469,6 +466,17 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
             title="View Bill"
           >
             <Eye className="w-4 h-4" />
+          </button>
+        )}
+        bulkActions={(selectedRows) => (
+          <button
+            type="button"
+            onClick={() => handleExportSelectedExcel(selectedRows)}
+            className="px-2.5 py-1 bg-white border border-blue-200 rounded text-blue-700 hover:bg-blue-50 font-medium cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            title="Export Selected records to Excel"
+          >
+            <Download className="w-3.5 h-3.5 text-blue-600" />
+            <span>Export Selected</span>
           </button>
         )}
       />

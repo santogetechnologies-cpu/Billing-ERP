@@ -10,6 +10,7 @@ import {
   FileText,
   Printer
 } from 'lucide-react';
+import { exportToExcel } from '../../utils/exportUtils';
 
 export interface Column<T> {
   key: string;
@@ -27,7 +28,9 @@ export interface Column<T> {
 
 export interface DataTableRef {
   exportCSV: (selectedOnly?: boolean) => void;
+  exportExcel?: (selectedOnly?: boolean) => void;
   exportSelectedCSV?: () => void;
+  exportSelectedExcel?: () => void;
 }
 
 interface DataTableProps<T> {
@@ -241,11 +244,44 @@ export function DataTable<T extends Record<string, any>>({
     setShowExportMenu(false);
   };
 
+  // Export as real XLSX Excel
+  const exportExcel = (selectedOnly: boolean = false) => {
+    const isSelectedOnly = typeof selectedOnly === 'boolean' ? selectedOnly : false;
+    const targetData = isSelectedOnly
+      ? data.filter(r => selectedIds.has(r.id || JSON.stringify(r)))
+      : sortedData;
+
+    if (targetData.length === 0) {
+      alert('Please select at least one record to export.');
+      return;
+    }
+
+    const activeCols = columns.filter(c => visibleColumns.has(c.key));
+    const formattedData = targetData.map(row => {
+      const obj: Record<string, any> = {};
+      activeCols.forEach(c => {
+        let val = row[c.key];
+        if (val === undefined || val === null) {
+          if (c.key === 'status') val = row.billPaymentStatus || row.status || '';
+          else if (c.key === 'partyName') val = row.partyName || row.supplierName || '';
+          else val = '';
+        }
+        obj[c.header] = val;
+      });
+      return obj;
+    });
+
+    exportToExcel(formattedData, `${title || 'export'}_${new Date().toISOString().split('T')[0]}`);
+    setShowExportMenu(false);
+  };
+
   useEffect(() => {
     if (tableRef) {
       tableRef.current = {
         exportCSV: (selectedOnly?: boolean) => exportCSV(Boolean(selectedOnly)),
-        exportSelectedCSV: () => exportCSV(true)
+        exportExcel: (selectedOnly?: boolean) => exportExcel(Boolean(selectedOnly)),
+        exportSelectedCSV: () => exportCSV(true),
+        exportSelectedExcel: () => exportExcel(true)
       };
     }
   });
@@ -369,7 +405,7 @@ export function DataTable<T extends Record<string, any>>({
                       <span>Export CSV</span>
                     </button>
                     <button
-                      onClick={() => exportCSV(false)}
+                      onClick={() => exportExcel(false)}
                       className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                     >
                       <FileText className="w-4 h-4 text-blue-600" />
@@ -403,8 +439,9 @@ export function DataTable<T extends Record<string, any>>({
                 bulkActions(selectedRowsList)
               ) : (
                 <button
-                  onClick={() => exportCSV(true)}
-                  className="px-2.5 py-1 bg-white border border-blue-200 rounded text-blue-700 hover:bg-blue-50 font-medium"
+                  type="button"
+                  onClick={() => exportExcel(true)}
+                  className="px-2.5 py-1 bg-white border border-blue-200 rounded text-blue-700 hover:bg-blue-50 font-medium cursor-pointer"
                 >
                   Export Selected
                 </button>
