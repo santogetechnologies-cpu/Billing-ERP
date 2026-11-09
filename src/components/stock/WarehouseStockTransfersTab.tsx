@@ -552,17 +552,17 @@ export const WarehouseStockTransfersTab = React.forwardRef<
 
       {/* Stock Transfers Table */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="w-full overflow-hidden">
+        <div className="w-full overflow-x-hidden">
           <table className="w-full table-fixed text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">
-                <th className="py-3.5 px-3.5 text-left w-[15%]">Transfer Number</th>
-                <th className="py-3.5 px-3.5 text-left w-[22%]">Source Warehouse</th>
-                <th className="py-3.5 px-3.5 text-left w-[22%]">Destination Warehouse</th>
-                <th className="py-3.5 px-2 text-center w-[13%]">No of Products</th>
-                <th className="py-3.5 px-2 text-center w-[12%]">Transfer Date</th>
-                <th className="py-3.5 px-2 text-center w-[10%]">Transfer Status</th>
-                <th className="py-3.5 px-3.5 text-right w-[6%]">Actions</th>
+                <th className="py-3.5 px-3.5 text-left w-[14%]">Transfer Number</th>
+                <th className="py-3.5 px-3 text-left w-[18%]">Source Warehouse</th>
+                <th className="py-3.5 px-3 text-left w-[18%]">Destination Warehouse</th>
+                <th className="py-3.5 px-2 text-center w-[12%]">No of Products</th>
+                <th className="py-3.5 px-2 text-center w-[11%]">Transfer Date</th>
+                <th className="py-3.5 px-2 text-center w-[14%]">Transfer Status</th>
+                <th className="py-3.5 px-3 text-right w-[13%]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -646,7 +646,7 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       </td>
 
                       {/* Actions: View, Edit, Cancel */}
-                      <td className="py-3 px-3.5 text-right whitespace-nowrap align-middle">
+                      <td className="py-3 px-3 text-right whitespace-nowrap align-middle">
                         <div className="flex items-center justify-end gap-1">
                           {/* View Action */}
                           <button
