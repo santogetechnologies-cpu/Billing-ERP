@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  CreditCard,
   Plus,
   Building2,
   Calendar,
@@ -16,7 +15,7 @@ import { DataTable, Column } from '../common/DataTable';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { Modal } from '../common/Modal';
 import { PaymentMethod, PurchaseInvoice } from '../../types';
-import { exportToExcel, exportToCSV, exportSupplierPaymentsToExcel } from '../../utils/exportUtils';
+import { exportSupplierPaymentsToExcel } from '../../utils/exportUtils';
 import { SupplierBillInvoiceModal } from './SupplierBillInvoiceModal';
 
 /**
@@ -528,25 +527,6 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
     }
   };
 
-  const handleExportCSV = () => {
-    const data = outwardPayments.map(p => ({
-      'Voucher Number': p.paymentNumber || (p.id ? `PAY-${p.id.slice(0, 6).toUpperCase()}` : '—'),
-      'Supplier Name': p.partyName,
-      'Supplier Invoice Number': p.supplierInvoiceNumber || '—',
-      'PO Number': p.purchaseOrderNumber || '—',
-      'Payment Date': p.date ? formatDate(p.date) : '—',
-      'Payment Method': p.paymentMethod,
-      'Transaction Reference': p.reference || '—',
-      'Amount Paid': `₹${Number(p.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      'Payment Status': p.billPaymentStatus === 'Paid' ? 'COMPLETED' : 'PARTIALLY PAID'
-    }));
-    exportToCSV(data, 'Supplier_Disbursements');
-  };
-
-  const handleExportXLSX = () => {
-    exportSupplierPaymentsToExcel(outwardPayments, 'Supplier_Disbursements');
-  };
-
   const handleExportSelectedExcel = (selectedRows: any[]) => {
     if (!selectedRows || selectedRows.length === 0) {
       alert('Please select at least one payment record to export.');
@@ -707,35 +687,6 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Record Payment</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-emerald-600" />
-              Supplier Payments & Disbursements
-            </h2>
-            <p className="text-xs text-slate-500">
-              Outward payment vouchers, bank transfers, cheques, and cash disbursements to vendors.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportCSV}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span>Export CSV</span>
-            </button>
-            <button
-              onClick={handleExportXLSX}
-              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span>Excel</span>
             </button>
           </div>
         </div>
