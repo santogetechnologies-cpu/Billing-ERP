@@ -8,6 +8,7 @@ interface SupplierBillInvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   bill: PurchaseInvoice | null;
+  payment?: any | null;
 }
 
 /**
@@ -78,20 +79,18 @@ function generatePurchaseInvoiceHTML(
     return `
       <tr>
         <td class="text-center font-mono" style="color: #64748b;">${idx + 1}</td>
-        <td class="text-left" style="padding-left: 10px;">
+        <td class="text-left" style="padding-left: 8px;">
           <div style="font-weight: 700; color: #0f172a;">${it.productName}</div>
           ${it.isUnregistered ? '<span style="font-size: 8px; color: #7e22ce; font-family: monospace; font-weight: 600;">PO Only</span>' : ''}
         </td>
-        <td class="text-center font-mono">
-          <strong style="color: #0f172a;">${recv}</strong>
-          ${ord !== undefined && ord !== recv ? `<div style="font-size: 9px; color: #64748b;">(Ord: ${ord})</div>` : ''}
-        </td>
+        <td class="text-center font-mono" style="color: #64748b;">${ord}</td>
+        <td class="text-center font-mono" style="font-weight: 700; color: #0f172a;">${recv}</td>
         <td class="text-center" style="color: #475569; font-weight: 600;">${it.unit || 'PCS'}</td>
-        <td class="text-right font-mono" style="padding-right: 10px; color: #334155;">${formatCurrency(rate)}</td>
-        <td class="text-right font-mono" style="padding-right: 10px; font-weight: 700; color: #0f172a;">${formatCurrency(totalCost)}</td>
+        <td class="text-right font-mono" style="padding-right: 8px; color: #334155;">${formatCurrency(rate)}</td>
+        <td class="text-right font-mono" style="padding-right: 8px; font-weight: 700; color: #0f172a;">${formatCurrency(totalCost)}</td>
         <td class="text-center font-mono" style="color: #475569;">${taxRate}%</td>
-        <td class="text-right font-mono" style="padding-right: 10px; color: #334155;">${formatCurrency(taxAmt)}</td>
-        <td class="text-right font-mono" style="padding-right: 10px; font-weight: 800; color: #0f172a;">${formatCurrency(lineTotal)}</td>
+        <td class="text-right font-mono" style="padding-right: 8px; color: #334155;">${formatCurrency(taxAmt)}</td>
+        <td class="text-right font-mono" style="padding-right: 8px; font-weight: 800; color: #0f172a;">${formatCurrency(lineTotal)}</td>
       </tr>
     `;
   }).join('');
@@ -309,19 +308,20 @@ function generatePurchaseInvoiceHTML(
       </tr>
     </table>
 
-    <!-- 3. Product Details Table (Exact 9 Columns with Pixel Alignment) -->
+    <!-- 3. Product Details Table (Clean 10 Columns with Ordered & Received Qty) -->
     <table class="data-table">
       <thead>
         <tr>
-          <th class="text-center" style="width: 36px;">S.No</th>
-          <th class="text-left" style="padding-left: 10px;">Product Name</th>
-          <th class="text-center" style="width: 70px;">Quantity</th>
-          <th class="text-center" style="width: 52px;">Unit</th>
-          <th class="text-right" style="width: 85px; padding-right: 10px;">Cost / Item</th>
-          <th class="text-right" style="width: 85px; padding-right: 10px;">Total Cost</th>
-          <th class="text-center" style="width: 58px;">GST %</th>
-          <th class="text-right" style="width: 85px; padding-right: 10px;">GST Amount</th>
-          <th class="text-right" style="width: 95px; padding-right: 10px;">Amount</th>
+          <th class="text-center" style="width: 32px;">S.No</th>
+          <th class="text-left" style="padding-left: 8px;">Product Name</th>
+          <th class="text-center" style="width: 65px;">Ordered Qty</th>
+          <th class="text-center" style="width: 65px;">Received Qty</th>
+          <th class="text-center" style="width: 48px;">Unit</th>
+          <th class="text-right" style="width: 80px; padding-right: 8px;">Cost / Item</th>
+          <th class="text-right" style="width: 80px; padding-right: 8px;">Total Cost</th>
+          <th class="text-center" style="width: 50px;">GST %</th>
+          <th class="text-right" style="width: 80px; padding-right: 8px;">GST Amount</th>
+          <th class="text-right" style="width: 88px; padding-right: 8px;">Amount</th>
         </tr>
       </thead>
       <tbody>
@@ -428,7 +428,8 @@ function generatePurchaseInvoiceHTML(
 export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> = ({
   isOpen,
   onClose,
-  bill
+  bill,
+  payment
 }) => {
   const { company, suppliers = [], payments = [] } = useERP();
 
@@ -450,9 +451,11 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
   );
 
   // Resolve linked payment record
-  const linkedPayment = payments.find(
-    p => p.invoiceId === bill.id || (p.reference && p.reference.includes(bill.invoiceNumber))
-  );
+  const linkedPayment =
+    payment ||
+    payments.find(
+      p => p.invoiceId === bill.id || (p.reference && bill.invoiceNumber && p.reference.includes(bill.invoiceNumber))
+    );
 
   const grandTotal = Number(bill.grandTotal || 0);
   const alreadyPaid = Number(bill.paidAmount || 0);
@@ -624,6 +627,15 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={handlePrint}
+              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Print Bill"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Bill</span>
+            </button>
+            <button
+              type="button"
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               title="Close"
@@ -741,15 +753,16 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-100/80 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    <th className="px-3 py-2.5 w-12 text-center">S.No</th>
-                    <th className="px-3.5 py-2.5">Product Name</th>
-                    <th className="px-3 py-2.5 text-center w-28">Quantity</th>
-                    <th className="px-2.5 py-2.5 text-center w-16">Unit</th>
-                    <th className="px-3 py-2.5 text-right w-28">Cost / Item</th>
-                    <th className="px-3 py-2.5 text-right w-28">Total Cost</th>
-                    <th className="px-3 py-2.5 text-center w-20">GST %</th>
-                    <th className="px-3 py-2.5 text-right w-28">GST Amount</th>
-                    <th className="px-3.5 py-2.5 text-right w-32">Amount</th>
+                    <th className="px-2.5 py-2.5 w-10 text-center">S.No</th>
+                    <th className="px-3 py-2.5">Product Name</th>
+                    <th className="px-2.5 py-2.5 text-center w-24">Ordered Qty</th>
+                    <th className="px-2.5 py-2.5 text-center w-24">Received Qty</th>
+                    <th className="px-2 py-2.5 text-center w-14">Unit</th>
+                    <th className="px-2.5 py-2.5 text-right w-24">Cost / Item</th>
+                    <th className="px-2.5 py-2.5 text-right w-24">Total Cost</th>
+                    <th className="px-2 py-2.5 text-center w-16">GST %</th>
+                    <th className="px-2.5 py-2.5 text-right w-24">GST Amount</th>
+                    <th className="px-3 py-2.5 text-right w-28">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -764,39 +777,37 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
 
                     return (
                       <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                        <td className="px-3 py-2 text-center text-slate-400 font-mono">
+                        <td className="px-2.5 py-2 text-center text-slate-400 font-mono">
                           {idx + 1}
                         </td>
-                        <td className="px-3.5 py-2 font-semibold text-slate-900 dark:text-white">
+                        <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">
                           <div>{it.productName}</div>
                           {it.isUnregistered && (
                             <span className="text-[10px] text-purple-600 font-mono">PO Only</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-center font-mono">
-                          <span className="font-bold text-slate-900 dark:text-white">{recv}</span>
-                          {ord !== undefined && ord !== recv && (
-                            <span className="text-[10px] text-slate-400 block font-mono">
-                              (Ord: {ord})
-                            </span>
-                          )}
+                        <td className="px-2.5 py-2 text-center font-mono text-slate-500 dark:text-slate-400">
+                          {ord}
                         </td>
-                        <td className="px-2.5 py-2 text-center text-slate-500 font-medium">
+                        <td className="px-2.5 py-2 text-center font-mono font-bold text-slate-900 dark:text-white">
+                          {recv}
+                        </td>
+                        <td className="px-2 py-2 text-center text-slate-500 font-medium">
                           {it.unit || 'PCS'}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                        <td className="px-2.5 py-2 text-right font-mono text-slate-700 dark:text-slate-300">
                           {formatCurrency(rate)}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900 dark:text-white">
+                        <td className="px-2.5 py-2 text-right font-mono font-semibold text-slate-900 dark:text-white">
                           {formatCurrency(totalCost)}
                         </td>
-                        <td className="px-3 py-2 text-center font-mono text-slate-600 dark:text-slate-400">
+                        <td className="px-2 py-2 text-center font-mono text-slate-600 dark:text-slate-400">
                           {taxRate}%
                         </td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                        <td className="px-2.5 py-2 text-right font-mono text-slate-700 dark:text-slate-300">
                           {formatCurrency(taxAmt)}
                         </td>
-                        <td className="px-3.5 py-2 text-right font-mono font-bold text-purple-600 dark:text-purple-400">
+                        <td className="px-3 py-2 text-right font-mono font-bold text-purple-600 dark:text-purple-400">
                           {formatCurrency(lineTotal)}
                         </td>
                       </tr>
@@ -1004,15 +1015,16 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
             <table className="w-full text-xs text-left border-collapse border border-slate-300">
               <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300">
                 <tr>
-                  <th className="py-2.5 px-2 text-center border-r border-slate-300 w-10">S.No</th>
-                  <th className="py-2.5 px-3 border-r border-slate-300">Product Name</th>
-                  <th className="py-2.5 px-2 text-center border-r border-slate-300 w-20">Quantity</th>
-                  <th className="py-2.5 px-2 text-center border-r border-slate-300 w-14">Unit</th>
-                  <th className="py-2.5 px-2.5 text-right border-r border-slate-300 w-24">Cost / Item</th>
-                  <th className="py-2.5 px-2.5 text-right border-r border-slate-300 w-24">Total Cost</th>
-                  <th className="py-2.5 px-2 text-center border-r border-slate-300 w-16">GST %</th>
-                  <th className="py-2.5 px-2.5 text-right border-r border-slate-300 w-24">GST Amount</th>
-                  <th className="py-2.5 px-3 text-right w-28">Amount</th>
+                  <th className="py-2 px-1.5 text-center border-r border-slate-300 w-8">S.No</th>
+                  <th className="py-2 px-2.5 border-r border-slate-300">Product Name</th>
+                  <th className="py-2 px-1.5 text-center border-r border-slate-300 w-16">Ordered Qty</th>
+                  <th className="py-2 px-1.5 text-center border-r border-slate-300 w-16">Received Qty</th>
+                  <th className="py-2 px-1.5 text-center border-r border-slate-300 w-12">Unit</th>
+                  <th className="py-2 px-2 text-right border-r border-slate-300 w-20">Cost / Item</th>
+                  <th className="py-2 px-2 text-right border-r border-slate-300 w-20">Total Cost</th>
+                  <th className="py-2 px-1.5 text-center border-r border-slate-300 w-14">GST %</th>
+                  <th className="py-2 px-2 text-right border-r border-slate-300 w-20">GST Amount</th>
+                  <th className="py-2 px-2.5 text-right w-24">Amount</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -1027,39 +1039,37 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
 
                   return (
                     <tr key={idx} className="border-b border-slate-200 print-avoid-break">
-                      <td className="py-2 px-2 text-center border-r border-slate-300 font-mono text-slate-600">
+                      <td className="py-1.5 px-1.5 text-center border-r border-slate-300 font-mono text-slate-600">
                         {idx + 1}
                       </td>
-                      <td className="py-2 px-3 border-r border-slate-300 font-semibold text-slate-900">
+                      <td className="py-1.5 px-2.5 border-r border-slate-300 font-semibold text-slate-900">
                         <div>{it.productName}</div>
                         {it.isUnregistered && (
                           <span className="text-[9px] text-purple-700 font-mono">PO Only Item</span>
                         )}
                       </td>
-                      <td className="py-2 px-2 text-center border-r border-slate-300 font-mono">
-                        <span className="font-bold text-slate-900">{recv}</span>
-                        {ord !== undefined && ord !== recv && (
-                          <span className="text-[9px] text-slate-500 block font-mono">
-                            (Ord: {ord})
-                          </span>
-                        )}
+                      <td className="py-1.5 px-1.5 text-center border-r border-slate-300 font-mono text-slate-600">
+                        {ord}
                       </td>
-                      <td className="py-2 px-2 text-center border-r border-slate-300 text-slate-700">
+                      <td className="py-1.5 px-1.5 text-center border-r border-slate-300 font-mono font-bold text-slate-900">
+                        {recv}
+                      </td>
+                      <td className="py-1.5 px-1.5 text-center border-r border-slate-300 text-slate-700">
                         {it.unit || 'PCS'}
                       </td>
-                      <td className="py-2 px-2.5 text-right border-r border-slate-300 font-mono text-slate-800">
+                      <td className="py-1.5 px-2 text-right border-r border-slate-300 font-mono text-slate-800">
                         {formatCurrency(rate)}
                       </td>
-                      <td className="py-2 px-2.5 text-right border-r border-slate-300 font-mono font-semibold text-slate-900">
+                      <td className="py-1.5 px-2 text-right border-r border-slate-300 font-mono font-semibold text-slate-900">
                         {formatCurrency(totalCost)}
                       </td>
-                      <td className="py-2 px-2 text-center border-r border-slate-300 font-mono text-slate-700">
+                      <td className="py-1.5 px-1.5 text-center border-r border-slate-300 font-mono text-slate-700">
                         {taxRate}%
                       </td>
-                      <td className="py-2 px-2.5 text-right border-r border-slate-300 font-mono text-slate-800">
+                      <td className="py-1.5 px-2 text-right border-r border-slate-300 font-mono text-slate-800">
                         {formatCurrency(taxAmt)}
                       </td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                      <td className="py-1.5 px-2.5 text-right font-mono font-bold text-slate-900">
                         {formatCurrency(lineTotal)}
                       </td>
                     </tr>

@@ -15,8 +15,9 @@ import { useERP } from '../../context/ERPContext';
 import { DataTable, Column } from '../common/DataTable';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { Modal } from '../common/Modal';
-import { PaymentMethod } from '../../types';
+import { PaymentMethod, PurchaseInvoice } from '../../types';
 import { exportToExcel, exportToCSV } from '../../utils/exportUtils';
+import { SupplierBillInvoiceModal } from './SupplierBillInvoiceModal';
 
 export const PurchasePaymentsMadeTab: React.FC = () => {
   const { payments = [], purchaseInvoices = [], suppliers = [], recordPurchasePayment } = useERP();
@@ -33,17 +34,33 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [viewingPayment, setViewingPayment] = useState<any | null>(null);
+  const [selectedBillForView, setSelectedBillForView] = useState<PurchaseInvoice | null>(null);
+  const [selectedPaymentForView, setSelectedPaymentForView] = useState<any | null>(null);
 
   // Supplier outward payments (augmented with linked bill & PO numbers)
   const outwardPayments = useMemo(() => {
     return payments
       .filter(p => p.type === 'Paid' || p.partyType === 'Supplier')
       .map(p => {
-        const linkedBill = purchaseInvoices.find(
-          b => b.id === p.invoiceId || (p.reference && b.invoiceNumber && p.reference.includes(b.invoiceNumber))
-        );
+        let linkedBill: PurchaseInvoice | null = null;
+        if (p.invoiceId) {
+          linkedBill = purchaseInvoices.find(b => b.id === p.invoiceId) || null;
+        }
+        if (!linkedBill && p.reference) {
+          const cleanRef = p.reference.replace(/^Bill:\s*/i, '').trim().toLowerCase();
+          linkedBill = purchaseInvoices.find(
+            b => (b.invoiceNumber && (p.reference.toLowerCase().includes(b.invoiceNumber.toLowerCase()) || b.invoiceNumber.toLowerCase().includes(cleanRef))) ||
+                 (b.supplierInvoiceNumber && (p.reference.toLowerCase().includes(b.supplierInvoiceNumber.toLowerCase()) || b.supplierInvoiceNumber.toLowerCase().includes(cleanRef))) ||
+                 (b.purchaseOrderNumber && p.reference.toLowerCase().includes(b.purchaseOrderNumber.toLowerCase()))
+          ) || null;
+        }
+        if (!linkedBill && p.partyId) {
+          linkedBill = purchaseInvoices.find(b => b.supplierId === p.partyId && Math.abs(Number(b.grandTotal) - Number(p.amount)) < 1) || null;
+        }
+
         return {
           ...p,
+          linkedBill,
           supplierInvoiceNumber: linkedBill?.supplierInvoiceNumber || linkedBill?.invoiceNumber || '',
           purchaseOrderNumber: linkedBill?.purchaseOrderNumber || '',
           billPaymentStatus: linkedBill?.paymentStatus || 'Paid'
@@ -51,6 +68,119 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [payments, purchaseInvoices]);
+
+  // Robust bill resolver: looks up original PurchaseInvoice by invoiceId, reference, supplierInvoiceNumber, PO #, or supplier
+  const findBillForPayment = (paymentRow: any): PurchaseInvoice | null => {
+    if (!paymentRow) return null;
+
+    // 1. Direct attached bill
+    if (paymentRow.linkedBill) return paymentRow.linkedBill;
+
+    // 2. Direct match by invoiceId
+    if (paymentRow.invoiceId) {
+      const byId = purchaseInvoices.find(b => b.id === paymentRow.invoiceId);
+      if (byId) return byId;
+    }
+
+    // 3. Match by reference (e.g. "Bill: PB-967067" -> "PB-967067")
+    const ref = (paymentRow.reference || '').trim();
+    if (ref) {
+      const cleanRef = ref.replace(/^Bill:\s*/i, '').trim();
+      const byRef = purchaseInvoices.find(b =>
+        (b.invoiceNumber && (b.invoiceNumber.toLowerCase() === cleanRef.toLowerCase() || ref.toLowerCase().includes(b.invoiceNumber.toLowerCase()) || b.invoiceNumber.toLowerCase().includes(cleanRef.toLowerCase()))) ||
+        (b.supplierInvoiceNumber && (b.supplierInvoiceNumber.toLowerCase() === cleanRef.toLowerCase() || ref.toLowerCase().includes(b.supplierInvoiceNumber.toLowerCase()))) ||
+        (b.purchaseOrderNumber && (b.purchaseOrderNumber.toLowerCase() === cleanRef.toLowerCase() || ref.toLowerCase().includes(b.purchaseOrderNumber.toLowerCase())))
+      );
+      if (byRef) return byRef;
+    }
+
+    // 4. Match by supplierInvoiceNumber
+    if (paymentRow.supplierInvoiceNumber && paymentRow.supplierInvoiceNumber !== '—') {
+      const supInv = paymentRow.supplierInvoiceNumber.trim().toLowerCase();
+      const bySupInv = purchaseInvoices.find(b =>
+        (b.supplierInvoiceNumber && b.supplierInvoiceNumber.toLowerCase() === supInv) ||
+        (b.invoiceNumber && b.invoiceNumber.toLowerCase() === supInv)
+      );
+      if (bySupInv) return bySupInv;
+    }
+
+    // 5. Match by purchaseOrderNumber
+    if (paymentRow.purchaseOrderNumber && paymentRow.purchaseOrderNumber !== '—') {
+      const poNum = paymentRow.purchaseOrderNumber.trim().toLowerCase();
+      const byPO = purchaseInvoices.find(b =>
+        b.purchaseOrderNumber && b.purchaseOrderNumber.toLowerCase() === poNum
+      );
+      if (byPO) return byPO;
+    }
+
+    // 6. Match by partyId (Supplier) with matching grandTotal
+    if (paymentRow.partyId) {
+      const byPartyAmount = purchaseInvoices.find(b =>
+        b.supplierId === paymentRow.partyId && Math.abs(Number(b.grandTotal) - Number(paymentRow.amount)) < 1
+      );
+      if (byPartyAmount) return byPartyAmount;
+
+      const byParty = purchaseInvoices.find(b => b.supplierId === paymentRow.partyId);
+      if (byParty) return byParty;
+    }
+
+    // 7. Match by partyName
+    if (paymentRow.partyName) {
+      const byPartyName = purchaseInvoices.find(b =>
+        b.supplierName && b.supplierName.toLowerCase() === paymentRow.partyName.toLowerCase()
+      );
+      if (byPartyName) return byPartyName;
+    }
+
+    // 8. Fallback synthesis for standalone or legacy test disbursements
+    const billNum = (paymentRow.supplierInvoiceNumber && paymentRow.supplierInvoiceNumber !== '—' ? paymentRow.supplierInvoiceNumber : '') ||
+      (paymentRow.reference?.replace(/^Bill:\s*/i, '').trim() || '') ||
+      `BILL-${(paymentRow.paymentNumber || paymentRow.id || 'REF').replace(/[^a-zA-Z0-9]/g, '')}`;
+
+    return {
+      id: paymentRow.invoiceId || `syn-${paymentRow.id}`,
+      invoiceNumber: billNum,
+      docType: 'purchase_invoice',
+      date: paymentRow.date || new Date().toISOString().split('T')[0],
+      supplierId: paymentRow.partyId || '',
+      supplierName: paymentRow.partyName || 'Supplier',
+      supplierInvoiceNumber: billNum,
+      purchaseOrderNumber: paymentRow.purchaseOrderNumber || '',
+      warehouse: 'Main Warehouse',
+      subtotal: Number(paymentRow.amount || 0),
+      taxTotal: 0,
+      freightCharges: 0,
+      otherCharges: 0,
+      grandTotal: Number(paymentRow.amount || 0),
+      paidAmount: Number(paymentRow.amount || 0),
+      paymentStatus: paymentRow.billPaymentStatus === 'COMPLETED' || paymentRow.billPaymentStatus === 'Paid' ? 'Paid' : 'Partially Paid',
+      createdAt: paymentRow.createdAt || new Date().toISOString(),
+      notes: paymentRow.notes || `Disbursement against voucher ${paymentRow.paymentNumber || paymentRow.id}`,
+      items: [
+        {
+          productId: 'prod-supplies',
+          productName: 'Procured Supplies & Goods',
+          qty: 1,
+          orderedQty: 1,
+          receivedQty: 1,
+          unit: 'Lot',
+          rate: Number(paymentRow.amount || 0),
+          discount: 0,
+          taxRate: 0,
+          taxAmt: 0,
+          total: Number(paymentRow.amount || 0)
+        }
+      ]
+    };
+  };
+
+  const handleViewBill = (row: any) => {
+    const bill = findBillForPayment(row);
+    if (bill) {
+      setSelectedBillForView(bill);
+      setSelectedPaymentForView(row);
+    }
+  };
 
   // Outstanding bills for the selected supplier
   const unpaidBills = useMemo(() => {
@@ -326,17 +456,17 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
         data={outwardPayments}
         searchPlaceholder="Search voucher #, supplier, invoice #, PO #, or reference..."
         searchKeys={['paymentNumber', 'partyName', 'supplierInvoiceNumber', 'purchaseOrderNumber', 'reference', 'account']}
-        onRowClick={row => setViewingPayment(row)}
+        onRowClick={row => handleViewBill(row)}
         hideHorizontalScroll={true}
         actionsWidth="76px"
         actions={row => (
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setViewingPayment(row);
+              handleViewBill(row);
             }}
             className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 rounded-lg transition-colors cursor-pointer"
-            title="View Voucher"
+            title="View Bill"
           >
             <Eye className="w-4 h-4" />
           </button>
@@ -608,6 +738,17 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Modal: View Supplier Bill */}
+      <SupplierBillInvoiceModal
+        isOpen={Boolean(selectedBillForView)}
+        onClose={() => {
+          setSelectedBillForView(null);
+          setSelectedPaymentForView(null);
+        }}
+        bill={selectedBillForView}
+        payment={selectedPaymentForView}
+      />
     </div>
   );
 };
