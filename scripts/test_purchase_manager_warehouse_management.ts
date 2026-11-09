@@ -55,20 +55,21 @@ runTest('Restricted roles (Cashier, Salesperson, Accountant) CANNOT access Wareh
   assert.strictEqual(canAccessRoute('Accountant', '/inventory/warehouses'), false);
 });
 
-runTest('Sidebar.tsx has Warehouse menu item placed below Inventory and above Purchases & PO', () => {
+runTest('Sidebar.tsx has Warehouse menu item placed below Products and above Purchases & PO', () => {
   const sidebar = fs.readFileSync(path.resolve('src/components/layout/Sidebar.tsx'), 'utf8');
   assert.ok(sidebar.includes("id: 'warehouses'"), 'Sidebar must have warehouses item');
   assert.ok(sidebar.includes("name: 'Warehouse'"), 'Sidebar item must be named Warehouse');
   assert.ok(sidebar.includes("path: '/inventory/warehouses'"), 'Sidebar item path must be /inventory/warehouses');
   assert.ok(sidebar.includes('icon: Warehouse'), 'Sidebar item must use Warehouse icon');
 
-  const stockPos = sidebar.indexOf("id: 'stock'");
+  const productsPos = sidebar.indexOf("id: 'products'");
   const warehousePos = sidebar.indexOf("id: 'warehouses'");
   const purchasesPos = sidebar.indexOf("id: 'purchases'");
 
-  assert.ok(stockPos !== -1 && warehousePos !== -1 && purchasesPos !== -1, 'All three items must exist');
-  assert.ok(stockPos < warehousePos, 'Warehouse must be placed below Stock / Inventory');
+  assert.ok(productsPos !== -1 && warehousePos !== -1 && purchasesPos !== -1, 'Products, Warehouse, and Purchases items must exist');
+  assert.ok(productsPos < warehousePos, 'Warehouse must be placed below Products & Catalog');
   assert.ok(warehousePos < purchasesPos, 'Warehouse must be placed above Purchases & PO');
+  assert.ok(!sidebar.includes("name: 'Stock & Godowns'"), 'Stock & Godowns must be removed from Sidebar');
 });
 
 runTest('Sidebar.tsx includes active matching for /inventory/warehouses and /warehouses', () => {

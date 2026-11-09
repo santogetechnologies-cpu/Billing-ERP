@@ -5,7 +5,6 @@ import {
   Zap,
   ShoppingCart,
   ShoppingBag,
-  Boxes,
   Package,
   Users,
   BadgePercent,
@@ -65,7 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   onCloseMobile
 }) => {
-  const { company, heldInvoices, notifications, inboundOrders } = useERP();
+  const { company, heldInvoices, inboundOrders } = useERP();
   const { profile, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -108,7 +107,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const heldBillsCount = heldInvoices?.length || 0;
-  const unreadAlertsCount = notifications?.filter(n => !n.read)?.length || 0;
   const pendingOrdersCount = inboundOrders?.filter(o => o.status === 'Pending Confirmation' || o.status === 'Confirmed')?.length || 0;
 
   // Complete Navigation Items grouped into 4 distinct functional sections
@@ -154,15 +152,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       name: 'Products & Catalog',
       path: '/products',
       icon: Package,
-      section: 'Inventory & Stock'
-    },
-    {
-      id: 'stock',
-      name: 'Stock & Godowns',
-      path: '/inventory',
-      icon: Boxes,
-      badge: unreadAlertsCount > 0 ? unreadAlertsCount : undefined,
-      badgeColor: 'warning',
       section: 'Inventory & Stock'
     },
     {
@@ -315,16 +304,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     if (item.id === 'warehouses' || item.id === 'warehouse') {
       return (
-        cur === '/inventory/warehouses' ||
-        cur.startsWith('/inventory/warehouses/') ||
+        cur === '/inventory/warehouses' || cur.startsWith('/inventory/warehouses/') ||
         cur === '/warehouses' ||
         cur.startsWith('/warehouses/')
       );
-    }
-
-    if (item.id === 'stock') {
-      if (cur === '/inventory/warehouses' || cur.startsWith('/inventory/warehouses/')) return false;
-      return cur === '/inventory' || cur.startsWith('/inventory/') || cur === '/stock' || cur.startsWith('/stock/');
     }
 
     if (item.id === 'products') {

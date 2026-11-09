@@ -78,3 +78,4 @@ if (failCount > 0) {
 } else {
   console.log('ALL TAB NAVIGATION TESTS PASSED!');
 }
+
