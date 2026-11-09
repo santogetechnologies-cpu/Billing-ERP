@@ -90,11 +90,10 @@ function runTests() {
   }
   console.log('✓ Verified Invoice Information in modal');
 
-  // D. Product Details Table (9 Columns)
+  // D. Product Details Table
   const productHeaders = [
     'S.No',
     'Product Name',
-    'Quantity',
     'Unit',
     'Total Cost',
     'GST %',
@@ -105,25 +104,28 @@ function runTests() {
       throw new Error(`Missing product table header: ${ph}`);
     }
   }
+  if (!modalContent.includes('Qty') && !modalContent.includes('Quantity')) {
+    throw new Error('Missing Quantity / Qty header');
+  }
   if (!modalContent.includes('>Cost / Item</th>') && !modalContent.includes('>Cost per Item</th>')) {
     throw new Error('Missing Cost / Item header');
   }
   if (!modalContent.includes('>Amount</th>') && !modalContent.includes('>Total</th>')) {
     throw new Error('Missing Amount header');
   }
-  console.log('✓ Verified 9 Product Table column headers in modal');
+  console.log('✓ Verified Product Table column headers in modal');
 
   // E. Bill Summary
   if (!modalContent.includes('Subtotal (Before GST):') ||
       !modalContent.includes('Total GST:') ||
       !modalContent.includes('Additional Charges:') ||
-      !modalContent.includes('Grand Total:')) {
+      (!modalContent.includes('Grand Total') && !modalContent.includes('Balance:'))) {
     throw new Error('Bill Summary section fields missing');
   }
   console.log('✓ Verified Bill Summary in modal');
 
   // F. Payment Information
-  if (!modalContent.includes('Payment Information') ||
+  if ((!modalContent.includes('Payment Information') && !modalContent.includes('Payment Details')) ||
       !modalContent.includes('Amount Paid:') ||
       !modalContent.includes('Balance Due:')) {
     throw new Error('Payment Information section fields missing');

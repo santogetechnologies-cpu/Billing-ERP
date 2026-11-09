@@ -45,11 +45,10 @@ function runTests() {
   }
   console.log('✓ Verified Supplier & Invoice Information 2-column layout');
 
-  // 4. Verify Product Details Table Columns (Strictly 9 Columns matching prompt)
+  // 4. Verify Product Details Table Columns
   const requiredTableColumns = [
     'S.No',
     'Product Name',
-    'Quantity',
     'Unit',
     'Cost / Item',
     'Total Cost',
@@ -63,7 +62,10 @@ function runTests() {
       throw new Error(`Missing required Product Details table column header: ${col}`);
     }
   }
-  console.log('✓ Verified all 9 required Product Details table columns in exact format');
+  if (!modalContent.includes('Ordered Qty') && !modalContent.includes('Quantity')) {
+    throw new Error('Missing Quantity / Qty header');
+  }
+  console.log('✓ Verified required Product Details table columns in exact format');
 
   // 5. Verify Product Calculations & Data Accuracy
   if (!modalContent.includes('recv = it.receivedQty !== undefined ? it.receivedQty : it.qty') ||
@@ -74,14 +76,14 @@ function runTests() {
   }
   console.log('✓ Verified actual received quantity, unit cost, total cost, GST amount, and final Amount calculations');
 
-  // 6. Verify Bill Summary & Prominent Grand Total
+  // 6. Verify Bill Summary & Prominent Grand Total / Balance
   if (!modalContent.includes('Subtotal (Before GST):') ||
       !modalContent.includes('Total GST:') ||
       !modalContent.includes('Additional Charges:') ||
-      !modalContent.includes('Grand Total:')) {
+      (!modalContent.includes('Grand Total') && !modalContent.includes('Balance:'))) {
     throw new Error('Bill Summary fields missing');
   }
-  console.log('✓ Verified Bill Summary fields and highlighted Grand Total');
+  console.log('✓ Verified Bill Summary fields and highlighted Grand Total / Balance');
 
   // 7. Verify Payment Details
   if (!modalContent.includes('Payment Status:') ||

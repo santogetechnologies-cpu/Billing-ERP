@@ -18,7 +18,8 @@ function generatePurchaseInvoiceHTML(
   bill: PurchaseInvoice,
   company: CompanyProfile | null | undefined,
   supplierRecord: Supplier | undefined,
-  linkedPayment: PaymentRecord | undefined
+  linkedPayment: PaymentRecord | undefined,
+  calculatedAlreadyPaid?: number
 ): string {
   const companyName = company?.companyName || company?.name || 'Universal Billing Platform';
   const companyLogo = company?.logo;
@@ -41,12 +42,16 @@ function generatePurchaseInvoiceHTML(
   const supplierPhone = supplierRecord?.phone || '—';
   const supplierGstin = bill.supplierGstin || supplierRecord?.gstin || '';
 
-  const grandTotal = Number(bill.grandTotal || 0);
-  const alreadyPaid = Number(bill.paidAmount || 0);
+  const subtotal = Number(bill.subtotal || 0);
+  const taxTotal = Number(bill.taxTotal || 0);
+  const additionalCharges = Number(bill.otherCharges || bill.freightCharges || 0);
+  const grandTotal = Number(bill.grandTotal || (subtotal + taxTotal + additionalCharges));
+  const alreadyPaid = calculatedAlreadyPaid !== undefined ? calculatedAlreadyPaid : Number(bill.paidAmount || 0);
   const balanceDue = Math.max(0, grandTotal - alreadyPaid);
 
-  const isCompleted = bill.paymentStatus === 'Paid' || (alreadyPaid >= grandTotal && grandTotal > 0);
-  const isPartial = !isCompleted && (bill.paymentStatus === 'Partially Paid' || alreadyPaid > 0);
+  const isCompleted = (alreadyPaid >= grandTotal && grandTotal > 0) || bill.paymentStatus === 'Paid';
+  const isPartial = !isCompleted && (alreadyPaid > 0 || bill.paymentStatus === 'Partially Paid');
+  const isPending = !isCompleted && !isPartial;
   const statusLabel = isCompleted ? 'COMPLETED' : isPartial ? 'PARTIALLY PAID' : 'PENDING';
   const statusBadgeClass = isCompleted ? 'badge-completed' : isPartial ? 'badge-partial' : 'badge-pending';
 
@@ -342,8 +347,8 @@ function generatePurchaseInvoiceHTML(
               </td>
             </tr>
             <tr>
-              <td style="color: #64748b; padding: 4px 0;">Payment Method:</td>
-              <td class="text-right" style="font-weight: 600; color: #334155; padding: 4px 0;">${linkedPayment?.paymentMethod || 'Bank Transfer'}</td>
+              <td style="color: #64748b; padding: 4px 0;">Grand Total:</td>
+              <td class="font-mono text-right" style="font-weight: 700; color: #0f172a; padding: 4px 0;">${formatCurrency(grandTotal)}</td>
             </tr>
             <tr>
               <td style="color: #64748b; padding: 4px 0;">Amount Paid:</td>
@@ -355,7 +360,8 @@ function generatePurchaseInvoiceHTML(
             </tr>
           </table>
           ${(isCompleted || alreadyPaid > 0) ? `
-            <div style="font-size: 9.5px; color: #64748b; text-align: right; margin-top: 4px;">
+            <div style="font-size: 9px; color: #64748b; text-align: right; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #cbd5e1;">
+              Payment Method: <span style="font-weight: 600; color: #334155;">${linkedPayment?.paymentMethod || 'Bank Transfer'}</span> |
               Payment Date: <span class="font-mono" style="color: #334155;">${formatDate(linkedPayment?.date || bill.dueDate || bill.date)}</span>
             </div>
           ` : ''}
@@ -366,19 +372,19 @@ function generatePurchaseInvoiceHTML(
           <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
             <tr>
               <td style="color: #64748b; padding: 4px 0;">Subtotal (Before GST):</td>
-              <td class="font-mono text-right" style="font-weight: 600; color: #334155; padding: 4px 0;">${formatCurrency(bill.subtotal)}</td>
+              <td class="font-mono text-right" style="font-weight: 600; color: #334155; padding: 4px 0;">${formatCurrency(subtotal)}</td>
             </tr>
             <tr>
               <td style="color: #64748b; padding: 4px 0;">Total GST:</td>
-              <td class="font-mono text-right" style="font-weight: 600; color: #334155; padding: 4px 0;">${formatCurrency(bill.taxTotal)}</td>
+              <td class="font-mono text-right" style="font-weight: 600; color: #334155; padding: 4px 0;">${formatCurrency(taxTotal)}</td>
             </tr>
             <tr>
               <td style="color: #64748b; padding: 4px 0;">Additional Charges:</td>
-              <td class="font-mono text-right" style="font-weight: 600; color: #334155; padding: 4px 0;">${formatCurrency(bill.otherCharges || bill.freightCharges || 0)}</td>
+              <td class="font-mono text-right" style="font-weight: 600; color: #334155; padding: 4px 0;">${formatCurrency(additionalCharges)}</td>
             </tr>
-            <tr style="border-top: 1.5px solid #0f172a;">
-              <td style="font-weight: 900; font-size: 11px; text-transform: uppercase; padding: 7px 0 2px 0; color: #0f172a;">Grand Total:</td>
-              <td class="font-mono text-right" style="font-weight: 900; font-size: 13px; padding: 7px 0 2px 0; color: #0f172a;">${formatCurrency(grandTotal)}</td>
+            <tr style="border-top: 1.5px solid #7e22ce;">
+              <td style="font-weight: 900; font-size: 11px; text-transform: uppercase; padding: 7px 0 2px 0; color: #7e22ce;">Balance:</td>
+              <td class="font-mono text-right" style="font-weight: 900; font-size: 13px; padding: 7px 0 2px 0; color: #7e22ce;">${formatCurrency(balanceDue)}</td>
             </tr>
           </table>
         </td>
@@ -457,11 +463,30 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
       p => p.invoiceId === bill.id || (p.reference && bill.invoiceNumber && p.reference.includes(bill.invoiceNumber))
     );
 
-  const grandTotal = Number(bill.grandTotal || 0);
-  const alreadyPaid = Number(bill.paidAmount || 0);
+  const subtotal = Number(bill.subtotal || 0);
+  const taxTotal = Number(bill.taxTotal || 0);
+  const additionalCharges = Number(bill.otherCharges || bill.freightCharges || 0);
+  const grandTotal = Number(bill.grandTotal || (subtotal + taxTotal + additionalCharges));
+
+  // Dynamically resolve all payments linked to this bill
+  const linkedPayments = payments.filter(
+    (p: any) => (p.invoiceId && p.invoiceId === bill.id) ||
+      (bill.invoiceNumber && p.reference && p.reference.includes(bill.invoiceNumber)) ||
+      (bill.supplierInvoiceNumber && p.supplierInvoiceNumber && p.supplierInvoiceNumber === bill.supplierInvoiceNumber) ||
+      (bill.purchaseOrderNumber && p.purchaseOrderNumber && p.purchaseOrderNumber === bill.purchaseOrderNumber)
+  );
+  const totalFromPayments = linkedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const alreadyPaid = Math.max(
+    Number(bill.paidAmount || 0),
+    totalFromPayments,
+    Number(payment?.amount || 0)
+  );
   const balanceDue = Math.max(0, grandTotal - alreadyPaid);
-  const isCompleted = bill.paymentStatus === 'Paid' || (alreadyPaid >= grandTotal && grandTotal > 0);
-  const isPartial = !isCompleted && (bill.paymentStatus === 'Partially Paid' || alreadyPaid > 0);
+  const isCompleted = (alreadyPaid >= grandTotal && grandTotal > 0) || bill.paymentStatus === 'Paid';
+  const isPartial = !isCompleted && (alreadyPaid > 0 || bill.paymentStatus === 'Partially Paid');
+  const isPending = !isCompleted && !isPartial;
+
+  const statusLabel = isCompleted ? 'Completed' : isPartial ? 'Partially Paid' : 'Pending';
 
   const supplierName = bill.supplierName;
   const supplierAddress = supplierRecord?.address || '—';
@@ -504,7 +529,7 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
    * Completely immune to parent CSS, dark-mode, or layout clipping.
    */
   const handlePrint = () => {
-    const html = generatePurchaseInvoiceHTML(bill, company, supplierRecord, linkedPayment);
+    const html = generatePurchaseInvoiceHTML(bill, company, supplierRecord, linkedPayment, alreadyPaid);
 
     // Create an invisible iframe for reliable, isolated printing
     const iframe = document.createElement('iframe');
@@ -817,89 +842,89 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
                 Payment Details
               </h4>
 
-              <div className="space-y-1.5 text-xs">
+              <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">Payment Status:</span>
                   {isCompleted ? (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                       <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      <span>COMPLETED</span>
+                      <span>Completed</span>
                     </span>
                   ) : isPartial ? (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
                       <Clock className="w-3 h-3 text-blue-600" />
-                      <span>PARTIALLY PAID</span>
+                      <span>Partially Paid</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                       <Clock className="w-3 h-3 text-amber-600" />
-                      <span>PENDING</span>
+                      <span>Pending</span>
                     </span>
                   )}
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Amount Paid:</span>
-                  <span className="font-mono font-bold text-emerald-600">
-                    {formatCurrency(alreadyPaid)}
+                  <span className="text-slate-500">Grand Total:</span>
+                  <span className="font-mono font-semibold text-slate-900 dark:text-white">
+                    {formatCurrency(grandTotal)}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Balance Due:</span>
-                  <span className="font-mono font-bold text-amber-600">
+                  <span className="text-slate-500">Amount Paid:</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    {formatCurrency(alreadyPaid)}
+                  </span>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white uppercase">
+                    Balance Due:
+                  </span>
+                  <span className="font-mono font-extrabold text-base text-rose-600 dark:text-rose-400">
                     {formatCurrency(balanceDue)}
                   </span>
                 </div>
 
                 {(isCompleted || alreadyPaid > 0) && (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Payment Date:</span>
-                      <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
-                        {formatDate(linkedPayment?.date || bill.dueDate || bill.date)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Payment Method:</span>
-                      <span className="font-medium text-slate-800 dark:text-slate-200">
-                        {linkedPayment?.paymentMethod || 'Bank Transfer'}
-                      </span>
-                    </div>
-                  </>
+                  <div className="pt-1.5 border-t border-slate-200/80 dark:border-slate-700/80 flex justify-between text-[11px] text-slate-400">
+                    <span>Payment Method: {linkedPayment?.paymentMethod || 'Bank Transfer'}</span>
+                    <span>Payment Date: {formatDate(linkedPayment?.date || bill.dueDate || bill.date)}</span>
+                  </div>
                 )}
               </div>
             </div>
 
             {/* Bill Summary */}
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
               <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">
                 Bill Summary
               </h4>
 
-              <div className="flex justify-between text-xs text-slate-600 dark:text-slate-300">
-                <span>Subtotal (Before GST):</span>
-                <span className="font-mono font-semibold">{formatCurrency(bill.subtotal)}</span>
-              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                  <span>Subtotal (Before GST):</span>
+                  <span className="font-mono font-semibold">{formatCurrency(subtotal)}</span>
+                </div>
 
-              <div className="flex justify-between text-xs text-slate-600 dark:text-slate-300">
-                <span>Total GST:</span>
-                <span className="font-mono font-semibold">{formatCurrency(bill.taxTotal)}</span>
-              </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                  <span>Total GST:</span>
+                  <span className="font-mono font-semibold">{formatCurrency(taxTotal)}</span>
+                </div>
 
-              <div className="flex justify-between text-xs text-slate-600 dark:text-slate-300">
-                <span>Additional Charges:</span>
-                <span className="font-mono font-semibold">{formatCurrency(bill.otherCharges || bill.freightCharges || 0)}</span>
-              </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                  <span>Additional Charges:</span>
+                  <span className="font-mono font-semibold">{formatCurrency(additionalCharges)}</span>
+                </div>
 
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between items-baseline">
-                <span className="text-xs font-bold text-slate-900 dark:text-white uppercase">
-                  Grand Total:
-                </span>
-                <span className="font-mono font-extrabold text-base text-purple-600 dark:text-purple-400">
-                  {formatCurrency(grandTotal)}
-                </span>
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-purple-700 dark:text-purple-300 uppercase">
+                    Balance:
+                  </span>
+                  <span className="font-mono font-extrabold text-base text-purple-600 dark:text-purple-400">
+                    {formatCurrency(balanceDue)}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -1093,10 +1118,8 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="font-medium text-slate-600">Payment Method:</span>
-                  <span className="text-slate-900 font-medium">
-                    {linkedPayment?.paymentMethod || 'Bank Transfer'}
-                  </span>
+                  <span className="font-medium text-slate-600">Grand Total:</span>
+                  <span className="font-mono font-bold text-slate-900">{formatCurrency(grandTotal)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium text-slate-600">Amount Paid:</span>
@@ -1136,10 +1159,10 @@ export const SupplierBillInvoiceModal: React.FC<SupplierBillInvoiceModalProps> =
                     {formatCurrency(bill.otherCharges || bill.freightCharges || 0)}
                   </span>
                 </div>
-                <div className="pt-2 border-t-2 border-slate-900 flex justify-between items-baseline">
-                  <span className="font-black text-slate-900 text-sm uppercase">Grand Total:</span>
-                  <span className="font-mono font-black text-base text-slate-900">
-                    {formatCurrency(grandTotal)}
+                <div className="pt-2 border-t-2 border-purple-700 flex justify-between items-baseline">
+                  <span className="font-black text-purple-700 text-sm uppercase">Balance:</span>
+                  <span className="font-mono font-black text-base text-purple-700">
+                    {formatCurrency(balanceDue)}
                   </span>
                 </div>
               </div>
