@@ -552,17 +552,17 @@ export const WarehouseStockTransfersTab = React.forwardRef<
 
       {/* Stock Transfers Table */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+        <div className="w-full overflow-hidden">
+          <table className="w-full table-fixed text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">
-                <th className="py-3 px-4 text-left">Transfer Number</th>
-                <th className="py-3 px-4 text-left">Source Warehouse</th>
-                <th className="py-3 px-4 text-left">Destination Warehouse</th>
-                <th className="py-3 px-4 text-center">No of Products</th>
-                <th className="py-3 px-4 text-center">Transfer Date</th>
-                <th className="py-3 px-4 text-center">Transfer Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-3.5 px-3.5 text-left w-[15%]">Transfer Number</th>
+                <th className="py-3.5 px-3.5 text-left w-[22%]">Source Warehouse</th>
+                <th className="py-3.5 px-3.5 text-left w-[22%]">Destination Warehouse</th>
+                <th className="py-3.5 px-2 text-center w-[13%]">No of Products</th>
+                <th className="py-3.5 px-2 text-center w-[12%]">Transfer Date</th>
+                <th className="py-3.5 px-2 text-center w-[10%]">Transfer Status</th>
+                <th className="py-3.5 px-3.5 text-right w-[6%]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -588,46 +588,47 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       className="hover:bg-slate-50/70 transition-colors group"
                     >
                       {/* Transfer Number */}
-                      <td className="py-3 px-4 font-bold font-mono text-blue-600 align-middle">
+                      <td className="py-3 px-3.5 font-bold font-mono text-blue-600 align-middle truncate">
                         <button
                           onClick={() => {
                             setSelectedTransfer(trf);
                             setIsViewModalOpen(true);
                           }}
-                          className="hover:underline cursor-pointer"
+                          className="hover:underline cursor-pointer truncate"
+                          title={trf.transferNumber}
                         >
                           {trf.transferNumber}
                         </button>
                       </td>
 
                       {/* Source Warehouse */}
-                      <td className="py-3 px-4 align-middle">
-                        <div className="font-semibold text-slate-800">
+                      <td className="py-3 px-3.5 align-middle truncate">
+                        <div className="font-semibold text-slate-800 truncate" title={getWarehouseName(trf.fromWarehouse)}>
                           {getWarehouseName(trf.fromWarehouse)}
                         </div>
                         {getWarehouseCode(trf.fromWarehouse) && (
-                          <div className="text-[10px] text-slate-400 font-mono">
+                          <div className="text-[10px] text-slate-400 font-mono truncate">
                             {getWarehouseCode(trf.fromWarehouse)}
                           </div>
                         )}
                       </td>
 
                       {/* Destination Warehouse */}
-                      <td className="py-3 px-4 align-middle">
-                        <div className="font-semibold text-slate-800">
+                      <td className="py-3 px-3.5 align-middle truncate">
+                        <div className="font-semibold text-slate-800 truncate" title={getWarehouseName(trf.toWarehouse)}>
                           {getWarehouseName(trf.toWarehouse)}
                         </div>
                         {getWarehouseCode(trf.toWarehouse) && (
-                          <div className="text-[10px] text-slate-400 font-mono">
+                          <div className="text-[10px] text-slate-400 font-mono truncate">
                             {getWarehouseCode(trf.toWarehouse)}
                           </div>
                         )}
                       </td>
 
                       {/* No of Products */}
-                      <td className="py-3 px-4 text-center align-middle whitespace-nowrap">
+                      <td className="py-3 px-2 text-center align-middle whitespace-nowrap">
                         <span
-                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200"
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200"
                           title={trf.items?.map(i => `${i.productName} (${i.qty} ${i.unit || 'Pcs'})`).join(', ')}
                         >
                           {productCount} {productCount === 1 ? 'Product' : 'Products'}
@@ -635,17 +636,17 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       </td>
 
                       {/* Transfer Date */}
-                      <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap align-middle">
+                      <td className="py-3 px-2 text-center text-slate-600 whitespace-nowrap align-middle text-[11px]">
                         {formatDate(trf.date || trf.createdAt)}
                       </td>
 
                       {/* Transfer Status */}
-                      <td className="py-3 px-4 text-center align-middle whitespace-nowrap">
+                      <td className="py-3 px-2 text-center align-middle whitespace-nowrap">
                         {renderStatusBadge(trf.status)}
                       </td>
 
                       {/* Actions: View, Edit, Cancel */}
-                      <td className="py-3 px-4 text-right whitespace-nowrap align-middle">
+                      <td className="py-3 px-3.5 text-right whitespace-nowrap align-middle">
                         <div className="flex items-center justify-end gap-1">
                           {/* View Action */}
                           <button
