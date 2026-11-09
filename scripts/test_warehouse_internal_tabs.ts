@@ -168,12 +168,19 @@ assert(
   '18. Tab 3: Includes View and Edit actions for adjustment records'
 );
 
-// 6. Verify Navigation Integrity
+// 6. Verify Navigation Integrity & Consistent Header Layout
 assert(
   warehousesContent.includes("activeTab === 'warehouse'") &&
   warehousesContent.includes("activeTab === 'transfers'") &&
   warehousesContent.includes("activeTab === 'adjustments'"),
   '19. Tabs switch internal view states without navigating away from the page'
+);
+
+assert(
+  warehousesContent.indexOf('Top Banner Header') < warehousesContent.indexOf('<Tabs') &&
+  warehousesContent.includes('canManageWarehouse && (') &&
+  !warehousesContent.includes('canManageWarehouse && activeTab === \'warehouse\''),
+  '20. Main page header and Add Warehouse button remain consistently positioned at top-right across all 3 tabs'
 );
 
 console.log(`\nResults: ${passCount} Passed, ${failCount} Failed.`);

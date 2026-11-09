@@ -463,40 +463,22 @@ export const WarehousesPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner Header */}
+      {/* Top Banner Header: Consistent Across All Tabs */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
         <div>
           <div className="flex items-center gap-2.5">
             <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600">
-              {activeTab === 'transfers' ? (
-                <ArrowLeftRight className="w-6 h-6" />
-              ) : activeTab === 'adjustments' ? (
-                <SlidersHorizontal className="w-6 h-6" />
-              ) : (
-                <WarehouseIcon className="w-6 h-6" />
-              )}
+              <WarehouseIcon className="w-6 h-6" />
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                {activeTab === 'transfers'
-                  ? 'Stock Transfer Management'
-                  : activeTab === 'adjustments'
-                  ? 'Stock Adjustment Management'
-                  : 'Multi-Warehouse Management'}
+                Multi-Warehouse Management
                 <span className="text-xs px-2.5 py-0.5 font-semibold bg-blue-50 text-blue-700 border border-blue-200/60 rounded-full">
-                  {activeTab === 'transfers'
-                    ? `${stockTransfers.length} Transfers`
-                    : activeTab === 'adjustments'
-                    ? `${stockAdjustmentCount} Adjustments`
-                    : `${warehouses.length} Locations`}
+                  {warehouses.length} Locations
                 </span>
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                {activeTab === 'transfers'
-                  ? 'Dispatch and receive inter-warehouse inventory shipments with automated stock tracking.'
-                  : activeTab === 'adjustments'
-                  ? 'Adjust, reconcile, and audit inventory discrepancies, write-offs, and damages.'
-                  : 'Maintain distinct inventory balances across central warehouses, godowns, branch hubs, and retail outlets.'}
+                Maintain distinct inventory balances across central warehouses, godowns, branch hubs, and retail outlets.
               </p>
             </div>
           </div>
@@ -511,7 +493,7 @@ export const WarehousesPage: React.FC = () => {
             <RefreshCw className="w-4 h-4" />
           </button>
 
-          {canManageWarehouse && activeTab === 'warehouse' && (
+          {canManageWarehouse && (
             <button
               onClick={handleOpenCreateModal}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
