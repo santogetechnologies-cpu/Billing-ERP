@@ -30,12 +30,10 @@ const cssContent = fs.readFileSync(path.resolve('src/index.css'), 'utf-8');
 console.log('--- 1. Screen Interface Isolation & Dedicated Print Container ---');
 
 test('1.1 Screen UI elements are marked with no-print and barcode-screen-only', () => {
-  // Mode Selector
-  assert(tabContent.includes('no-print barcode-screen-only flex items-center justify-between'), 'Mode Selector marked no-print');
-  // Option A (Designer & Preview)
-  assert(tabContent.includes('no-print barcode-screen-only grid grid-cols-1 lg:grid-cols-3 gap-5'), 'Option A grid marked no-print');
-  // Option B
-  assert(tabContent.includes('no-print barcode-screen-only grid grid-cols-1 lg:grid-cols-2 gap-5'), 'Option B grid marked no-print');
+  // Top Banner
+  assert(tabContent.includes('no-print barcode-screen-only flex items-center justify-between'), 'Top Banner marked no-print');
+  // Custom Sticker Designer & Preview Grid
+  assert(tabContent.includes('no-print barcode-screen-only grid grid-cols-1 lg:grid-cols-3 gap-5'), 'Custom sticker designer grid marked no-print');
 });
 
 test('1.2 Dedicated print-only container exists in DOM and is hidden on screen', () => {
@@ -61,7 +59,7 @@ console.log('\n--- 2. Number of Copies Dynamic Element Generation ---');
 test('2.1 Elements are repeated using displayCopies based on input without hardcoding', () => {
   assert(
     tabContent.includes('Array.from({') &&
-    tabContent.includes('length: labelMode === \'custom_stickers\' ? displayCopies : 1') &&
+    tabContent.includes('length: displayCopies') &&
     tabContent.includes('.map((_, idx) =>'),
     'Renders stickers repeated by displayCopies'
   );

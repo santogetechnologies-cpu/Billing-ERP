@@ -233,7 +233,7 @@ export const ProductMasterModal: React.FC<ProductMasterModalProps> = ({
       code: finalCode,
       sku: finalCode,
       barcode: finalBarcode,
-      barcodeType: (barcodeMode === 'manual' ? 'Manufacturer / Manual' : 'Auto Generated') as 'Auto Generated' | 'Manufacturer / Manual',
+      barcodeType: barcodeMode === 'manual' ? 'Manufacturer / Manual' : 'Auto Generated',
       manufacturerBarcode: barcodeMode === 'manual' ? finalBarcode : undefined,
       isManufacturerBarcodeActive: barcodeMode === 'manual',
       category,
