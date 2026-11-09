@@ -99,14 +99,14 @@ assert(
   transfersContent.includes('Transfer Number') &&
   transfersContent.includes('Source Warehouse') &&
   transfersContent.includes('Destination Warehouse') &&
-  transfersContent.includes('Product Name') &&
-  transfersContent.includes('Available Stock') &&
-  transfersContent.includes('Transfer Quantity') &&
+  transfersContent.includes('No of Products') &&
   transfersContent.includes('Transfer Date') &&
-  !transfersContent.includes('<th className="py-3 px-3.5">Transfer Reason</th>') &&
   transfersContent.includes('Transfer Status') &&
-  transfersContent.includes('Actions'),
-  '10. Tab 2: Stock Transfer table columns verified (Transfer Reason column removed from table)'
+  transfersContent.includes('Actions') &&
+  !transfersContent.includes('<th className="py-3 px-4 text-center">Available Stock</th>') &&
+  !transfersContent.includes('<th className="py-3 px-4 text-center">Transfer Quantity</th>') &&
+  !transfersContent.includes('Transfer Reason</th>'),
+  '10. Tab 2: Stock Transfer table columns verified (No of Products added; Available Stock, Transfer Quantity, and Reason removed)'
 );
 
 assert(

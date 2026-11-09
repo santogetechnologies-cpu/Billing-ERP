@@ -556,21 +556,19 @@ export const WarehouseStockTransfersTab = React.forwardRef<
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">
-                <th className="py-3 px-3.5">Transfer Number</th>
-                <th className="py-3 px-3.5">Source Warehouse</th>
-                <th className="py-3 px-3.5">Destination Warehouse</th>
-                <th className="py-3 px-3.5">Product Name</th>
-                <th className="py-3 px-3.5 text-center">Available Stock</th>
-                <th className="py-3 px-3.5 text-center">Transfer Quantity</th>
-                <th className="py-3 px-3.5">Transfer Date</th>
-                <th className="py-3 px-3.5 text-center">Transfer Status</th>
-                <th className="py-3 px-3.5 text-right">Actions</th>
+                <th className="py-3 px-4 text-left">Transfer Number</th>
+                <th className="py-3 px-4 text-left">Source Warehouse</th>
+                <th className="py-3 px-4 text-left">Destination Warehouse</th>
+                <th className="py-3 px-4 text-center">No of Products</th>
+                <th className="py-3 px-4 text-center">Transfer Date</th>
+                <th className="py-3 px-4 text-center">Transfer Status</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredTransfers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <ArrowLeftRight className="w-10 h-10 mx-auto text-slate-300 mb-2 stroke-1" />
                     <p className="font-medium text-slate-600">No stock transfers found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -582,14 +580,7 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                 </tr>
               ) : (
                 filteredTransfers.map(trf => {
-                  const firstItem = trf.items?.[0];
-                  const otherItemsCount = (trf.items?.length || 0) - 1;
-                  const totalTransferQty = (trf.items || []).reduce((s, i) => s + (Number(i.qty) || 0), 0);
-                  const primaryUnit = firstItem?.unit || 'Pcs';
-
-                  // Calculate available stock for the first item in source warehouse
-                  const srcWhId = trf.fromWarehouseId || trf.fromWarehouse;
-                  const availStock = firstItem ? getWarehouseStock(srcWhId, firstItem.productId) : 0;
+                  const productCount = trf.items?.length || 0;
 
                   return (
                     <tr
@@ -597,7 +588,7 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       className="hover:bg-slate-50/70 transition-colors group"
                     >
                       {/* Transfer Number */}
-                      <td className="py-3 px-3.5 font-bold font-mono text-blue-600">
+                      <td className="py-3 px-4 font-bold font-mono text-blue-600 align-middle">
                         <button
                           onClick={() => {
                             setSelectedTransfer(trf);
@@ -610,7 +601,7 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       </td>
 
                       {/* Source Warehouse */}
-                      <td className="py-3 px-3.5">
+                      <td className="py-3 px-4 align-middle">
                         <div className="font-semibold text-slate-800">
                           {getWarehouseName(trf.fromWarehouse)}
                         </div>
@@ -622,7 +613,7 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       </td>
 
                       {/* Destination Warehouse */}
-                      <td className="py-3 px-3.5">
+                      <td className="py-3 px-4 align-middle">
                         <div className="font-semibold text-slate-800">
                           {getWarehouseName(trf.toWarehouse)}
                         </div>
@@ -633,47 +624,28 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                         )}
                       </td>
 
-                      {/* Product Name */}
-                      <td className="py-3 px-3.5 whitespace-nowrap">
-                        {firstItem ? (
-                          <div className="inline-flex items-center gap-1.5">
-                            <span className="font-medium text-slate-900">{firstItem.productName}</span>
-                            {otherItemsCount > 0 && (
-                              <span
-                                className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-semibold border border-blue-200 whitespace-nowrap shrink-0"
-                                title={trf.items?.map(i => `${i.productName} (${i.qty} ${i.unit})`).join(', ')}
-                              >
-                                +{otherItemsCount} more
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">No products listed</span>
-                        )}
-                      </td>
-
-                      {/* Available Stock */}
-                      <td className="py-3 px-3.5 text-center font-medium text-slate-700">
-                        {firstItem ? `${availStock} ${firstItem.unit}` : '—'}
-                      </td>
-
-                      {/* Transfer Quantity */}
-                      <td className="py-3 px-3.5 text-center font-bold text-slate-900">
-                        {totalTransferQty} {primaryUnit}
+                      {/* No of Products */}
+                      <td className="py-3 px-4 text-center align-middle whitespace-nowrap">
+                        <span
+                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200"
+                          title={trf.items?.map(i => `${i.productName} (${i.qty} ${i.unit || 'Pcs'})`).join(', ')}
+                        >
+                          {productCount} {productCount === 1 ? 'Product' : 'Products'}
+                        </span>
                       </td>
 
                       {/* Transfer Date */}
-                      <td className="py-3 px-3.5 text-slate-600 whitespace-nowrap">
+                      <td className="py-3 px-4 text-center text-slate-600 whitespace-nowrap align-middle">
                         {formatDate(trf.date || trf.createdAt)}
                       </td>
 
                       {/* Transfer Status */}
-                      <td className="py-3 px-3.5 text-center">
+                      <td className="py-3 px-4 text-center align-middle whitespace-nowrap">
                         {renderStatusBadge(trf.status)}
                       </td>
 
                       {/* Actions: View, Edit, Cancel */}
-                      <td className="py-3 px-3.5 text-right whitespace-nowrap">
+                      <td className="py-3 px-4 text-right whitespace-nowrap align-middle">
                         <div className="flex items-center justify-end gap-1">
                           {/* View Action */}
                           <button
