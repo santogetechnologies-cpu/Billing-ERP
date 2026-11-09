@@ -103,10 +103,10 @@ assert(
   transfersContent.includes('Available Stock') &&
   transfersContent.includes('Transfer Quantity') &&
   transfersContent.includes('Transfer Date') &&
-  transfersContent.includes('Transfer Reason') &&
+  !transfersContent.includes('<th className="py-3 px-3.5">Transfer Reason</th>') &&
   transfersContent.includes('Transfer Status') &&
   transfersContent.includes('Actions'),
-  '10. Tab 2: Stock Transfer table includes all 10 required columns'
+  '10. Tab 2: Stock Transfer table columns verified (Transfer Reason column removed from table)'
 );
 
 assert(

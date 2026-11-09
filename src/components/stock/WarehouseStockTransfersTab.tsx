@@ -563,7 +563,6 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                 <th className="py-3 px-3.5 text-center">Available Stock</th>
                 <th className="py-3 px-3.5 text-center">Transfer Quantity</th>
                 <th className="py-3 px-3.5">Transfer Date</th>
-                <th className="py-3 px-3.5">Transfer Reason</th>
                 <th className="py-3 px-3.5 text-center">Transfer Status</th>
                 <th className="py-3 px-3.5 text-right">Actions</th>
               </tr>
@@ -571,7 +570,7 @@ export const WarehouseStockTransfersTab = React.forwardRef<
             <tbody className="divide-y divide-slate-100">
               {filteredTransfers.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <ArrowLeftRight className="w-10 h-10 mx-auto text-slate-300 mb-2 stroke-1" />
                     <p className="font-medium text-slate-600">No stock transfers found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -663,11 +662,6 @@ export const WarehouseStockTransfersTab = React.forwardRef<
                       {/* Transfer Date */}
                       <td className="py-3 px-3.5 text-slate-600 whitespace-nowrap">
                         {formatDate(trf.date || trf.createdAt)}
-                      </td>
-
-                      {/* Transfer Reason */}
-                      <td className="py-3 px-3.5 text-slate-600 max-w-xs truncate" title={trf.notes}>
-                        {trf.notes || 'Stock Replenishment'}
                       </td>
 
                       {/* Transfer Status */}
