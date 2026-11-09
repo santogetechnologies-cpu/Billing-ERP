@@ -30,8 +30,6 @@ const cssContent = fs.readFileSync(path.resolve('src/index.css'), 'utf-8');
 console.log('--- 1. Screen Interface Isolation & Dedicated Print Container ---');
 
 test('1.1 Screen UI elements are marked with no-print and barcode-screen-only', () => {
-  // Top Banner
-  assert(tabContent.includes('no-print barcode-screen-only flex items-center justify-between'), 'Top Banner marked no-print');
   // Custom Sticker Designer & Preview Grid
   assert(tabContent.includes('no-print barcode-screen-only grid grid-cols-1 lg:grid-cols-3 gap-5'), 'Custom sticker designer grid marked no-print');
 });

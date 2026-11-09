@@ -141,20 +141,6 @@ export const ProductLabelsTab: React.FC = () => {
 
   return (
     <div className="space-y-4 animate-fadeIn">
-      {/* Top Banner */}
-      <div className="no-print barcode-screen-only flex items-center justify-between bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2.5 rounded-2xl shadow-2xs">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white shadow-xs select-none">
-            <Printer className="w-4 h-4" />
-            <span>Print Custom In-House Stickers</span>
-          </div>
-        </div>
-
-        <span className="text-xs text-slate-400 font-medium hidden sm:inline">
-          {products.length} products in catalog
-        </span>
-      </div>
-
       {/* CUSTOM STICKER GENERATOR & PRINT DESIGNER */}
       <div className="no-print barcode-screen-only grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Controls */}

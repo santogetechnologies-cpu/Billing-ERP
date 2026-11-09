@@ -97,9 +97,7 @@ test('BarcodePage.tsx imports and renders ProductLabelsTab for Purchase Manager'
 test('ProductLabelsTab.tsx contains all required screen elements', () => {
   const tabContent = fs.readFileSync(path.resolve('src/components/products/ProductLabelsTab.tsx'), 'utf-8');
 
-  // Custom Sticker Printing Banner
-  assert(tabContent.includes('Print Custom In-House Stickers'), 'Includes Print Custom In-House Stickers');
-  // Option B removed
+  // Redundant Top Banner & Option B removed
   assert(!tabContent.includes('Option B: Use Pre-Printed Manufacturer Barcode'), 'Option B must be removed');
   assert(!tabContent.includes('Option B Configurator'), 'Option B Configurator must be removed');
   // Custom Sticker Designer
