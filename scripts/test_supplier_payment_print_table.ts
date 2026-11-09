@@ -150,6 +150,51 @@ async function main() {
     assert(tabCode.includes('iframe.contentWindow?.print()'), 'Must invoke print on iframe');
   });
 
+  // --- Group 8: Exact Column Width Distribution & Alignment ---
+  console.log('\n--- 8. Column Width Distribution & Alignment ---');
+  const expectedWidths = ['4%', '10%', '13%', '14%', '11%', '10%', '9%', '14%', '9%', '6%'];
+
+  runTest('Colgroup and headers configure exact column widths totaling 100%', () => {
+    const totalPercentage = expectedWidths.reduce((sum, w) => sum + parseInt(w, 10), 0);
+    assert.strictEqual(totalPercentage, 100, 'All column widths must sum exactly to 100%');
+
+    for (const w of expectedWidths) {
+      assert(tabCode.includes(`width: ${w};`), `Print HTML must define width: ${w};`);
+    }
+  });
+
+  runTest('Headings and data cells follow required alignments', () => {
+    // S.No, Payment Date, Payment Method, Payment Status: center
+    assert(tabCode.includes('<th class="text-center" style="width: 4%;">S.No</th>'), 'S.No heading must be centered');
+    assert(tabCode.includes('<th class="text-center" style="width: 10%;">Payment Date</th>'), 'Payment Date heading centered');
+    assert(tabCode.includes('<th class="text-center" style="width: 9%;">Payment Method</th>'), 'Payment Method heading centered');
+    assert(tabCode.includes('<th class="text-center" style="width: 6%;">Payment Status</th>'), 'Payment Status heading centered');
+
+    // Voucher Number, Supplier Name, Supplier Invoice Number, PO Number, Transaction Reference: left
+    assert(tabCode.includes('<th class="text-left" style="width: 10%;">Voucher Number</th>'), 'Voucher Number left aligned');
+    assert(tabCode.includes('<th class="text-left" style="width: 13%;">Supplier Name</th>'), 'Supplier Name left aligned');
+    assert(tabCode.includes('<th class="text-left" style="width: 14%;">Supplier Invoice Number</th>'), 'Supplier Invoice Number left aligned');
+    assert(tabCode.includes('<th class="text-left" style="width: 11%;">PO Number</th>'), 'PO Number left aligned');
+    assert(tabCode.includes('<th class="text-left" style="width: 14%;">Transaction Reference</th>'), 'Transaction Reference left aligned');
+
+    // Amount Paid: right
+    assert(tabCode.includes('<th class="text-right" style="width: 9%;">Amount Paid</th>'), 'Amount Paid heading right aligned');
+  });
+
+  // --- Group 9: Text Wrapping & Footer Layout ---
+  console.log('\n--- 9. Text Wrapping & Footer Integration ---');
+  runTest('Uses overflow-wrap: anywhere and avoids ellipsis truncation on table cells', () => {
+    assert(tabCode.includes('overflow-wrap: anywhere;'), 'Must configure overflow-wrap: anywhere');
+    assert(tabCode.includes('word-break: break-word;'), 'Must configure word-break: break-word');
+  });
+
+  runTest('Footer Total Disbursed spans full table and displays table-footer-group', () => {
+    assert(tabCode.includes('display: table-footer-group;'), 'tfoot must use display: table-footer-group');
+    assert(tabCode.includes('colspan="8"'), 'Footer label must span columns 1-8');
+    assert(tabCode.includes('Total Disbursed to Suppliers'), 'Footer must contain Total Disbursed label');
+    assert(tabCode.includes('formatCurrency(totalPaidAmount)'), 'Footer must render formatted total amount');
+  });
+
   console.log('\n================================================================================');
   console.log(`RESULTS: ${passedTests}/${totalTests} tests passed (${Math.round((passedTests / totalTests) * 100)}%)`);
   console.log('================================================================================\n');

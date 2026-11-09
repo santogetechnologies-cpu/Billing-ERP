@@ -64,16 +64,16 @@ function generateSupplierPaymentHistoryPrintHTML(
 
     return `
       <tr>
-        <td class="text-center font-mono" style="color: #64748b; width: 4%;">${idx + 1}</td>
-        <td class="font-mono text-blue-700 font-bold" style="width: 11%;">${voucherNo}</td>
-        <td class="font-bold text-slate-900" style="width: 17%;">${supplierName}</td>
-        <td class="font-mono font-semibold text-purple-700" style="width: 14%;">${supplierInvNo}</td>
-        <td class="font-mono text-slate-600" style="width: 11%;">${poNumber}</td>
-        <td class="text-center text-slate-800" style="width: 9%;">${paymentDate}</td>
+        <td class="text-center font-mono" style="width: 4%; color: #64748b;">${idx + 1}</td>
+        <td class="text-left font-mono text-blue-700 font-bold nowrap" style="width: 10%;">${voucherNo}</td>
+        <td class="text-left font-bold text-slate-900" style="width: 13%;">${supplierName}</td>
+        <td class="text-left font-mono font-semibold text-purple-700" style="width: 14%;">${supplierInvNo}</td>
+        <td class="text-left font-mono text-slate-600" style="width: 11%;">${poNumber}</td>
+        <td class="text-center text-slate-800 nowrap" style="width: 10%;">${paymentDate}</td>
         <td class="text-center text-slate-700 font-medium" style="width: 9%;">${paymentMethod}</td>
-        <td class="font-mono text-slate-600 text-xs" style="width: 11%;">${txRef}</td>
-        <td class="text-right font-mono font-bold text-rose-600" style="width: 9%;">${amountFormatted}</td>
-        <td class="text-center" style="width: 5%;">
+        <td class="text-left font-mono text-slate-600" style="width: 14%;">${txRef}</td>
+        <td class="text-right font-mono font-bold text-rose-600 nowrap" style="width: 9%;">${amountFormatted}</td>
+        <td class="text-center" style="width: 6%;">
           <span class="badge ${badgeClass}">${statusLabel}</span>
         </td>
       </tr>
@@ -90,27 +90,40 @@ function generateSupplierPaymentHistoryPrintHTML(
       size: A4 landscape;
       margin: 10mm 8mm;
     }
-    * {
+    *, *::before, *::after {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
-    body {
+    html, body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       color: #0f172a;
       background: #ffffff;
       margin: 0;
       padding: 0;
-      font-size: 10.5px;
+      font-size: 9.5px;
       line-height: 1.35;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-x: hidden;
+    }
+    .print-container {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
     .print-header {
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
-      padding-bottom: 10px;
-      margin-bottom: 12px;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
       border-bottom: 2px solid #0f172a;
+      width: 100%;
+      box-sizing: border-box;
     }
     .company-title {
       font-size: 15px;
@@ -120,7 +133,7 @@ function generateSupplierPaymentHistoryPrintHTML(
       letter-spacing: 0.3px;
     }
     .company-meta {
-      font-size: 9.5px;
+      font-size: 9px;
       color: #475569;
       margin-top: 2px;
     }
@@ -128,44 +141,55 @@ function generateSupplierPaymentHistoryPrintHTML(
       text-align: right;
     }
     .doc-title {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 800;
       color: #0f172a;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .doc-subtitle {
-      font-size: 10px;
+      font-size: 9.5px;
       color: #64748b;
       margin-top: 2px;
       font-weight: 600;
     }
     table {
-      width: 100%;
+      width: 100% !important;
+      max-width: 100% !important;
       border-collapse: collapse;
       table-layout: fixed;
+      box-sizing: border-box;
+      margin: 0;
     }
     thead {
       display: table-header-group;
+    }
+    tfoot {
+      display: table-footer-group;
     }
     th {
       background-color: #f1f5f9 !important;
       color: #0f172a;
       font-weight: 700;
-      font-size: 9.5px;
+      font-size: 8.5px;
       text-transform: uppercase;
-      letter-spacing: 0.4px;
-      padding: 7px 5px;
+      letter-spacing: 0.3px;
+      padding: 6px 4px;
       border: 1px solid #cbd5e1;
-      text-align: left;
+      vertical-align: middle;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     td {
-      padding: 6px 5px;
+      padding: 5px 4px;
       border: 1px solid #e2e8f0;
       vertical-align: middle;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      font-size: 9px;
+      line-height: 1.25;
     }
     tr {
       page-break-inside: avoid !important;
@@ -180,6 +204,7 @@ function generateSupplierPaymentHistoryPrintHTML(
     .font-bold { font-weight: 700; }
     .font-semibold { font-weight: 600; }
     .text-center { text-align: center; }
+    .text-left { text-align: left; }
     .text-right { text-align: right; }
     .text-blue-700 { color: #1d4ed8; }
     .text-purple-700 { color: #6d28d9; }
@@ -189,13 +214,20 @@ function generateSupplierPaymentHistoryPrintHTML(
     .text-slate-700 { color: #334155; }
     .text-slate-600 { color: #475569; }
     .text-slate-500 { color: #64748b; }
+    .nowrap { white-space: nowrap; }
     .badge {
       display: inline-block;
-      padding: 2px 6px;
-      border-radius: 9999px;
-      font-size: 8.5px;
+      padding: 2px 3px;
+      border-radius: 3px;
+      font-size: 7px;
       font-weight: 700;
-      letter-spacing: 0.3px;
+      letter-spacing: 0.1px;
+      line-height: 1.1;
+      text-align: center;
+      max-width: 100%;
+      box-sizing: border-box;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .badge-completed {
       background-color: #dcfce7 !important;
@@ -208,64 +240,80 @@ function generateSupplierPaymentHistoryPrintHTML(
       border: 1px solid #93c5fd;
     }
     .print-doc-footer {
-      margin-top: 14px;
+      margin-top: 12px;
       padding-top: 6px;
       border-top: 1px solid #e2e8f0;
       display: flex;
       justify-content: space-between;
-      font-size: 9px;
+      font-size: 8.5px;
       color: #94a3b8;
+      width: 100%;
+      box-sizing: border-box;
     }
   </style>
 </head>
 <body>
-  <div class="print-header">
-    <div>
-      <div class="company-title">${companyName}</div>
-      <div class="company-meta">
-        ${[companyAddressStr, companyGstin && `GSTIN: ${companyGstin}`, companyPhone && `Phone: ${companyPhone}`].filter(Boolean).join(' | ')}
+  <div class="print-container">
+    <div class="print-header">
+      <div>
+        <div class="company-title">${companyName}</div>
+        <div class="company-meta">
+          ${[companyAddressStr, companyGstin && `GSTIN: ${companyGstin}`, companyPhone && `Phone: ${companyPhone}`].filter(Boolean).join(' | ')}
+        </div>
+      </div>
+      <div class="doc-title-block">
+        <div class="doc-title">Supplier Payment History</div>
+        <div class="doc-subtitle">Total ${payments.length} payment records | Printed on ${printDateStr}</div>
       </div>
     </div>
-    <div class="doc-title-block">
-      <div class="doc-title">Supplier Payment History</div>
-      <div class="doc-subtitle">Total ${payments.length} payment records | Printed on ${printDateStr}</div>
+
+    <table>
+      <colgroup>
+        <col style="width: 4%;" />
+        <col style="width: 10%;" />
+        <col style="width: 13%;" />
+        <col style="width: 14%;" />
+        <col style="width: 11%;" />
+        <col style="width: 10%;" />
+        <col style="width: 9%;" />
+        <col style="width: 14%;" />
+        <col style="width: 9%;" />
+        <col style="width: 6%;" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="text-center" style="width: 4%;">S.No</th>
+          <th class="text-left" style="width: 10%;">Voucher Number</th>
+          <th class="text-left" style="width: 13%;">Supplier Name</th>
+          <th class="text-left" style="width: 14%;">Supplier Invoice Number</th>
+          <th class="text-left" style="width: 11%;">PO Number</th>
+          <th class="text-center" style="width: 10%;">Payment Date</th>
+          <th class="text-center" style="width: 9%;">Payment Method</th>
+          <th class="text-left" style="width: 14%;">Transaction Reference</th>
+          <th class="text-right" style="width: 9%;">Amount Paid</th>
+          <th class="text-center" style="width: 6%;">Payment Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHTML}
+      </tbody>
+      <tfoot>
+        <tr style="background-color: #f1f5f9; font-weight: 700; border-top: 2px solid #0f172a;">
+          <td colspan="8" class="text-right font-bold text-slate-900" style="padding: 6px 6px;">
+            Total Disbursed to Suppliers (${payments.length} vouchers):
+          </td>
+          <td class="text-right font-mono font-bold text-rose-600 nowrap" style="padding: 6px 4px;">
+            - ${formatCurrency(totalPaidAmount)}
+          </td>
+          <td class="text-center" style="background-color: #f1f5f9;"></td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="print-doc-footer">
+      <span>Supplier Payment History &mdash; Official Disbursement Register</span>
+      <span>Page printed on ${printDateStr}</span>
     </div>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th class="text-center" style="width: 4%;">#</th>
-        <th style="width: 11%;">Voucher Number</th>
-        <th style="width: 17%;">Supplier Name</th>
-        <th style="width: 14%;">Supplier Invoice Number</th>
-        <th style="width: 11%;">PO Number</th>
-        <th class="text-center" style="width: 9%;">Payment Date</th>
-        <th class="text-center" style="width: 9%;">Payment Method</th>
-        <th style="width: 11%;">Transaction Reference</th>
-        <th class="text-right" style="width: 9%;">Amount Paid</th>
-        <th class="text-center" style="width: 5%;">Payment Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rowsHTML}
-    </tbody>
-    <tfoot>
-      <tr style="background-color: #f1f5f9; font-weight: 700; border-top: 2px solid #0f172a;">
-        <td colspan="8" class="text-right font-bold text-slate-800" style="padding: 7px 6px;">
-          Total Disbursed to Suppliers (${payments.length} vouchers):
-        </td>
-        <td class="text-right font-mono font-bold text-rose-600" style="padding: 7px 6px;">
-          - ${formatCurrency(totalPaidAmount)}
-        </td>
-        <td></td>
-      </tr>
-    </tfoot>
-  </table>
-
-  <div class="print-doc-footer">
-    <span>Supplier Payment History &mdash; Official Disbursement Register</span>
-    <span>Page printed on ${printDateStr}</span>
   </div>
 </body>
 </html>`;
@@ -1009,7 +1057,7 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
       {/* DEDICATED IN-PAGE PRINT CONTAINER (A4 Landscape)          */}
       {/* ========================================================= */}
       <div className="hidden print:block supplier-payment-history-print-container font-sans bg-white text-slate-900 p-2 text-xs leading-normal">
-        <div className="flex justify-between items-end pb-3 mb-3 border-b-2 border-slate-900">
+        <div className="flex justify-between items-end pb-3 mb-3 border-b-2 border-slate-900 w-full">
           <div>
             <h1 className="text-base font-black uppercase text-slate-900 tracking-tight">
               {company?.companyName || company?.name || 'Universal ERP Enterprise'}
@@ -1029,18 +1077,30 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
         </div>
 
         <table className="w-full text-xs text-left border-collapse border border-slate-300 table-fixed">
-          <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300">
+          <colgroup>
+            <col style={{ width: '4%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '6%' }} />
+          </colgroup>
+          <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300" style={{ display: 'table-header-group' }}>
             <tr>
-              <th className="py-2 px-1.5 text-center border-r border-slate-300 w-[4%]">#</th>
-              <th className="py-2 px-2 border-r border-slate-300 w-[11%]">Voucher Number</th>
-              <th className="py-2 px-2.5 border-r border-slate-300 w-[17%]">Supplier Name</th>
-              <th className="py-2 px-2 border-r border-slate-300 w-[14%]">Supplier Invoice Number</th>
-              <th className="py-2 px-2 border-r border-slate-300 w-[11%]">PO Number</th>
-              <th className="py-2 px-1.5 text-center border-r border-slate-300 w-[9%]">Payment Date</th>
-              <th className="py-2 px-1.5 text-center border-r border-slate-300 w-[9%]">Payment Method</th>
-              <th className="py-2 px-2 border-r border-slate-300 w-[11%]">Transaction Reference</th>
-              <th className="py-2 px-2 text-right border-r border-slate-300 w-[9%]">Amount Paid</th>
-              <th className="py-2 px-1.5 text-center w-[5%]">Payment Status</th>
+              <th className="py-1.5 px-1 text-center border border-slate-300 w-[4%] text-[9px] uppercase tracking-wide">S.No</th>
+              <th className="py-1.5 px-1.5 text-left border border-slate-300 w-[10%] text-[9px] uppercase tracking-wide">Voucher Number</th>
+              <th className="py-1.5 px-1.5 text-left border border-slate-300 w-[13%] text-[9px] uppercase tracking-wide">Supplier Name</th>
+              <th className="py-1.5 px-1.5 text-left border border-slate-300 w-[14%] text-[9px] uppercase tracking-wide">Supplier Invoice Number</th>
+              <th className="py-1.5 px-1.5 text-left border border-slate-300 w-[11%] text-[9px] uppercase tracking-wide">PO Number</th>
+              <th className="py-1.5 px-1 text-center border border-slate-300 w-[10%] text-[9px] uppercase tracking-wide">Payment Date</th>
+              <th className="py-1.5 px-1 text-center border border-slate-300 w-[9%] text-[9px] uppercase tracking-wide">Payment Method</th>
+              <th className="py-1.5 px-1.5 text-left border border-slate-300 w-[14%] text-[9px] uppercase tracking-wide">Transaction Reference</th>
+              <th className="py-1.5 px-1.5 text-right border border-slate-300 w-[9%] text-[9px] uppercase tracking-wide">Amount Paid</th>
+              <th className="py-1.5 px-1 text-center border border-slate-300 w-[6%] text-[9px] uppercase tracking-wide">Payment Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -1048,35 +1108,35 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
               const isPaid = p.billPaymentStatus === 'Paid';
               return (
                 <tr key={p.id || idx} className="border-b border-slate-200 print-avoid-break">
-                  <td className="py-1.5 px-1.5 text-center border-r border-slate-300 font-mono text-slate-500">
+                  <td className="py-1.5 px-1 text-center border border-slate-300 font-mono text-slate-500 text-[9px]">
                     {idx + 1}
                   </td>
-                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono font-bold text-blue-700 truncate">
+                  <td className="py-1.5 px-1.5 text-left border border-slate-300 font-mono font-bold text-blue-700 whitespace-nowrap text-[9px]">
                     {p.paymentNumber || (p.id ? `PV-${p.id.slice(0, 6).toUpperCase()}` : '—')}
                   </td>
-                  <td className="py-1.5 px-2.5 border-r border-slate-300 font-bold text-slate-900 truncate">
+                  <td className="py-1.5 px-1.5 text-left border border-slate-300 font-bold text-slate-900 break-words text-[9px]">
                     {p.partyName || '—'}
                   </td>
-                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono font-semibold text-purple-700 truncate">
+                  <td className="py-1.5 px-1.5 text-left border border-slate-300 font-mono font-semibold text-purple-700 break-words text-[9px]">
                     {p.supplierInvoiceNumber || '—'}
                   </td>
-                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono text-slate-600 truncate">
+                  <td className="py-1.5 px-1.5 text-left border border-slate-300 font-mono text-slate-600 break-words text-[9px]">
                     {p.purchaseOrderNumber || '—'}
                   </td>
-                  <td className="py-1.5 px-1.5 text-center border-r border-slate-300 text-slate-800">
+                  <td className="py-1.5 px-1 text-center border border-slate-300 text-slate-800 whitespace-nowrap text-[9px]">
                     {p.date ? formatDate(p.date) : '—'}
                   </td>
-                  <td className="py-1.5 px-1.5 text-center border-r border-slate-300 text-slate-700 font-medium">
+                  <td className="py-1.5 px-1 text-center border border-slate-300 text-slate-700 font-medium text-[9px]">
                     {p.paymentMethod || '—'}
                   </td>
-                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono text-slate-600 truncate">
+                  <td className="py-1.5 px-1.5 text-left border border-slate-300 font-mono text-slate-600 break-words text-[9px]">
                     {p.reference || '—'}
                   </td>
-                  <td className="py-1.5 px-2 text-right border-r border-slate-300 font-mono font-bold text-rose-600">
+                  <td className="py-1.5 px-1.5 text-right border border-slate-300 font-mono font-bold text-rose-600 whitespace-nowrap text-[9px]">
                     - {formatCurrency(p.amount)}
                   </td>
-                  <td className="py-1.5 px-1.5 text-center font-bold text-[9px]">
-                    <span className={`px-2 py-0.5 rounded-full ${isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>
+                  <td className="py-1.5 px-1 text-center border border-slate-300 font-bold text-[7.5px]">
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-[7.5px] font-bold leading-tight ${isPaid ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-blue-100 text-blue-800 border border-blue-300'}`}>
                       {isPaid ? 'COMPLETED' : 'PARTIALLY PAID'}
                     </span>
                   </td>
@@ -1084,15 +1144,15 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
               );
             })}
           </tbody>
-          <tfoot>
+          <tfoot style={{ display: 'table-footer-group' }}>
             <tr className="bg-slate-100 font-bold border-t-2 border-slate-900">
-              <td colSpan={8} className="py-2 px-2 text-right text-slate-900 font-bold">
+              <td colSpan={8} className="py-2 px-2 text-right text-slate-900 font-bold border border-slate-300 text-[9px]">
                 Total Disbursed ({outwardPayments.length} records):
               </td>
-              <td className="py-2 px-2 text-right font-mono font-bold text-rose-600">
+              <td className="py-2 px-1.5 text-right font-mono font-bold text-rose-600 border border-slate-300 whitespace-nowrap text-[9px]">
                 - {formatCurrency(totalPaidSupplierAmount)}
               </td>
-              <td />
+              <td className="border border-slate-300 bg-slate-100" />
             </tr>
           </tfoot>
         </table>
@@ -1109,6 +1169,9 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
             color: #000000 !important;
             height: auto !important;
             overflow: visible !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
           }
           .no-print {
             display: none !important;
@@ -1116,10 +1179,29 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
           .supplier-payment-history-print-container {
             display: block !important;
             width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
           }
           .print-avoid-break {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+          }
+          table {
+            width: 100% !important;
+            max-width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: fixed !important;
+            box-sizing: border-box !important;
+          }
+          thead {
+            display: table-header-group !important;
+          }
+          tfoot {
+            display: table-footer-group !important;
+          }
+          th, td {
+            box-sizing: border-box !important;
+            overflow-wrap: anywhere !important;
           }
         }
       `}</style>
