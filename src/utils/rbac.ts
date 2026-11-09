@@ -194,8 +194,8 @@ export const ROLE_PERMISSIONS_MATRIX: Record<UserRole, RolePermissionMap> = {
     expenses: { view: true, create: true, edit: false, delete: false, approve: false, export: false, manage: false },
     // Authorized product management, initial stock, bundles, and stock updates
     products: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
-    // Authorized inventory stock overview, transfers, history, and adjustments; strictly denied from warehouse administration & deletion
-    inventory: { view: true, create: true, edit: true, delete: false, approve: false, export: true, manage: false },
+    // Authorized inventory & warehouse operations: warehouse management, stock transfers, adjustments, balances, and warehouse CRUD
+    inventory: { view: true, create: true, edit: true, delete: true, approve: true, export: true, manage: true },
     // Permitted personal & appearance settings
     settings: { view: true, create: false, edit: false, delete: false, approve: false, export: false, manage: false },
     // Forbidden areas
@@ -313,6 +313,7 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
   '/inventory/reorder': { module: 'inventory', action: 'view' },
   '/inventory/purchase-requests': { module: 'inventory', action: 'view' },
   '/inventory/warehouses': { module: 'inventory', action: 'manage' },
+  '/warehouses': { module: 'inventory', action: 'manage' },
   '/inventory/transfers': { module: 'inventory', action: 'view' },
   '/inventory/adjustments': { module: 'inventory', action: 'view' },
   '/inventory/batches': { module: 'inventory', action: 'view' },
@@ -955,7 +956,7 @@ export function canRoleAccessNavItem(
   }
 
   if (id === 'stock' || id === 'inventory' || id === 'stockgodowns') {
-    return normalizedRole === 'Warehouse Manager';
+    return normalizedRole === 'Warehouse Manager' || normalizedRole === 'Purchase Manager';
   }
 
   if (id === 'warehouses' || id === 'warehouse' || id === 'warehousesgodowns' || id === 'warehousedetails' || id === 'warehousemanagement') {
@@ -1155,6 +1156,7 @@ export function canRoleAccessSubItem(
         subItemPath === '/inventory' ||
         subItemPath === '/inventory/warehouses' ||
         subItemPath === '/inventory/transfers' ||
+        subItemPath === '/inventory/adjustments' ||
         subItemPath === '/inventory/total-cost' ||
         subItemPath === '/inventory/valuation' ||
         _subItemName === 'Stock Overview' ||
@@ -1162,6 +1164,8 @@ export function canRoleAccessSubItem(
         _subItemName === 'Warehouses / Godowns' ||
         _subItemName === 'Stock Transfers' ||
         _subItemName === 'Stock Transfer' ||
+        _subItemName === 'Stock Adjustments' ||
+        _subItemName === 'Stock Adjustment' ||
         _subItemName === 'Total Product Cost'
       );
     }

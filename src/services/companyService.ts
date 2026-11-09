@@ -316,6 +316,7 @@ export const companyService = {
     },
     companyId?: string
   ): Promise<Warehouse> {
+    await assertCallerPermission('inventory', 'create');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
     const locType = (warehouse.locationType || warehouse.type || 'Main Warehouse') as any;
     const isActive = warehouse.isActive !== undefined ? Boolean(warehouse.isActive) : true;
@@ -432,6 +433,7 @@ export const companyService = {
     updates: Partial<Warehouse>,
     companyId?: string
   ): Promise<Warehouse> {
+    await assertCallerPermission('inventory', 'edit');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
 
     if (updates.isDefault) {
@@ -543,6 +545,7 @@ export const companyService = {
 
   // Delete a warehouse (with safe usage validation)
   async deleteWarehouse(id: string, companyId?: string): Promise<boolean> {
+    await assertCallerPermission('inventory', 'delete');
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
 
     // Check if warehouse has stock balances > 0
