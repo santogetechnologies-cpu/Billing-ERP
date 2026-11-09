@@ -31,6 +31,7 @@ export interface DataTableRef {
   exportExcel?: (selectedOnly?: boolean) => void;
   exportSelectedCSV?: () => void;
   exportSelectedExcel?: () => void;
+  printTable?: () => void;
 }
 
 interface DataTableProps<T> {
@@ -63,6 +64,7 @@ interface DataTableProps<T> {
   initialSearchTerm?: string;
   tableRef?: React.MutableRefObject<DataTableRef | null | undefined>;
   hideExport?: boolean;
+  onPrint?: () => void;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -90,7 +92,8 @@ export function DataTable<T extends Record<string, any>>({
   batchSize = 50,
   initialSearchTerm = '',
   tableRef,
-  hideExport = false
+  hideExport = false,
+  onPrint
 }: DataTableProps<T>) {
   const effectiveActionsWidth = actionsWidth || '116px';
   const effectiveDefaultCol = defaultSortKey || columns.find(c => c.key === 'name' || c.key === 'productName')?.key || columns[0]?.key;
@@ -281,7 +284,8 @@ export function DataTable<T extends Record<string, any>>({
         exportCSV: (selectedOnly?: boolean) => exportCSV(Boolean(selectedOnly)),
         exportExcel: (selectedOnly?: boolean) => exportExcel(Boolean(selectedOnly)),
         exportSelectedCSV: () => exportCSV(true),
-        exportSelectedExcel: () => exportExcel(true)
+        exportSelectedExcel: () => exportExcel(true),
+        printTable: () => (onPrint ? onPrint() : window.print())
       };
     }
   });
@@ -412,11 +416,16 @@ export function DataTable<T extends Record<string, any>>({
                       <span>Export Excel</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
-                        window.print();
                         setShowExportMenu(false);
+                        if (onPrint) {
+                          onPrint();
+                        } else {
+                          window.print();
+                        }
                       }}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100 cursor-pointer"
                     >
                       <Printer className="w-4 h-4 text-slate-600" />
                       <span>Print Table</span>

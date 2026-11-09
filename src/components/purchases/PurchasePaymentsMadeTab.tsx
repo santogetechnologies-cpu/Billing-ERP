@@ -19,8 +19,261 @@ import { PaymentMethod, PurchaseInvoice } from '../../types';
 import { exportToExcel, exportToCSV, exportSupplierPaymentsToExcel } from '../../utils/exportUtils';
 import { SupplierBillInvoiceModal } from './SupplierBillInvoiceModal';
 
+/**
+ * Generates standalone, pixel-perfect A4 Landscape Supplier Payment History HTML for clean browser printing.
+ */
+function generateSupplierPaymentHistoryPrintHTML(
+  payments: any[],
+  company: any,
+  totalPaidAmount: number
+): string {
+  const companyName = company?.companyName || company?.name || 'Universal ERP Enterprise';
+  const companyAddressParts = [
+    company?.address,
+    company?.city,
+    company?.state,
+    company?.pincode
+  ].filter(Boolean);
+  const companyAddressStr = companyAddressParts.length > 0 ? companyAddressParts.join(', ') : '';
+  const companyGstin = company?.gstin || '';
+  const companyPhone = company?.phone || '';
+
+  const now = new Date();
+  const printDateStr = now.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }) + ', ' + now.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+
+  const rowsHTML = payments.map((p, idx) => {
+    const voucherNo = p.paymentNumber || (p.id ? `PV-${p.id.slice(0, 6).toUpperCase()}` : '—');
+    const supplierName = p.partyName || '—';
+    const supplierInvNo = p.supplierInvoiceNumber || '—';
+    const poNumber = p.purchaseOrderNumber || '—';
+    const paymentDate = p.date ? formatDate(p.date) : '—';
+    const paymentMethod = p.paymentMethod || '—';
+    const txRef = p.reference || '—';
+    const numAmount = Number(p.amount || 0);
+    const amountFormatted = `- ${formatCurrency(numAmount)}`;
+    const isCompleted = p.billPaymentStatus === 'Paid' || p.paymentStatus === 'Paid';
+    const statusLabel = isCompleted ? 'COMPLETED' : 'PARTIALLY PAID';
+    const badgeClass = isCompleted ? 'badge-completed' : 'badge-partial';
+
+    return `
+      <tr>
+        <td class="text-center font-mono" style="color: #64748b; width: 4%;">${idx + 1}</td>
+        <td class="font-mono text-blue-700 font-bold" style="width: 11%;">${voucherNo}</td>
+        <td class="font-bold text-slate-900" style="width: 17%;">${supplierName}</td>
+        <td class="font-mono font-semibold text-purple-700" style="width: 14%;">${supplierInvNo}</td>
+        <td class="font-mono text-slate-600" style="width: 11%;">${poNumber}</td>
+        <td class="text-center text-slate-800" style="width: 9%;">${paymentDate}</td>
+        <td class="text-center text-slate-700 font-medium" style="width: 9%;">${paymentMethod}</td>
+        <td class="font-mono text-slate-600 text-xs" style="width: 11%;">${txRef}</td>
+        <td class="text-right font-mono font-bold text-rose-600" style="width: 9%;">${amountFormatted}</td>
+        <td class="text-center" style="width: 5%;">
+          <span class="badge ${badgeClass}">${statusLabel}</span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Supplier Payment History</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 10mm 8mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+      font-size: 10.5px;
+      line-height: 1.35;
+    }
+    .print-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+      border-bottom: 2px solid #0f172a;
+    }
+    .company-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .company-meta {
+      font-size: 9.5px;
+      color: #475569;
+      margin-top: 2px;
+    }
+    .doc-title-block {
+      text-align: right;
+    }
+    .doc-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .doc-subtitle {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 2px;
+      font-weight: 600;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    thead {
+      display: table-header-group;
+    }
+    th {
+      background-color: #f1f5f9 !important;
+      color: #0f172a;
+      font-weight: 700;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 7px 5px;
+      border: 1px solid #cbd5e1;
+      text-align: left;
+    }
+    td {
+      padding: 6px 5px;
+      border: 1px solid #e2e8f0;
+      vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    tr {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    tbody tr:nth-child(even) {
+      background-color: #f8fafc !important;
+    }
+    .font-mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .font-bold { font-weight: 700; }
+    .font-semibold { font-weight: 600; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .text-blue-700 { color: #1d4ed8; }
+    .text-purple-700 { color: #6d28d9; }
+    .text-rose-600 { color: #e11d48; }
+    .text-slate-900 { color: #0f172a; }
+    .text-slate-800 { color: #1e293b; }
+    .text-slate-700 { color: #334155; }
+    .text-slate-600 { color: #475569; }
+    .text-slate-500 { color: #64748b; }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 9999px;
+      font-size: 8.5px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .badge-completed {
+      background-color: #dcfce7 !important;
+      color: #15803d !important;
+      border: 1px solid #86efac;
+    }
+    .badge-partial {
+      background-color: #dbeafe !important;
+      color: #1d4ed8 !important;
+      border: 1px solid #93c5fd;
+    }
+    .print-doc-footer {
+      margin-top: 14px;
+      padding-top: 6px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 9px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-header">
+    <div>
+      <div class="company-title">${companyName}</div>
+      <div class="company-meta">
+        ${[companyAddressStr, companyGstin && `GSTIN: ${companyGstin}`, companyPhone && `Phone: ${companyPhone}`].filter(Boolean).join(' | ')}
+      </div>
+    </div>
+    <div class="doc-title-block">
+      <div class="doc-title">Supplier Payment History</div>
+      <div class="doc-subtitle">Total ${payments.length} payment records | Printed on ${printDateStr}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="text-center" style="width: 4%;">#</th>
+        <th style="width: 11%;">Voucher Number</th>
+        <th style="width: 17%;">Supplier Name</th>
+        <th style="width: 14%;">Supplier Invoice Number</th>
+        <th style="width: 11%;">PO Number</th>
+        <th class="text-center" style="width: 9%;">Payment Date</th>
+        <th class="text-center" style="width: 9%;">Payment Method</th>
+        <th style="width: 11%;">Transaction Reference</th>
+        <th class="text-right" style="width: 9%;">Amount Paid</th>
+        <th class="text-center" style="width: 5%;">Payment Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHTML}
+    </tbody>
+    <tfoot>
+      <tr style="background-color: #f1f5f9; font-weight: 700; border-top: 2px solid #0f172a;">
+        <td colspan="8" class="text-right font-bold text-slate-800" style="padding: 7px 6px;">
+          Total Disbursed to Suppliers (${payments.length} vouchers):
+        </td>
+        <td class="text-right font-mono font-bold text-rose-600" style="padding: 7px 6px;">
+          - ${formatCurrency(totalPaidAmount)}
+        </td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="print-doc-footer">
+    <span>Supplier Payment History &mdash; Official Disbursement Register</span>
+    <span>Page printed on ${printDateStr}</span>
+  </div>
+</body>
+</html>`;
+}
+
 export const PurchasePaymentsMadeTab: React.FC = () => {
-  const { payments = [], purchaseInvoices = [], suppliers = [], recordPurchasePayment } = useERP();
+  const { payments = [], purchaseInvoices = [], suppliers = [], recordPurchasePayment, company } = useERP();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
@@ -302,6 +555,45 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
     exportSupplierPaymentsToExcel(selectedRows, `Supplier_Payment_History_Selected_${new Date().toISOString().split('T')[0]}`);
   };
 
+  const handlePrintTable = () => {
+    const html = generateSupplierPaymentHistoryPrintHTML(outwardPayments, company, totalPaidSupplierAmount);
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (e) {
+          console.warn('Iframe print error, falling back to window.print():', e);
+          window.print();
+        } finally {
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+          }, 3000);
+        }
+      }, 250);
+    } else {
+      window.print();
+    }
+  };
+
   const columns: Column<any>[] = [
     {
       key: 'paymentNumber',
@@ -384,102 +676,106 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* Top metrics summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200">
-          <span className="text-xs text-slate-500 font-medium">Total Paid to Suppliers</span>
-          <div className="text-xl font-bold text-slate-900 mt-1 tabular-nums">
-            {formatCurrency(totalPaidSupplierAmount)}
+      {/* On-Screen Supplier Payment History UI (Hidden during window.print) */}
+      <div className="space-y-4 no-print">
+        {/* Top metrics summary cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <span className="text-xs text-slate-500 font-medium">Total Paid to Suppliers</span>
+            <div className="text-xl font-bold text-slate-900 mt-1 tabular-nums">
+              {formatCurrency(totalPaidSupplierAmount)}
+            </div>
+            <span className="text-[11px] text-slate-400 mt-0.5 block">{outwardPayments.length} payment vouchers issued</span>
           </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">{outwardPayments.length} payment vouchers issued</span>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <span className="text-xs text-slate-500 font-medium">Total Outstanding Payables</span>
+            <div className="text-xl font-bold text-amber-600 mt-1 tabular-nums">
+              {formatCurrency(totalOutstandingPayables)}
+            </div>
+            <span className="text-[11px] text-slate-400 mt-0.5 block">Across all pending supplier bills</span>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200 sm:col-span-2 lg:col-span-1 flex items-center justify-between">
+            <div>
+              <span className="text-xs text-slate-500 font-medium">Quick Disbursement</span>
+              <p className="text-xs text-slate-600 mt-1">Make direct payment against an approved supplier bill.</p>
+            </div>
+            <button
+              onClick={handleOpenModal}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Record Payment</span>
+            </button>
+          </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200">
-          <span className="text-xs text-slate-500 font-medium">Total Outstanding Payables</span>
-          <div className="text-xl font-bold text-amber-600 mt-1 tabular-nums">
-            {formatCurrency(totalOutstandingPayables)}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Across all pending supplier bills</span>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 sm:col-span-2 lg:col-span-1 flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
           <div>
-            <span className="text-xs text-slate-500 font-medium">Quick Disbursement</span>
-            <p className="text-xs text-slate-600 mt-1">Make direct payment against an approved supplier bill.</p>
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-emerald-600" />
+              Supplier Payments & Disbursements
+            </h2>
+            <p className="text-xs text-slate-500">
+              Outward payment vouchers, bank transfers, cheques, and cash disbursements to vendors.
+            </p>
           </div>
-          <button
-            onClick={handleOpenModal}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Record Payment</span>
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportCSV}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={handleExportXLSX}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>Excel</span>
+            </button>
+          </div>
         </div>
+
+        <DataTable
+          title="Supplier Payment History"
+          subtitle={`Total ${outwardPayments.length} payment records`}
+          columns={columns}
+          data={outwardPayments}
+          searchPlaceholder="Search voucher #, supplier, invoice #, PO #, or reference..."
+          searchKeys={['paymentNumber', 'partyName', 'supplierInvoiceNumber', 'purchaseOrderNumber', 'reference', 'account']}
+          onRowClick={row => handleViewBill(row)}
+          onPrint={handlePrintTable}
+          hideHorizontalScroll={true}
+          actionsWidth="76px"
+          actions={row => (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleViewBill(row);
+              }}
+              className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 rounded-lg transition-colors cursor-pointer"
+              title="View Bill"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          )}
+          bulkActions={(selectedRows) => (
+            <button
+              type="button"
+              onClick={() => handleExportSelectedExcel(selectedRows)}
+              className="px-2.5 py-1 bg-white border border-blue-200 rounded text-blue-700 hover:bg-blue-50 font-medium cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              title="Export Selected records to Excel"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-600" />
+              <span>Export Selected</span>
+            </button>
+          )}
+        />
       </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-emerald-600" />
-            Supplier Payments & Disbursements
-          </h2>
-          <p className="text-xs text-slate-500">
-            Outward payment vouchers, bank transfers, cheques, and cash disbursements to vendors.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleExportCSV}
-            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={handleExportXLSX}
-            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Excel</span>
-          </button>
-        </div>
-      </div>
-
-      <DataTable
-        title="Supplier Payment History"
-        subtitle={`Total ${outwardPayments.length} payment records`}
-        columns={columns}
-        data={outwardPayments}
-        searchPlaceholder="Search voucher #, supplier, invoice #, PO #, or reference..."
-        searchKeys={['paymentNumber', 'partyName', 'supplierInvoiceNumber', 'purchaseOrderNumber', 'reference', 'account']}
-        onRowClick={row => handleViewBill(row)}
-        hideHorizontalScroll={true}
-        actionsWidth="76px"
-        actions={row => (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleViewBill(row);
-            }}
-            className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 rounded-lg transition-colors cursor-pointer"
-            title="View Bill"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
-        )}
-        bulkActions={(selectedRows) => (
-          <button
-            type="button"
-            onClick={() => handleExportSelectedExcel(selectedRows)}
-            className="px-2.5 py-1 bg-white border border-blue-200 rounded text-blue-700 hover:bg-blue-50 font-medium cursor-pointer flex items-center gap-1.5 shadow-2xs"
-            title="Export Selected records to Excel"
-          >
-            <Download className="w-3.5 h-3.5 text-blue-600" />
-            <span>Export Selected</span>
-          </button>
-        )}
-      />
 
       {/* Modal: Record Supplier Payment */}
       {isModalOpen && (
@@ -757,6 +1053,125 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
         bill={selectedBillForView}
         payment={selectedPaymentForView}
       />
+
+      {/* ========================================================= */}
+      {/* DEDICATED IN-PAGE PRINT CONTAINER (A4 Landscape)          */}
+      {/* ========================================================= */}
+      <div className="hidden print:block supplier-payment-history-print-container font-sans bg-white text-slate-900 p-2 text-xs leading-normal">
+        <div className="flex justify-between items-end pb-3 mb-3 border-b-2 border-slate-900">
+          <div>
+            <h1 className="text-base font-black uppercase text-slate-900 tracking-tight">
+              {company?.companyName || company?.name || 'Universal ERP Enterprise'}
+            </h1>
+            <p className="text-[10px] text-slate-600 mt-0.5">
+              {[company?.address, company?.city, company?.state, company?.gstin && `GSTIN: ${company.gstin}`].filter(Boolean).join(' | ')}
+            </p>
+          </div>
+          <div className="text-right">
+            <h2 className="text-lg font-black uppercase text-slate-900 tracking-wider">
+              Supplier Payment History
+            </h2>
+            <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+              Total {outwardPayments.length} payment records
+            </p>
+          </div>
+        </div>
+
+        <table className="w-full text-xs text-left border-collapse border border-slate-300 table-fixed">
+          <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300">
+            <tr>
+              <th className="py-2 px-1.5 text-center border-r border-slate-300 w-[4%]">#</th>
+              <th className="py-2 px-2 border-r border-slate-300 w-[11%]">Voucher Number</th>
+              <th className="py-2 px-2.5 border-r border-slate-300 w-[17%]">Supplier Name</th>
+              <th className="py-2 px-2 border-r border-slate-300 w-[14%]">Supplier Invoice Number</th>
+              <th className="py-2 px-2 border-r border-slate-300 w-[11%]">PO Number</th>
+              <th className="py-2 px-1.5 text-center border-r border-slate-300 w-[9%]">Payment Date</th>
+              <th className="py-2 px-1.5 text-center border-r border-slate-300 w-[9%]">Payment Method</th>
+              <th className="py-2 px-2 border-r border-slate-300 w-[11%]">Transaction Reference</th>
+              <th className="py-2 px-2 text-right border-r border-slate-300 w-[9%]">Amount Paid</th>
+              <th className="py-2 px-1.5 text-center w-[5%]">Payment Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {outwardPayments.map((p, idx) => {
+              const isPaid = p.billPaymentStatus === 'Paid';
+              return (
+                <tr key={p.id || idx} className="border-b border-slate-200 print-avoid-break">
+                  <td className="py-1.5 px-1.5 text-center border-r border-slate-300 font-mono text-slate-500">
+                    {idx + 1}
+                  </td>
+                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono font-bold text-blue-700 truncate">
+                    {p.paymentNumber || (p.id ? `PV-${p.id.slice(0, 6).toUpperCase()}` : '—')}
+                  </td>
+                  <td className="py-1.5 px-2.5 border-r border-slate-300 font-bold text-slate-900 truncate">
+                    {p.partyName || '—'}
+                  </td>
+                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono font-semibold text-purple-700 truncate">
+                    {p.supplierInvoiceNumber || '—'}
+                  </td>
+                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono text-slate-600 truncate">
+                    {p.purchaseOrderNumber || '—'}
+                  </td>
+                  <td className="py-1.5 px-1.5 text-center border-r border-slate-300 text-slate-800">
+                    {p.date ? formatDate(p.date) : '—'}
+                  </td>
+                  <td className="py-1.5 px-1.5 text-center border-r border-slate-300 text-slate-700 font-medium">
+                    {p.paymentMethod || '—'}
+                  </td>
+                  <td className="py-1.5 px-2 border-r border-slate-300 font-mono text-slate-600 truncate">
+                    {p.reference || '—'}
+                  </td>
+                  <td className="py-1.5 px-2 text-right border-r border-slate-300 font-mono font-bold text-rose-600">
+                    - {formatCurrency(p.amount)}
+                  </td>
+                  <td className="py-1.5 px-1.5 text-center font-bold text-[9px]">
+                    <span className={`px-2 py-0.5 rounded-full ${isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>
+                      {isPaid ? 'COMPLETED' : 'PARTIALLY PAID'}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="bg-slate-100 font-bold border-t-2 border-slate-900">
+              <td colSpan={8} className="py-2 px-2 text-right text-slate-900 font-bold">
+                Total Disbursed ({outwardPayments.length} records):
+              </td>
+              <td className="py-2 px-2 text-right font-mono font-bold text-rose-600">
+                - {formatCurrency(totalPaidSupplierAmount)}
+              </td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <style>{`
+        @media print {
+          @page {
+            size: A4 landscape;
+            margin: 10mm 8mm;
+          }
+          html, body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .supplier-payment-history-print-container {
+            display: block !important;
+            width: 100% !important;
+          }
+          .print-avoid-break {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };
