@@ -35,8 +35,14 @@ import { Tabs, TabItem } from '../../components/common/Tabs';
 import { formatCurrency } from '../../utils/formatters';
 import { sortProductsAZ } from '../../utils/sortUtils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { WarehouseStockTransfersTab } from '../../components/stock/WarehouseStockTransfersTab';
-import { WarehouseStockAdjustmentsTab } from '../../components/stock/WarehouseStockAdjustmentsTab';
+import {
+  WarehouseStockTransfersTab,
+  WarehouseStockTransfersTabRef
+} from '../../components/stock/WarehouseStockTransfersTab';
+import {
+  WarehouseStockAdjustmentsTab,
+  WarehouseStockAdjustmentsTabRef
+} from '../../components/stock/WarehouseStockAdjustmentsTab';
 
 const LOCATION_TYPES: WarehouseType[] = [
   'Main Warehouse',
@@ -119,6 +125,12 @@ export const WarehousesPage: React.FC = () => {
     }
   ];
 
+  // Action button triggers & refs for sub-tabs
+  const transfersTabRef = React.useRef<WarehouseStockTransfersTabRef>(null);
+  const adjustmentsTabRef = React.useRef<WarehouseStockAdjustmentsTabRef>(null);
+  const [transferCreateTrigger, setTransferCreateTrigger] = useState(0);
+  const [adjustmentCreateTrigger, setAdjustmentCreateTrigger] = useState(0);
+
   const eligibleManagers = useMemo(() => {
     return (users || []).filter(u => u.role === 'Warehouse Manager' || u.role === 'Admin' || u.role === 'Owner');
   }, [users]);
@@ -179,6 +191,19 @@ export const WarehousesPage: React.FC = () => {
     setFormIsDefault(warehouses.length === 0);
     setFormError(null);
     setIsFormModalOpen(true);
+  };
+
+  // Top-right action button handler based on selected tab
+  const handleTopRightAction = () => {
+    if (activeTab === 'warehouse') {
+      handleOpenCreateModal();
+    } else if (activeTab === 'transfers') {
+      transfersTabRef.current?.openCreateModal();
+      setTransferCreateTrigger(prev => prev + 1);
+    } else if (activeTab === 'adjustments') {
+      adjustmentsTabRef.current?.openCreateModal();
+      setAdjustmentCreateTrigger(prev => prev + 1);
+    }
   };
 
   // Open Edit Modal
@@ -463,22 +488,40 @@ export const WarehousesPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner Header: Consistent Across All Tabs */}
+      {/* Top Banner Header: Dynamic based on active section */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
         <div>
           <div className="flex items-center gap-2.5">
             <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600">
-              <WarehouseIcon className="w-6 h-6" />
+              {activeTab === 'transfers' ? (
+                <ArrowLeftRight className="w-6 h-6" />
+              ) : activeTab === 'adjustments' ? (
+                <SlidersHorizontal className="w-6 h-6" />
+              ) : (
+                <WarehouseIcon className="w-6 h-6" />
+              )}
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                Multi-Warehouse Management
+                {activeTab === 'transfers'
+                  ? 'Stock Transfer Management'
+                  : activeTab === 'adjustments'
+                  ? 'Stock Adjustment Management'
+                  : 'Multi-Warehouse Management'}
                 <span className="text-xs px-2.5 py-0.5 font-semibold bg-blue-50 text-blue-700 border border-blue-200/60 rounded-full">
-                  {warehouses.length} Locations
+                  {activeTab === 'transfers'
+                    ? `${stockTransfers.length} Transfers`
+                    : activeTab === 'adjustments'
+                    ? `${stockAdjustmentCount} Adjustments`
+                    : `${warehouses.length} Locations`}
                 </span>
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Maintain distinct inventory balances across central warehouses, godowns, branch hubs, and retail outlets.
+                {activeTab === 'transfers'
+                  ? 'Dispatch and receive inter-warehouse inventory shipments with automated stock tracking.'
+                  : activeTab === 'adjustments'
+                  ? 'Adjust, reconcile, and audit inventory discrepancies, write-offs, and damages.'
+                  : 'Maintain distinct inventory balances across central warehouses, godowns, branch hubs, and retail outlets.'}
               </p>
             </div>
           </div>
@@ -493,13 +536,33 @@ export const WarehousesPage: React.FC = () => {
             <RefreshCw className="w-4 h-4" />
           </button>
 
-          {canManageWarehouse && (
+          {canManageWarehouse && activeTab === 'warehouse' && (
             <button
-              onClick={handleOpenCreateModal}
+              onClick={handleTopRightAction}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Add Warehouse</span>
+            </button>
+          )}
+
+          {canManageWarehouse && activeTab === 'transfers' && (
+            <button
+              onClick={handleTopRightAction}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Stock Transfer</span>
+            </button>
+          )}
+
+          {canManageWarehouse && activeTab === 'adjustments' && (
+            <button
+              onClick={handleTopRightAction}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Adjustment</span>
             </button>
           )}
         </div>
@@ -961,12 +1024,18 @@ export const WarehousesPage: React.FC = () => {
 
       {/* Tab 2: Stock Transfer */}
       {activeTab === 'transfers' && (
-        <WarehouseStockTransfersTab />
+        <WarehouseStockTransfersTab
+          ref={transfersTabRef}
+          triggerCreate={transferCreateTrigger}
+        />
       )}
 
       {/* Tab 3: Stock Adjustment */}
       {activeTab === 'adjustments' && (
-        <WarehouseStockAdjustmentsTab />
+        <WarehouseStockAdjustmentsTab
+          ref={adjustmentsTabRef}
+          triggerCreate={adjustmentCreateTrigger}
+        />
       )}
 
       {/* Warehouse Create / Edit Modal */}

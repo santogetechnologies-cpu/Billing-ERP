@@ -33,7 +33,18 @@ interface TransferLineItemForm {
   availableStock: number;
 }
 
-export const WarehouseStockTransfersTab: React.FC = () => {
+export interface WarehouseStockTransfersTabRef {
+  openCreateModal: () => void;
+}
+
+export interface WarehouseStockTransfersTabProps {
+  triggerCreate?: number;
+}
+
+export const WarehouseStockTransfersTab = React.forwardRef<
+  WarehouseStockTransfersTabRef,
+  WarehouseStockTransfersTabProps
+>(({ triggerCreate }, ref) => {
   const { profile } = useAuth();
   const {
     stockTransfers = [],
@@ -150,6 +161,16 @@ export const WarehouseStockTransfersTab: React.FC = () => {
 
     setIsCreateModalOpen(true);
   };
+
+  React.useImperativeHandle(ref, () => ({
+    openCreateModal: handleOpenCreateModal
+  }));
+
+  React.useEffect(() => {
+    if (triggerCreate && triggerCreate > 0) {
+      handleOpenCreateModal();
+    }
+  }, [triggerCreate]);
 
   // When source warehouse changes in form
   const handleSourceWarehouseChange = (newSrcId: string) => {
@@ -1203,4 +1224,4 @@ export const WarehouseStockTransfersTab: React.FC = () => {
       </Modal>
     </div>
   );
-};
+});

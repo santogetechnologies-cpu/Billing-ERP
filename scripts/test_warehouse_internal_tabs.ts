@@ -168,7 +168,7 @@ assert(
   '18. Tab 3: Includes View and Edit actions for adjustment records'
 );
 
-// 6. Verify Navigation Integrity & Consistent Header Layout
+// 6. Verify Navigation Integrity & Dynamic Header Action Button
 assert(
   warehousesContent.includes("activeTab === 'warehouse'") &&
   warehousesContent.includes("activeTab === 'transfers'") &&
@@ -177,10 +177,29 @@ assert(
 );
 
 assert(
-  warehousesContent.indexOf('Top Banner Header') < warehousesContent.indexOf('<Tabs') &&
-  warehousesContent.includes('canManageWarehouse && (') &&
-  !warehousesContent.includes('canManageWarehouse && activeTab === \'warehouse\''),
-  '20. Main page header and Add Warehouse button remain consistently positioned at top-right across all 3 tabs'
+  warehousesContent.includes("activeTab === 'warehouse'") &&
+  warehousesContent.includes("<span>Add Warehouse</span>") &&
+  warehousesContent.includes("activeTab === 'transfers'") &&
+  warehousesContent.includes("<span>Create Stock Transfer</span>") &&
+  warehousesContent.includes("activeTab === 'adjustments'") &&
+  warehousesContent.includes("<span>Create Adjustment</span>"),
+  '20. Top-right action button dynamically updates per selected tab (+ Add Warehouse, + Create Stock Transfer, + Create Adjustment)'
+);
+
+assert(
+  warehousesContent.includes('handleTopRightAction') &&
+  warehousesContent.includes('transfersTabRef.current?.openCreateModal()') &&
+  warehousesContent.includes('adjustmentsTabRef.current?.openCreateModal()'),
+  '21. Top-right button click opens respective creation modal for the active tab'
+);
+
+assert(
+  warehousesContent.includes("activeTab === 'transfers'") &&
+  warehousesContent.includes("Stock Transfer Management") &&
+  warehousesContent.includes("activeTab === 'adjustments'") &&
+  warehousesContent.includes("Stock Adjustment Management") &&
+  warehousesContent.includes("Multi-Warehouse Management"),
+  '22. Page title and description dynamically update when switching tabs'
 );
 
 console.log(`\nResults: ${passCount} Passed, ${failCount} Failed.`);

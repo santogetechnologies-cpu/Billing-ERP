@@ -37,7 +37,18 @@ interface AdjustmentRecordMeta {
 
 const META_STORAGE_KEY = 'erp_stock_adjustments_metadata_v1';
 
-export const WarehouseStockAdjustmentsTab: React.FC = () => {
+export interface WarehouseStockAdjustmentsTabRef {
+  openCreateModal: () => void;
+}
+
+export interface WarehouseStockAdjustmentsTabProps {
+  triggerCreate?: number;
+}
+
+export const WarehouseStockAdjustmentsTab = React.forwardRef<
+  WarehouseStockAdjustmentsTabRef,
+  WarehouseStockAdjustmentsTabProps
+>(({ triggerCreate }, ref) => {
   const { profile } = useAuth();
   const {
     inventoryTransactions = [],
@@ -169,6 +180,16 @@ export const WarehouseStockAdjustmentsTab: React.FC = () => {
 
     setIsCreateModalOpen(true);
   };
+
+  React.useImperativeHandle(ref, () => ({
+    openCreateModal: handleOpenCreateModal
+  }));
+
+  React.useEffect(() => {
+    if (triggerCreate && triggerCreate > 0) {
+      handleOpenCreateModal();
+    }
+  }, [triggerCreate]);
 
   // Current stock for the currently selected product and warehouse in the create form
   const currentFormStock = useMemo(() => {
@@ -501,14 +522,14 @@ export const WarehouseStockAdjustmentsTab: React.FC = () => {
               <option value="Decrease">Decrease (-)</option>
             </select>
 
-            {/* Create Stock Adjustment Button */}
+            {/* Create Adjustment Button */}
             {isAuthorized && (
               <button
                 onClick={handleOpenCreateModal}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
-                <span>Create Stock Adjustment</span>
+                <span>Create Adjustment</span>
               </button>
             )}
           </div>
@@ -1103,4 +1124,4 @@ export const WarehouseStockAdjustmentsTab: React.FC = () => {
       </Modal>
     </div>
   );
-};
+});
