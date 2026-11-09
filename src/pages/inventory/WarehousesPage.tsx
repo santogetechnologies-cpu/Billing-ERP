@@ -89,11 +89,13 @@ export const WarehousesPage: React.FC = () => {
     const t = searchParams.get('tab');
     if (t === 'transfers' || t === 'adjustments' || t === 'warehouse') {
       setActiveTab(t);
+      setIsFormModalOpen(false);
     }
   }, [searchParams]);
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
+    setIsFormModalOpen(false);
     const next = new URLSearchParams(searchParams);
     next.set('tab', tabId);
     setSearchParams(next, { replace: true });
@@ -125,11 +127,9 @@ export const WarehousesPage: React.FC = () => {
     }
   ];
 
-  // Action button triggers & refs for sub-tabs
+  // Action button refs for sub-tabs
   const transfersTabRef = React.useRef<WarehouseStockTransfersTabRef>(null);
   const adjustmentsTabRef = React.useRef<WarehouseStockAdjustmentsTabRef>(null);
-  const [transferCreateTrigger, setTransferCreateTrigger] = useState(0);
-  const [adjustmentCreateTrigger, setAdjustmentCreateTrigger] = useState(0);
 
   const eligibleManagers = useMemo(() => {
     return (users || []).filter(u => u.role === 'Warehouse Manager' || u.role === 'Admin' || u.role === 'Owner');
@@ -199,10 +199,8 @@ export const WarehousesPage: React.FC = () => {
       handleOpenCreateModal();
     } else if (activeTab === 'transfers') {
       transfersTabRef.current?.openCreateModal();
-      setTransferCreateTrigger(prev => prev + 1);
     } else if (activeTab === 'adjustments') {
       adjustmentsTabRef.current?.openCreateModal();
-      setAdjustmentCreateTrigger(prev => prev + 1);
     }
   };
 
@@ -1017,7 +1015,6 @@ export const WarehousesPage: React.FC = () => {
       {activeTab === 'transfers' && (
         <WarehouseStockTransfersTab
           ref={transfersTabRef}
-          triggerCreate={transferCreateTrigger}
         />
       )}
 
@@ -1025,7 +1022,6 @@ export const WarehousesPage: React.FC = () => {
       {activeTab === 'adjustments' && (
         <WarehouseStockAdjustmentsTab
           ref={adjustmentsTabRef}
-          triggerCreate={adjustmentCreateTrigger}
         />
       )}
 

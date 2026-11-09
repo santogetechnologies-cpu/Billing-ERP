@@ -41,14 +41,12 @@ export interface WarehouseStockAdjustmentsTabRef {
   openCreateModal: () => void;
 }
 
-export interface WarehouseStockAdjustmentsTabProps {
-  triggerCreate?: number;
-}
+export interface WarehouseStockAdjustmentsTabProps {}
 
 export const WarehouseStockAdjustmentsTab = React.forwardRef<
   WarehouseStockAdjustmentsTabRef,
   WarehouseStockAdjustmentsTabProps
->(({ triggerCreate }, ref) => {
+>((_props, ref) => {
   const { profile } = useAuth();
   const {
     inventoryTransactions = [],
@@ -184,12 +182,6 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
   React.useImperativeHandle(ref, () => ({
     openCreateModal: handleOpenCreateModal
   }));
-
-  React.useEffect(() => {
-    if (triggerCreate && triggerCreate > 0) {
-      handleOpenCreateModal();
-    }
-  }, [triggerCreate]);
 
   // Current stock for the currently selected product and warehouse in the create form
   const currentFormStock = useMemo(() => {

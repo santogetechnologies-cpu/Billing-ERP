@@ -88,3 +88,4 @@ console.log('  ✓ PASS: Purchase Manager is strictly blocked from Admin/Finance
 console.log('\n================================================================================');
 console.log('ALL INVENTORY & WAREHOUSES RBAC TESTS PASSED SUCCESSFULLY (100%)');
 console.log('================================================================================');
+

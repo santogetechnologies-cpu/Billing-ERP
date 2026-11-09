@@ -37,14 +37,12 @@ export interface WarehouseStockTransfersTabRef {
   openCreateModal: () => void;
 }
 
-export interface WarehouseStockTransfersTabProps {
-  triggerCreate?: number;
-}
+export interface WarehouseStockTransfersTabProps {}
 
 export const WarehouseStockTransfersTab = React.forwardRef<
   WarehouseStockTransfersTabRef,
   WarehouseStockTransfersTabProps
->(({ triggerCreate }, ref) => {
+>((_props, ref) => {
   const { profile } = useAuth();
   const {
     stockTransfers = [],
@@ -165,12 +163,6 @@ export const WarehouseStockTransfersTab = React.forwardRef<
   React.useImperativeHandle(ref, () => ({
     openCreateModal: handleOpenCreateModal
   }));
-
-  React.useEffect(() => {
-    if (triggerCreate && triggerCreate > 0) {
-      handleOpenCreateModal();
-    }
-  }, [triggerCreate]);
 
   // When source warehouse changes in form
   const handleSourceWarehouseChange = (newSrcId: string) => {
