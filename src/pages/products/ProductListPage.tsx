@@ -242,7 +242,7 @@ export const ProductListPage: React.FC = () => {
       )}
 
       {/* Top Header: Title & ONE Primary Action Button (Part B1 & B2) */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Products</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
