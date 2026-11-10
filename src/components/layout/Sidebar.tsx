@@ -15,7 +15,6 @@ import {
   ChevronRight,
   ChevronDown,
   LogOut,
-  Building,
   Building2,
   Truck,
   QrCode,
@@ -70,18 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   // Expandable submenus state
-  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
-    if (location.pathname.startsWith('/suppliers')) init['suppliers'] = true;
-    return init;
-  });
-
-  // Auto-expand menu when active path changes
-  useEffect(() => {
-    if (location.pathname.startsWith('/suppliers')) {
-      setExpandedMenus(prev => ({ ...prev, suppliers: true }));
-    }
-  }, [location.pathname]);
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
 
   const toggleExpand = (id: string, e?: React.MouseEvent) => {
     if (e) {
@@ -205,15 +193,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       name: 'Suppliers',
       path: '/suppliers',
       icon: Building2,
-      section: 'Finance & Staff',
-      children: [
-        {
-          id: 'supplier-details',
-          name: 'Supplier Details',
-          path: '/suppliers',
-          icon: Building
-        }
-      ]
+      section: 'Finance & Staff'
     },
     {
       id: 'pricing',
@@ -306,7 +286,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (item.id === 'suppliers') {
-      return cur === '/suppliers' || cur.startsWith('/suppliers/');
+      return cur === '/suppliers' || cur.startsWith('/suppliers/') || cur === '/supplier-details' || cur === '/suppliers/details';
     }
 
     if (item.id === 'parties') {

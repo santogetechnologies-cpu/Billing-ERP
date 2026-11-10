@@ -544,6 +544,8 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="supplier-details" element={<Navigate to="/suppliers" replace />} />
+              <Route path="suppliers/details" element={<Navigate to="/suppliers" replace />} />
               <Route
                 path="suppliers"
                 element={

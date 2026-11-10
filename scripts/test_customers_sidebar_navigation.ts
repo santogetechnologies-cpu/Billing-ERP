@@ -56,14 +56,15 @@ assert.ok(customersPageCode.includes('Add New Customer'), '6. CustomersPage Add 
 assert.ok(customersPageCode.includes('CustomerViewModal'), '6. CustomersPage view modal preserved');
 assert.ok(customersPageCode.includes('CustomerFormModal'), '6. CustomersPage form modal preserved');
 
-// 7. Suppliers navigation preserved unchanged
+// 7. Suppliers navigation direct page navigation (consistent with Customers)
 assert.ok(
-  sidebarCode.includes("id: 'suppliers'") && sidebarCode.includes("name: 'Suppliers'"),
-  '7. Suppliers sidebar item preserved'
+  sidebarCode.includes("id: 'suppliers'") && sidebarCode.includes("path: '/suppliers'"),
+  '7. Suppliers sidebar item links to /suppliers'
 );
 assert.ok(
-  sidebarCode.includes("id: 'supplier-details'") && sidebarCode.includes("name: 'Supplier Details'"),
-  '7. Suppliers sub-navigation preserved'
+  !sidebarCode.includes("id: 'supplier-details'"),
+  '7. Nested Supplier Details submenu is completely removed'
 );
 
-console.log('ALL 7 REQUIREMENTS VERIFIED AND PASSED SUCCESSFULLY!');
+console.log('ALL REQUIREMENTS VERIFIED AND PASSED SUCCESSFULLY!');
+

@@ -326,6 +326,8 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
   '/customer-details': { module: 'customers', action: 'view' },
   '/customers/details': { module: 'customers', action: 'view' },
   '/suppliers': { module: 'suppliers', action: 'view' },
+  '/supplier-details': { module: 'suppliers', action: 'view' },
+  '/suppliers/details': { module: 'suppliers', action: 'view' },
 
   // Expenses
   '/expenses': { module: 'expenses', action: 'view' },
