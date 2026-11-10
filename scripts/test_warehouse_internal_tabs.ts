@@ -144,10 +144,10 @@ assert(
   adjustmentsContent.includes('<th className="py-3 px-3.5 text-center">Adjustment</th>') &&
   !adjustmentsContent.includes('<th className="py-3 px-3.5 text-center">Difference (+/-)</th>') &&
   !adjustmentsContent.includes('<th className="py-3 px-3.5 text-center">Adjustment Type</th>') &&
-  adjustmentsContent.includes('Adjustment Reason') &&
+  !adjustmentsContent.includes('<th className="py-3 px-3.5">Adjustment Reason</th>') &&
   adjustmentsContent.includes('Adjustment Date') &&
   adjustmentsContent.includes('Actions'),
-  '15. Tab 3: Stock Adjustment table merges Difference and Adjustment Type into single Adjustment column'
+  '15. Tab 3: Stock Adjustment table merges Difference & Type into Adjustment and removes Adjustment Reason column'
 );
 
 assert(

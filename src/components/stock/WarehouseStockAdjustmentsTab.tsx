@@ -529,7 +529,6 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
                 <th className="py-3 px-3.5 text-center">Current Stock</th>
                 <th className="py-3 px-3.5 text-center">Adjusted Stock</th>
                 <th className="py-3 px-3.5 text-center">Adjustment</th>
-                <th className="py-3 px-3.5">Adjustment Reason</th>
                 <th className="py-3 px-3.5">Adjustment Date</th>
                 <th className="py-3 px-3.5 text-right">Actions</th>
               </tr>
@@ -537,7 +536,7 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
             <tbody className="divide-y divide-slate-100">
               {filteredAdjustments.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <SlidersHorizontal className="w-10 h-10 mx-auto text-slate-300 mb-2 stroke-1" />
                     <p className="font-medium text-slate-600">No stock adjustments found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -552,7 +551,6 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
                   const refKey = tx.referenceDoc || tx.id;
                   const meta = metaMap[refKey];
                   const isIncrease = tx.qty > 0;
-                  const reasonText = meta?.reason || tx.notes || 'Manual stock adjustment';
 
                   // Prioritize stored before/after stock from metadata, or compute from current stock
                   const liveStock = getWarehouseStock(tx.warehouse, tx.productId);
@@ -619,11 +617,6 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
                             {Math.abs(tx.qty)} {tx.unit || 'Piece'}
                           </span>
                         </div>
-                      </td>
-
-                      {/* Adjustment Reason */}
-                      <td className="py-3 px-3.5 text-slate-700 max-w-xs truncate" title={reasonText}>
-                        <span className="font-medium">{reasonText}</span>
                       </td>
 
                       {/* Adjustment Date */}
