@@ -38,6 +38,7 @@ import { PurchaseManagerDashboardPage } from './pages/purchases/PurchaseManagerD
 import { PurchaseInvoicesPage } from './pages/purchases/PurchaseInvoicesPage';
 import { PurchaseRequestsPage } from './pages/purchases/PurchaseRequestsPage';
 import { PurchaseOrdersPage } from './pages/purchases/PurchaseOrdersPage';
+import { PurchaseHistoryPage } from './pages/purchases/PurchaseHistoryPage';
 import { NewPurchaseInvoicePage } from './pages/purchases/NewPurchaseInvoicePage';
 import { PurchaseReturnsPage } from './pages/purchases/PurchaseReturnsPage';
 import { BarcodeOverridePage } from './pages/purchases/BarcodeOverridePage';
@@ -262,6 +263,14 @@ export function App() {
                 element={
                   <ProtectedRoute requiredModule="purchases">
                     <PurchaseOrdersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="purchases/history"
+                element={
+                  <ProtectedRoute requiredModule="purchases">
+                    <PurchaseHistoryPage />
                   </ProtectedRoute>
                 }
               />

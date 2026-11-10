@@ -77,7 +77,15 @@ export interface PurchaseOrderItemRow {
   }>;
 }
 
-export const PurchaseOrdersPage: React.FC = () => {
+export interface PurchaseOrdersPageProps {
+  embedded?: boolean;
+  initialTabFilter?: string;
+}
+
+export const PurchaseOrdersPage: React.FC<PurchaseOrdersPageProps> = ({
+  embedded = false,
+  initialTabFilter
+}) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { profile } = useAuth();
@@ -93,6 +101,7 @@ export const PurchaseOrdersPage: React.FC = () => {
 
   // Filters & State
   const [tabFilter, setTabFilter] = useState<string>(() => {
+    if (initialTabFilter) return initialTabFilter;
     const statusParam = searchParams.get('status');
     if (!statusParam) return 'All';
     if (statusParam.toLowerCase() === 'ordered' || statusParam.toLowerCase() === 'active') return 'Ordered';
@@ -480,194 +489,167 @@ export const PurchaseOrdersPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className={embedded ? "space-y-4 animate-fadeIn" : "space-y-6"}>
       {/* Top Breadcrumb & Action Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/purchases/dashboard')}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-            title="Back to Purchase Manager Dashboard"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-              <Truck className="w-5 h-5 text-blue-600" />
-              <span>Purchase Orders</span>
-            </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Monitor vendor purchase orders, track in-transit deliveries, view supplier contact details, and record inward goods receipts.
-            </p>
+      {!embedded && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/purchases/dashboard')}
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              title="Back to Purchase Manager Dashboard"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                <Truck className="w-5 h-5 text-blue-600" />
+                <span>Purchase Orders</span>
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Monitor vendor purchase orders, track in-transit deliveries, view supplier contact details, and record inward goods receipts.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="h-9 px-3.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-2xs"
+              title="Refresh order records"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
+              <span>Refresh</span>
+            </button>
+
+            {hasPermission(profile?.role, 'purchases', 'create') && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => navigate('/purchases/new?docType=purchase_order')}
+                  className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                  title="Create new purchase order"
+                >
+                  <Plus className="w-3.5 h-3.5 shrink-0" />
+                  <span>New Order</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkOrderModalOpen(true)}
+                  className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200/90 rounded-xl text-xs font-semibold shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                  title="Create Commercial Quotation"
+                >
+                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                  <span>New Bill</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
+      )}
 
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0 self-start sm:self-auto">
+      {/* 3 Status Navigation Buttons (History button moved to Purchases & PO top tabs) */}
+      {!embedded && (
+        <div id="po-status-buttons-row" className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          {/* 1. Ordered Button */}
           <button
             type="button"
-            onClick={handleManualRefresh}
-            disabled={isRefreshing}
-            className="h-9 px-3.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-2xs"
-            title="Refresh order records"
+            onClick={() => handleCardFilterClick('Ordered')}
+            className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+              tabFilter === 'Ordered' || tabFilter === 'Active'
+                ? 'bg-blue-50/90 text-blue-900 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                : 'bg-white hover:bg-blue-50/50 text-slate-700 hover:text-blue-800 border-slate-200/90'
+            }`}
+            title="Filter to purchase orders awaiting warehouse receipt confirmation"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
-            <span>Refresh</span>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                tabFilter === 'Ordered' || tabFilter === 'Active' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600'
+              }`}>
+                <ClipboardList className="w-4 h-4" />
+              </div>
+              <div className="text-left truncate">
+                <span className="block font-bold truncate">Ordered</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Pending receipt</span>
+              </div>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+              tabFilter === 'Ordered' || tabFilter === 'Active'
+                ? 'bg-blue-600 text-white'
+                : 'bg-blue-50 text-blue-700 border border-blue-200/60'
+            }`}>
+              {formatNumber(stats.orderedCount)}
+            </span>
           </button>
 
-          {hasPermission(profile?.role, 'purchases', 'create') && (
-            <>
-              <button
-                type="button"
-                onClick={() => navigate('/purchases/new?docType=purchase_order')}
-                className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
-                title="Create new purchase order"
-              >
-                <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span>New Order</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsBulkOrderModalOpen(true)}
-                className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200/90 rounded-xl text-xs font-semibold shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
-                title="Create Commercial Quotation"
-              >
-                <FileText className="w-3.5 h-3.5 shrink-0" />
-                <span>New Bill</span>
-              </button>
-            </>
-          )}
+          {/* 2. Delivered Button */}
+          <button
+            type="button"
+            onClick={() => handleCardFilterClick('Received')}
+            className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+              tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
+                ? 'bg-emerald-50/90 text-emerald-900 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+                : 'bg-white hover:bg-emerald-50/50 text-slate-700 hover:text-emerald-800 border-slate-200/90'
+            }`}
+            title="Filter to purchase orders fully received and confirmed by warehouse"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-600'
+              }`}>
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div className="text-left truncate">
+                <span className="block font-bold truncate">Delivered</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Fully received</span>
+              </div>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+              tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+            }`}>
+              {formatNumber(stats.deliveredCount)}
+            </span>
+          </button>
+
+          {/* 3. Overdue Button */}
+          <button
+            type="button"
+            onClick={() => handleCardFilterClick('Overdue')}
+            className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+              tabFilter === 'Overdue'
+                ? 'bg-rose-50/90 text-rose-900 border-rose-400 ring-2 ring-rose-500/20 shadow-xs'
+                : 'bg-white hover:bg-rose-50/50 text-slate-700 hover:text-rose-800 border-slate-200/90'
+            }`}
+            title="Filter to purchase orders past expected arrival date with outstanding quantity"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                tabFilter === 'Overdue' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600'
+              }`}>
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="text-left truncate">
+                <span className="block font-bold truncate">Overdue</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Past expected date</span>
+              </div>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
+              tabFilter === 'Overdue'
+                ? 'bg-rose-600 text-white'
+                : 'bg-rose-50 text-rose-700 border border-rose-200/60'
+            }`}>
+              {formatNumber(stats.overdueCount)}
+            </span>
+          </button>
         </div>
-      </div>
-
-      {/* 4 Clean Navigation Buttons replacing the 4 Summary Cards */}
-      <div id="po-status-buttons-row" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* 1. Ordered Button */}
-        <button
-          type="button"
-          onClick={() => handleCardFilterClick('Ordered')}
-          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
-            tabFilter === 'Ordered' || tabFilter === 'Active'
-              ? 'bg-blue-50/90 text-blue-900 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
-              : 'bg-white hover:bg-blue-50/50 text-slate-700 hover:text-blue-800 border-slate-200/90'
-          }`}
-          title="Filter to purchase orders awaiting warehouse receipt confirmation"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-              tabFilter === 'Ordered' || tabFilter === 'Active' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600'
-            }`}>
-              <ClipboardList className="w-4 h-4" />
-            </div>
-            <div className="text-left truncate">
-              <span className="block font-bold truncate">Ordered</span>
-              <span className="block text-[10px] text-slate-400 font-normal">Pending receipt</span>
-            </div>
-          </div>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
-            tabFilter === 'Ordered' || tabFilter === 'Active'
-              ? 'bg-blue-600 text-white'
-              : 'bg-blue-50 text-blue-700 border border-blue-200/60'
-          }`}>
-            {formatNumber(stats.orderedCount)}
-          </span>
-        </button>
-
-        {/* 2. Delivered Button */}
-        <button
-          type="button"
-          onClick={() => handleCardFilterClick('Received')}
-          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
-            tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
-              ? 'bg-emerald-50/90 text-emerald-900 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
-              : 'bg-white hover:bg-emerald-50/50 text-slate-700 hover:text-emerald-800 border-slate-200/90'
-          }`}
-          title="Filter to purchase orders fully received and confirmed by warehouse"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-              tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-600'
-            }`}>
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-            <div className="text-left truncate">
-              <span className="block font-bold truncate">Delivered</span>
-              <span className="block text-[10px] text-slate-400 font-normal">Fully received</span>
-            </div>
-          </div>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
-            tabFilter === 'Received' || tabFilter === 'Delivered' || tabFilter === 'Completed'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
-          }`}>
-            {formatNumber(stats.deliveredCount)}
-          </span>
-        </button>
-
-        {/* 3. Overdue Button */}
-        <button
-          type="button"
-          onClick={() => handleCardFilterClick('Overdue')}
-          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
-            tabFilter === 'Overdue'
-              ? 'bg-rose-50/90 text-rose-900 border-rose-400 ring-2 ring-rose-500/20 shadow-xs'
-              : 'bg-white hover:bg-rose-50/50 text-slate-700 hover:text-rose-800 border-slate-200/90'
-          }`}
-          title="Filter to purchase orders past expected arrival date with outstanding quantity"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-              tabFilter === 'Overdue' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600'
-            }`}>
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-            <div className="text-left truncate">
-              <span className="block font-bold truncate">Overdue</span>
-              <span className="block text-[10px] text-slate-400 font-normal">Past expected date</span>
-            </div>
-          </div>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
-            tabFilter === 'Overdue'
-              ? 'bg-rose-600 text-white'
-              : 'bg-rose-50 text-rose-700 border border-rose-200/60'
-          }`}>
-            {formatNumber(stats.overdueCount)}
-          </span>
-        </button>
-
-        {/* 4. History Button */}
-        <button
-          type="button"
-          onClick={() => handleCardFilterClick('History')}
-          className={`flex items-center justify-between p-3 sm:px-4 sm:py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
-            tabFilter === 'History' || tabFilter === 'All'
-              ? 'bg-slate-100 text-slate-900 border-slate-400 ring-2 ring-slate-400/20 shadow-xs'
-              : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-200/90'
-          }`}
-          title="View complete purchase order history across all statuses"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-              tabFilter === 'History' || tabFilter === 'All' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'
-            }`}>
-              <History className="w-4 h-4" />
-            </div>
-            <div className="text-left truncate">
-              <span className="block font-bold truncate">History</span>
-              <span className="block text-[10px] text-slate-400 font-normal">All order records</span>
-            </div>
-          </div>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold shrink-0 ml-2 ${
-            tabFilter === 'History' || tabFilter === 'All'
-              ? 'bg-slate-700 text-white'
-              : 'bg-slate-100 text-slate-700 border border-slate-200'
-          }`}>
-            {formatNumber(stats.historyCount)}
-          </span>
-        </button>
-      </div>
+      )}
 
       {/* Return to All Orders Banner when filtered */}
-      {tabFilter !== 'All' && tabFilter !== 'History' && (
+      {!embedded && tabFilter !== 'All' && tabFilter !== 'History' && (
         <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs">
           <div className="flex items-center gap-2 text-blue-900 font-medium">
             <Filter className="w-3.5 h-3.5 text-blue-600 shrink-0" />

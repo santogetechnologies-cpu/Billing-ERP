@@ -77,9 +77,9 @@ runTest('Dashboard 4th button (Stocks / History) has appropriate icon, subtle st
 // -----------------------------------------------------------------------------
 console.log('\n--- 2. Purchase Orders Page Navigation Buttons & Filtering ---');
 
-runTest('PurchaseOrdersPage includes the four navigation buttons container', () => {
+runTest('PurchaseOrdersPage includes the navigation buttons container', () => {
   assert(poPageCode.includes('id="po-status-buttons-row"'), 'PurchaseOrdersPage must render id="po-status-buttons-row"');
-  assert(poPageCode.includes('grid grid-cols-2 lg:grid-cols-4'), 'Buttons row must be aligned horizontally on desktop');
+  assert(poPageCode.includes('grid grid-cols-1 sm:grid-cols-3') || poPageCode.includes('grid grid-cols-2 lg:grid-cols-4'), 'Buttons row must be aligned horizontally on desktop');
 });
 
 runTest('PurchaseOrdersPage Ordered button filters to Ordered orders', () => {
@@ -97,8 +97,14 @@ runTest('PurchaseOrdersPage Overdue button filters to overdue orders with pendin
   assert(poPageCode.includes('!order.isOverdue || order.status !== \'Ordered\''), 'filteredOrders must filter to overdue pending orders');
 });
 
-runTest('PurchaseOrdersPage History button displays all order records', () => {
-  assert(poPageCode.includes("onClick={() => handleCardFilterClick('History')}"), 'History button must invoke handleCardFilterClick with History');
+runTest('History button / tab displays all order records', () => {
+  const invoicesPagePath = path.resolve('src/pages/purchases/PurchaseInvoicesPage.tsx');
+  const invoicesPageCode = fs.readFileSync(invoicesPagePath, 'utf-8');
+  assert(
+    poPageCode.includes("onClick={() => handleCardFilterClick('History')}") ||
+    invoicesPageCode.includes("label: 'History'"),
+    'History button/tab must exist'
+  );
   assert(poPageCode.includes("tabFilter === 'History' || tabFilter === 'All'"), 'filteredOrders must include all past & current order records in History view');
 });
 

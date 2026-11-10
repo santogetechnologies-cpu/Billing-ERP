@@ -287,6 +287,7 @@ export const ROUTE_MODULE_MAP: Record<string, { module: AppModule; action: AppAc
   '/purchases/invoices': { module: 'purchases', action: 'view' },
   '/purchases/requests': { module: 'purchases', action: 'view' },
   '/purchases/orders': { module: 'purchases', action: 'view' },
+  '/purchases/history': { module: 'purchases', action: 'view' },
   '/purchases/delivery-tracking': { module: 'purchases', action: 'view' },
   '/delivery-tracking': { module: 'purchases', action: 'view' },
   '/purchases/barcode-management': { module: 'purchases', action: 'edit' },
@@ -879,6 +880,8 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
   'Purchase Manager': [
     'Dashboard',
     'Purchases',
+    'History',
+    'Purchase History',
     'Customers',
     'Customer Details',
     'Suppliers',
@@ -970,6 +973,10 @@ export function canRoleAccessNavItem(
   }
 
   if (id === 'purchases' || id === 'purchasesbills') {
+    return normalizedRole === 'Purchase Manager';
+  }
+
+  if (id === 'history' || id === 'purchasehistory') {
     return normalizedRole === 'Purchase Manager';
   }
 

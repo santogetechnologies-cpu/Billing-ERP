@@ -7,7 +7,8 @@ import {
   FileText,
   CreditCard,
   Truck,
-  Search
+  Search,
+  History
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -20,6 +21,7 @@ import { PurchaseReturnsTab } from '../../components/purchases/PurchaseReturnsTa
 import { PurchasePaymentsMadeTab } from '../../components/purchases/PurchasePaymentsMadeTab';
 import { SupplierBillInvoiceModal } from '../../components/purchases/SupplierBillInvoiceModal';
 import { PaySupplierBillModal } from '../../components/purchases/PaySupplierBillModal';
+import { PurchaseOrdersPage } from './PurchaseOrdersPage';
 
 export const PurchaseInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -43,18 +45,20 @@ export const PurchaseInvoicesPage: React.FC = () => {
   const [isAddReturnModalOpen, setIsAddReturnModalOpen] = useState(false);
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
 
-  // Sync ?tab= in URL (gracefully redirect legacy grn tab to orders)
+  // Sync ?tab= in URL (gracefully redirect legacy grn tab to orders, and history tab to dedicated history route)
   useEffect(() => {
     const tab = searchParams.get('tab');
     if (tab === 'grn') {
       setActiveTab('orders');
       setSearchParams({ tab: 'orders' });
+    } else if (tab === 'history') {
+      navigate('/purchases/history', { replace: true });
     } else if (tab) {
       setActiveTab(tab);
     }
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, navigate]);
 
-  // Tab definitions (Purchases: Orders (PO) · Bills · Returns · Payments made)
+  // Tab definitions (Purchases: Orders (PO) · Bills · Returns · Payments Made)
   const purchaseOrders = useMemo(() => purchaseInvoices.filter(i => i.docType === 'purchase_order'), [purchaseInvoices]);
   const standardBills = useMemo(
     () =>
@@ -72,7 +76,7 @@ export const PurchaseInvoicesPage: React.FC = () => {
     { id: 'orders', label: 'Orders (PO)', count: purchaseOrders.length, icon: Truck },
     { id: 'bills', label: 'Bills', count: standardBills.length, icon: FileText },
     { id: 'returns', label: 'Returns', count: customerReturns.length > 0 ? customerReturns.length : purchaseReturnsList.length, icon: RotateCcw },
-    { id: 'payments', label: 'Payments made', count: outwardPaymentsList.length, icon: CreditCard }
+    { id: 'payments', label: 'Payments Made', count: outwardPaymentsList.length, icon: CreditCard }
   ];
 
   // Filtered bills for Tab 2: Bills (Search + Payment Status)
@@ -152,6 +156,17 @@ export const PurchaseInvoicesPage: React.FC = () => {
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Record Payment</span>
+            </button>
+          ) : activeTab === 'history' ? (
+            <button
+              onClick={() => {
+                setDocumentModalType('purchase_order');
+                setIsDocumentModalOpen(true);
+              }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create Purchase Order</span>
             </button>
           ) : null}
         </div>
@@ -336,12 +351,17 @@ export const PurchaseInvoicesPage: React.FC = () => {
         />
       )}
 
-      {/* Tab 5: Payments made */}
+      {/* Tab 4: Payments Made */}
       {activeTab === 'payments' && (
         <PurchasePaymentsMadeTab
           isRecordPaymentOpen={isRecordPaymentOpen}
           onCloseRecordPayment={() => setIsRecordPaymentOpen(false)}
         />
+      )}
+
+      {/* Tab 5: History (Order History) */}
+      {activeTab === 'history' && (
+        <PurchaseOrdersPage embedded={true} initialTabFilter="History" />
       )}
 
       {/* Document Creator Modal (5-Step Flow) */}
