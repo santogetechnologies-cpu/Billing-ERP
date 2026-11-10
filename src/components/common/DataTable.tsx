@@ -514,7 +514,7 @@ export function DataTable<T extends Record<string, any>>({
                     }}
                   >
                     <div
-                      className={`flex items-center gap-1 w-full ${
+                      className={`flex items-center gap-1 w-full flex-nowrap ${
                         col.align === 'right'
                           ? 'justify-end text-right'
                           : col.align === 'center'
@@ -522,7 +522,7 @@ export function DataTable<T extends Record<string, any>>({
                           : 'justify-start text-left'
                       }`}
                     >
-                      <span className="whitespace-normal leading-tight">{col.header}</span>
+                      <span className="whitespace-nowrap leading-tight">{col.header}</span>
                       {col.sortable !== false && (
                         <span className="text-slate-400 shrink-0">
                           {sortKey === col.key ? (
@@ -541,7 +541,10 @@ export function DataTable<T extends Record<string, any>>({
                 ))}
               {actions && (
                 <th
-                  style={{ width: effectiveActionsWidth, minWidth: effectiveActionsWidth }}
+                  style={{
+                    width: effectiveActionsWidth,
+                    minWidth: effectiveActionsWidth.endsWith('%') ? '100px' : effectiveActionsWidth
+                  }}
                   className={`${hideHorizontalScroll ? 'px-2.5 py-3' : 'px-2.5 sm:px-3 py-3'} text-right align-middle font-semibold text-[11px] tracking-normal uppercase text-slate-600 whitespace-nowrap`}
                 >
                   Actions
@@ -611,7 +614,10 @@ export function DataTable<T extends Record<string, any>>({
                       ))}
                     {actions && (
                       <td
-                        style={{ width: effectiveActionsWidth, minWidth: effectiveActionsWidth }}
+                        style={{
+                          width: effectiveActionsWidth,
+                          minWidth: effectiveActionsWidth.endsWith('%') ? '100px' : effectiveActionsWidth
+                        }}
                         className={`${hideHorizontalScroll ? 'px-2.5 py-2.5' : 'px-2.5 sm:px-3 py-2.5'} text-right font-medium align-middle whitespace-nowrap`}
                         onClick={e => e.stopPropagation()}
                       >

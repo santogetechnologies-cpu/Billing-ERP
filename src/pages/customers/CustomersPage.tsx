@@ -88,7 +88,7 @@ export const CustomersPage: React.FC = () => {
       key: 'name',
       header: 'Customer Name',
       sortable: true,
-      width: '28%',
+      width: '22%',
       render: row => (
         <div className="min-w-0 pr-2">
           <span className="font-semibold text-slate-900 dark:text-white block truncate" title={row.name}>
@@ -104,7 +104,7 @@ export const CustomersPage: React.FC = () => {
       key: 'phone',
       header: 'Phone Number',
       sortable: true,
-      width: '16%',
+      width: '14%',
       render: row => (
         <span className="font-mono text-xs text-slate-700 dark:text-slate-300 block truncate">
           {row.phone || '—'}
@@ -115,7 +115,7 @@ export const CustomersPage: React.FC = () => {
       key: 'email',
       header: 'Email',
       sortable: true,
-      width: '20%',
+      width: '18%',
       render: row => (
         <span className="text-slate-500 text-xs truncate block" title={row.email || undefined}>
           {row.email || '—'}
@@ -127,7 +127,7 @@ export const CustomersPage: React.FC = () => {
       header: 'Customer Type',
       sortable: true,
       align: 'center',
-      width: '12%',
+      width: '14%',
       render: row => (
         <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
           {row.type || 'Retail'}
@@ -164,12 +164,12 @@ export const CustomersPage: React.FC = () => {
       header: 'Receivable Due',
       sortable: true,
       align: 'right',
-      width: '14%',
+      width: '12%',
       render: row => {
         const bal = row.currentOutstanding || 0;
         return (
           <span
-            className={`font-mono font-bold text-xs ${
+            className={`font-mono font-bold text-xs pr-3 block truncate ${
               bal > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
             }`}
           >
@@ -251,14 +251,14 @@ export const CustomersPage: React.FC = () => {
         selectable={false}
         hideHorizontalScroll={true}
         tableFixed={true}
-        actionsWidth="80px"
+        actionsWidth="10%"
         actions={row => (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center justify-end gap-1 shrink-0">
             {/* View Complete Details */}
             <button
               type="button"
               onClick={() => handleOpenView(row)}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
               title="View Customer Details"
             >
               <Eye className="w-4 h-4" />
@@ -269,7 +269,7 @@ export const CustomersPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleOpenEdit(row)}
-                className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-1 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                 title="Edit Customer"
               >
                 <Edit className="w-4 h-4" />
@@ -281,7 +281,7 @@ export const CustomersPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setCustomerToDelete(row)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                 title="Delete Customer"
               >
                 <Trash2 className="w-4 h-4" />
