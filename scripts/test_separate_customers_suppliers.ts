@@ -93,12 +93,14 @@ async function runTests() {
   assert(customersCode.includes('Add New Customer'), '3.1 Has "+ Add New Customer" button');
   console.log('  ✓ PASS: 3.1 Full vertical scrolling without pagination & Add New Customer button present');
 
-  // 3.2 Required customer information columns
-  const requiredCustomerCols = ['Customer Name', 'Phone Number', 'Email', 'Address', 'Customer Type', 'Status'];
+  // 3.2 Required customer information columns (Address removed for clean table alignment)
+  const requiredCustomerCols = ['Customer Name', 'Phone Number', 'Email', 'Customer Type', 'Status', 'Receivable Due'];
   for (const col of requiredCustomerCols) {
     assert(customersCode.includes(col), `3.2 Must display ${col} column`);
   }
-  console.log('  ✓ PASS: 3.2 All required columns present: Name, Phone, Email, Address, Customer Type, Status');
+  assert(!customersCode.includes("header: 'Address'"), '3.2 Address column is removed from customer table');
+  assert(customersCode.includes('hideHorizontalScroll={true}') && customersCode.includes('tableFixed={true}'), '3.2 Table fixed and horizontal scrollbar eliminated');
+  console.log('  ✓ PASS: 3.2 Required columns aligned without Address column: Name, Phone, Email, Customer Type, Status, Receivable Due');
 
   // 3.3 Search and filtering
   assert(customersCode.includes("searchPlaceholder=\"Search customers by customer name or phone number...\""), '3.3 Search placeholder mentions name and phone');

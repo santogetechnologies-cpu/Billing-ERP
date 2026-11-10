@@ -88,7 +88,7 @@ export const CustomersPage: React.FC = () => {
       key: 'name',
       header: 'Customer Name',
       sortable: true,
-      width: '22%',
+      width: '28%',
       render: row => (
         <div className="min-w-0 pr-2">
           <span className="font-semibold text-slate-900 dark:text-white block truncate" title={row.name}>
@@ -104,7 +104,7 @@ export const CustomersPage: React.FC = () => {
       key: 'phone',
       header: 'Phone Number',
       sortable: true,
-      width: '13%',
+      width: '16%',
       render: row => (
         <span className="font-mono text-xs text-slate-700 dark:text-slate-300 block truncate">
           {row.phone || '—'}
@@ -115,26 +115,12 @@ export const CustomersPage: React.FC = () => {
       key: 'email',
       header: 'Email',
       sortable: true,
-      width: '15%',
+      width: '20%',
       render: row => (
         <span className="text-slate-500 text-xs truncate block" title={row.email || undefined}>
           {row.email || '—'}
         </span>
       )
-    },
-    {
-      key: 'address',
-      header: 'Address',
-      sortable: true,
-      width: '18%',
-      render: row => {
-        const fullAddr = [row.address, row.state].filter(Boolean).join(', ');
-        return (
-          <span className="text-slate-600 dark:text-slate-300 text-xs truncate block" title={fullAddr || undefined}>
-            {fullAddr || '—'}
-          </span>
-        );
-      }
     },
     {
       key: 'type',
@@ -178,7 +164,7 @@ export const CustomersPage: React.FC = () => {
       header: 'Receivable Due',
       sortable: true,
       align: 'right',
-      width: '10%',
+      width: '14%',
       render: row => {
         const bal = row.currentOutstanding || 0;
         return (
@@ -263,6 +249,9 @@ export const CustomersPage: React.FC = () => {
         ]}
         enablePagination={false}
         selectable={false}
+        hideHorizontalScroll={true}
+        tableFixed={true}
+        actionsWidth="80px"
         actions={row => (
           <div className="flex items-center justify-end gap-1">
             {/* View Complete Details */}
