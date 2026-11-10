@@ -98,12 +98,19 @@ export const SupplierViewModal: React.FC<SupplierViewModalProps> = ({
                     Contact: {supplier.name}
                   </span>
                 )}
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                  supplier.status === 'Active'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'bg-slate-100 text-slate-700'
-                }`}>
-                  {supplier.status || 'Active'}
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    supplier.status === 'Active'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      supplier.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                    }`}
+                  />
+                  <span>{supplier.status || 'Active'}</span>
                 </span>
               </div>
             </div>

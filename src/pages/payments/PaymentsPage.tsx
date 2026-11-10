@@ -343,7 +343,7 @@ export const PaymentsPage: React.FC = () => {
                   ))
                 : suppliers.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.company} — Payable: {formatCurrency(s.currentOutstanding)}
+                      {s.company}{s.status === 'Inactive' ? ' (Inactive)' : ''} — Payable: {formatCurrency(s.currentOutstanding)}
                     </option>
                   ))}
             </select>

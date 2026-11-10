@@ -187,9 +187,17 @@ export function enrichSuppliersWithDeliveryStatus(
   context: {
     purchaseOrders?: any[];
     purchaseRequests?: PurchaseRequest[];
+    preserveSavedStatus?: boolean;
   }
 ): Supplier[] {
   return (suppliers || []).map(sup => {
+    // If preserveSavedStatus is set, preserve the user-configured master status (Active / Inactive)
+    if (context?.preserveSavedStatus) {
+      return {
+        ...sup,
+        status: sup.status || 'Active'
+      };
+    }
     const autoStatus = determineSupplierStatus(sup.id, sup.name || sup.company, context);
     return {
       ...sup,

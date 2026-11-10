@@ -718,7 +718,7 @@ export const PurchaseOrdersPage: React.FC = () => {
               <option value="All">All Suppliers</option>
               {suppliers.map(s => (
                 <option key={s.id} value={s.name}>
-                  {s.name}
+                  {s.name}{s.status === 'Inactive' ? ' (Inactive)' : ''}
                 </option>
               ))}
             </select>

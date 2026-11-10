@@ -43,20 +43,21 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({
 
   useEffect(() => {
     if (supplierToEdit) {
-      setCompany(supplierToEdit.company || supplierToEdit.name || '');
-      setName(supplierToEdit.name || '');
-      setPhone(supplierToEdit.phone || '');
-      setEmail(supplierToEdit.email || '');
-      setAddress(supplierToEdit.address || '');
-      setState(supplierToEdit.state || '');
-      setGstin(supplierToEdit.gstin || '');
-      setPan(supplierToEdit.pan || '');
-      setCreditDays(String(supplierToEdit.creditDays || 30));
-      setStatus(supplierToEdit.status || 'Active');
-      setNotes(supplierToEdit.notes || '');
-      setBankName(supplierToEdit.bankDetails?.bankName || '');
-      setAccountNumber(supplierToEdit.bankDetails?.accountNumber || '');
-      setIfsc(supplierToEdit.bankDetails?.ifsc || '');
+      const current = suppliers.find(s => s.id === supplierToEdit.id) || supplierToEdit;
+      setCompany(current.company || current.name || '');
+      setName(current.name || '');
+      setPhone(current.phone || '');
+      setEmail(current.email || '');
+      setAddress(current.address || '');
+      setState(current.state || '');
+      setGstin(current.gstin || '');
+      setPan(current.pan || '');
+      setCreditDays(String(current.creditDays || 30));
+      setStatus(current.status || 'Active');
+      setNotes(current.notes || '');
+      setBankName(current.bankDetails?.bankName || '');
+      setAccountNumber(current.bankDetails?.accountNumber || '');
+      setIfsc(current.bankDetails?.ifsc || '');
     } else {
       setCompany('');
       setName('');
@@ -74,7 +75,7 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({
       setIfsc('');
     }
     setErrorMsg(null);
-  }, [supplierToEdit, isOpen]);
+  }, [supplierToEdit, isOpen, suppliers]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

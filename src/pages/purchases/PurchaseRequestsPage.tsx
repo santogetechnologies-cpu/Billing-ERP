@@ -1804,7 +1804,7 @@ export const PurchaseRequestsPage: React.FC = () => {
                 >
                   {suppliers.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.name} ({s.company || 'Vendor'})
+                      {s.name} ({s.company || 'Vendor'}{s.status === 'Inactive' ? ' - Inactive' : ''})
                     </option>
                   ))}
                 </select>

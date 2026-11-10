@@ -16,6 +16,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', c
 
   if (['active', 'in stock'].includes(normalized)) {
     colorClasses = 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]';
+  } else if (['inactive', 'disabled', 'deactivated'].includes(normalized)) {
+    colorClasses = 'bg-slate-100 text-slate-600 border-slate-200';
   } else if (['limited', 'limited stock', 'warning', 'low stock'].includes(normalized)) {
     colorClasses = 'bg-[#FFF7ED] text-[#EA580C] border-[#FDBA74]';
   } else if (['out of stock'].includes(normalized)) {

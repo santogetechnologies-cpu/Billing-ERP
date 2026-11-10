@@ -152,6 +152,7 @@ export interface ERPContextType {
   addSupplier: (supplier: Omit<Supplier, 'id' | 'createdAt' | 'currentOutstanding' | 'totalPurchases' | 'totalPaid'>) => Promise<Supplier>;
   updateSupplier: (id: string, updates: Partial<Supplier>) => Promise<void>;
   deleteSupplier: (id: string) => Promise<void>;
+  refreshSuppliers: () => Promise<void>;
 
   // Sales
   salesInvoices: SalesInvoice[];
@@ -1046,9 +1047,34 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newSupplier;
   };
 
+  const refreshSuppliers = useCallback(async () => {
+    try {
+      const targetCompId = company?.id || '00000000-0000-0000-0000-000000000001';
+      const fetchedSuppliers = await supplierService.getSuppliers(undefined, targetCompId);
+      if (Array.isArray(fetchedSuppliers) && fetchedSuppliers.length > 0) {
+        setSuppliers(fetchedSuppliers);
+      }
+    } catch (err) {
+      console.error('Failed to refresh suppliers:', err);
+    }
+  }, [company?.id]);
+
   const updateSupplier = async (id: string, updates: Partial<Supplier>) => {
-    await supplierService.updateSupplier(id, updates, company.id);
-    setSuppliers(prev => prev.map(s => (s.id === id ? { ...s, ...updates } : s)));
+    const updated = await supplierService.updateSupplier(id, updates, company.id);
+    const newStatus = updates.status || (updated?.status as 'Active' | 'Inactive');
+
+    setSuppliers(prev =>
+      prev.map(s => {
+        if (s.id !== id) return s;
+        return {
+          ...s,
+          ...updates,
+          ...(newStatus ? { status: newStatus } : {})
+        };
+      })
+    );
+
+    refreshSuppliers().catch(console.error);
   };
 
   const deleteSupplier = async (id: string) => {
@@ -2919,6 +2945,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addSupplier,
     updateSupplier,
     deleteSupplier,
+    refreshSuppliers,
     salesInvoices,
     createSalesInvoice,
     processSalesReturn,
@@ -3079,6 +3106,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addSupplier,
     updateSupplier,
     deleteSupplier,
+    refreshSuppliers,
     salesInvoices,
     createSalesInvoice,
     processSalesReturn,

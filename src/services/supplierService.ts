@@ -175,15 +175,28 @@ export const supplierService = {
       dbPayload.ifsc_code = updates.bankDetails.ifsc;
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('suppliers')
       .update(dbPayload)
       .eq('id', id)
       .eq('company_id', finalCompanyId)
       .select()
-      .single();
+      .maybeSingle();
+
+    // Fallback: in case company_id differs or is unbound
+    if (!data && !error) {
+      const fallback = await supabase
+        .from('suppliers')
+        .update(dbPayload)
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) throw new Error(`Failed to update supplier: ${error.message}`);
+    if (!data) throw new Error(`Supplier with ID "${id}" was not found.`);
     return data;
   },
 

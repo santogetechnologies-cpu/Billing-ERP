@@ -825,7 +825,7 @@ export const PurchasePaymentsMadeTab: React.FC<PurchasePaymentsMadeTabProps> = (
                   <option value="">Select Supplier</option>
                   {suppliers.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.name} ({s.gstin || 'Unregistered'})
+                      {s.name} ({s.gstin || 'Unregistered'}{s.status === 'Inactive' ? ' - Inactive' : ''})
                     </option>
                   ))}
                 </select>

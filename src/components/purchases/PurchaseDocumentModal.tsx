@@ -392,7 +392,9 @@ export const PurchaseDocumentModal: React.FC<PurchaseDocumentModalProps> = ({
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-medium"
                 >
                   {suppliers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.companyName || 'Vendor'})</option>
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.companyName || s.company || 'Vendor'}{s.status === 'Inactive' ? ' - Inactive' : ''})
+                    </option>
                   ))}
                 </select>
               </div>

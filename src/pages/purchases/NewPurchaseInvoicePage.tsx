@@ -599,7 +599,7 @@ export const NewPurchaseInvoicePage: React.FC = () => {
               >
                 {suppliers.map(s => (
                   <option key={s.id} value={s.id}>
-                    {s.company} ({s.name}) — Payable: {formatCurrency(s.currentOutstanding)}
+                    {s.company} ({s.name}){s.status === 'Inactive' ? ' (Inactive)' : ''} — Payable: {formatCurrency(s.currentOutstanding)}
                   </option>
                 ))}
               </select>

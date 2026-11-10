@@ -83,11 +83,12 @@ export const SuppliersPage: React.FC = () => {
     fetchOrders();
   }, [companyProfile?.id]);
 
-  // Dynamically enrich suppliers with delivery status
+  // Dynamically enrich suppliers with delivery status while strictly preserving user-set master status
   const suppliersWithStatus = useMemo(() => {
     return enrichSuppliersWithDeliveryStatus(suppliers, {
       purchaseOrders: purchaseOrdersData,
-      purchaseRequests
+      purchaseRequests,
+      preserveSavedStatus: true
     });
   }, [suppliers, purchaseOrdersData, purchaseRequests]);
 
@@ -340,7 +341,7 @@ export const SuppliersPage: React.FC = () => {
       <SupplierViewModal
         isOpen={isViewModalOpen}
         onClose={() => setIsViewModalOpen(false)}
-        supplier={supplierToView}
+        supplier={suppliersWithStatus.find(s => s.id === supplierToView?.id) || suppliers.find(s => s.id === supplierToView?.id) || supplierToView}
         onEdit={s => handleOpenEdit(s)}
       />
 
