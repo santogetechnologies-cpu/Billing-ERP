@@ -1172,10 +1172,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsQuotationModalOpen(true)}
-              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
               title="Create Commercial Quotation"
             >
-              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <FileText className="w-4 h-4 stroke-[2.2] shrink-0" />
               <span>Quotation</span>
             </button>
           </div>

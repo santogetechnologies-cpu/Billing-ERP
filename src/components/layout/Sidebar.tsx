@@ -185,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'suppliers',
       name: 'Suppliers',
       path: '/suppliers',
-      icon: Building2,
+      icon: Truck,
       section: 'Finance & Staff'
     },
     {
@@ -324,8 +324,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Brand / Store Header */}
-        <div className="h-14 flex items-center justify-between px-3 border-b border-slate-800/80 bg-[#10192E] shrink-0">
-          <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
+        <div className={`h-14 flex items-center border-b border-slate-800/80 bg-[#10192E] shrink-0 transition-all ${
+          isCollapsed ? 'px-2 justify-between' : 'px-3.5 justify-between gap-3'
+        }`}>
+          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-xs shrink-0">
               {company.logo ? (
                 <img src={company.logo} alt={company.name} className="w-full h-full object-cover rounded-lg" />
@@ -334,7 +336,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
             {!isCollapsed && (
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 overflow-hidden pr-1">
                 <h1 className="font-bold text-xs text-white truncate leading-tight">
                   {company.name || 'Universal ERP Enterprise'}
                 </h1>
@@ -350,9 +352,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={onToggleCollapse}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden lg:flex p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
+            className="hidden lg:flex items-center justify-center p-1 shrink-0 bg-transparent hover:bg-transparent border-0 outline-none ring-0 shadow-none focus:outline-none focus:ring-0 focus:border-0 cursor-pointer text-blue-200/90 hover:text-white transition-colors"
           >
-            {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         </div>
 
