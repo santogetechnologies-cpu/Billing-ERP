@@ -40,6 +40,7 @@ export const PurchaseInvoicesPage: React.FC = () => {
   // Document modal for creating PO or Standard Bill
   const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
   const [documentModalType, setDocumentModalType] = useState<'purchase_order' | 'standard_invoice'>('standard_invoice');
+  const [isAddReturnModalOpen, setIsAddReturnModalOpen] = useState(false);
 
   // Sync ?tab= in URL (gracefully redirect legacy grn tab to orders)
   useEffect(() => {
@@ -134,6 +135,14 @@ export const PurchaseInvoicesPage: React.FC = () => {
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Purchase Bill</span>
+            </button>
+          ) : activeTab === 'returns' ? (
+            <button
+              onClick={() => setIsAddReturnModalOpen(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Return</span>
             </button>
           ) : null}
         </div>
@@ -311,7 +320,12 @@ export const PurchaseInvoicesPage: React.FC = () => {
       )}
 
       {/* Tab 4: Returns (Debit Notes) */}
-      {activeTab === 'returns' && <PurchaseReturnsTab />}
+      {activeTab === 'returns' && (
+        <PurchaseReturnsTab
+          isAddModalOpen={isAddReturnModalOpen}
+          setIsAddModalOpen={setIsAddReturnModalOpen}
+        />
+      )}
 
       {/* Tab 5: Payments made */}
       {activeTab === 'payments' && <PurchasePaymentsMadeTab />}

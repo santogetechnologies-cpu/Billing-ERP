@@ -18,7 +18,17 @@ import { exportToExcel, exportToCSV } from '../../utils/exportUtils';
 import { AddCustomerReturnModal } from './AddCustomerReturnModal';
 import { ReturnComplaintDetailModal } from './ReturnComplaintDetailModal';
 
-export const PurchaseReturnsTab: React.FC = () => {
+export interface PurchaseReturnsTabProps {
+  isAddModalOpen?: boolean;
+  setIsAddModalOpen?: (open: boolean) => void;
+  onAddReturn?: () => void;
+}
+
+export const PurchaseReturnsTab: React.FC<PurchaseReturnsTabProps> = ({
+  isAddModalOpen: controlledIsAddModalOpen,
+  setIsAddModalOpen: controlledSetIsAddModalOpen,
+  onAddReturn
+}) => {
   const {
     customerReturns = [],
     customers = [],
@@ -32,7 +42,16 @@ export const PurchaseReturnsTab: React.FC = () => {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [internalIsAddModalOpen, setInternalIsAddModalOpen] = useState(false);
+  const isAddModalOpen = controlledIsAddModalOpen !== undefined ? controlledIsAddModalOpen : internalIsAddModalOpen;
+  const setIsAddModalOpen = controlledSetIsAddModalOpen || setInternalIsAddModalOpen;
+  const handleOpenAddReturn = () => {
+    if (onAddReturn) {
+      onAddReturn();
+    } else {
+      setIsAddModalOpen(true);
+    }
+  };
   const [viewingReturn, setViewingReturn] = useState<CustomerReturn | null>(null);
   const hasSeededRef = useRef(false);
 
@@ -214,7 +233,7 @@ export const PurchaseReturnsTab: React.FC = () => {
 
   return (
     <div className="space-y-4 animate-fadeIn">
-      {/* Search Bar, Status Filters & Add Return Button */}
+      {/* Search Bar, Status Filters & Export */}
       <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         {/* Left: Search Input */}
         <div className="relative w-full md:w-80">
@@ -228,7 +247,7 @@ export const PurchaseReturnsTab: React.FC = () => {
           />
         </div>
 
-        {/* Center/Right: Status Filters, Export & Add Return Action */}
+        {/* Center/Right: Status Filters & Export Actions */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Status Pills */}
           <div className="inline-flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
@@ -267,15 +286,6 @@ export const PurchaseReturnsTab: React.FC = () => {
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
             <span className="hidden sm:inline">Excel</span>
-          </button>
-
-          {/* Add Return Button */}
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Return</span>
           </button>
         </div>
       </div>

@@ -243,8 +243,12 @@ assert(
   'Returns tab count reflects customer returns'
 );
 assert(
-  pageContent.includes("{activeTab === 'returns' && <PurchaseReturnsTab />}"),
+  pageContent.includes("<PurchaseReturnsTab") && pageContent.includes("activeTab === 'returns'"),
   'Returns tab displays PurchaseReturnsTab'
+);
+assert(
+  pageContent.includes("activeTab === 'returns' ? (") && pageContent.includes("<span>Add Return</span>"),
+  'Purchases & PO header card provides "+ Add Return" button when activeTab === "returns"'
 );
 
 console.log('\n================================================================');
