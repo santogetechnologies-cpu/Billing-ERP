@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Plus,
   Building2,
@@ -319,7 +319,15 @@ function generateSupplierPaymentHistoryPrintHTML(
 </html>`;
 }
 
-export const PurchasePaymentsMadeTab: React.FC = () => {
+export interface PurchasePaymentsMadeTabProps {
+  isRecordPaymentOpen?: boolean;
+  onCloseRecordPayment?: () => void;
+}
+
+export const PurchasePaymentsMadeTab: React.FC<PurchasePaymentsMadeTabProps> = ({
+  isRecordPaymentOpen,
+  onCloseRecordPayment
+}) => {
   const { payments = [], purchaseInvoices = [], suppliers = [], recordPurchasePayment, company } = useERP();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -537,6 +545,17 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    onCloseRecordPayment?.();
+  };
+
+  useEffect(() => {
+    if (isRecordPaymentOpen) {
+      handleOpenModal();
+    }
+  }, [isRecordPaymentOpen]);
+
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     const numAmount = Number(amount) || 0;
@@ -567,7 +586,7 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
         notes: notes.trim() || undefined
       });
 
-      setIsModalOpen(false);
+      handleCloseModal();
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to record supplier payment.');
     } finally {
@@ -724,18 +743,9 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
             <span className="text-[11px] text-slate-400 mt-0.5 block">Across all pending supplier bills</span>
           </div>
 
-          <div className="bg-white p-4 rounded-xl border border-slate-200 sm:col-span-2 lg:col-span-1 flex items-center justify-between">
-            <div>
-              <span className="text-xs text-slate-500 font-medium">Quick Disbursement</span>
-              <p className="text-xs text-slate-600 mt-1">Make direct payment against an approved supplier bill.</p>
-            </div>
-            <button
-              onClick={handleOpenModal}
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Record Payment</span>
-            </button>
+          <div className="bg-white p-4 rounded-xl border border-slate-200 sm:col-span-2 lg:col-span-1 flex flex-col justify-center">
+            <span className="text-xs text-slate-500 font-medium">Quick Disbursement</span>
+            <p className="text-xs text-slate-600 mt-1">Make direct payment against an approved supplier bill.</p>
           </div>
         </div>
 
@@ -780,7 +790,7 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
       {isModalOpen && (
         <Modal
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={handleCloseModal}
           title="Record Supplier Payment"
           subtitle="Disburse funds against an outstanding purchase bill."
           size="lg"
@@ -966,7 +976,7 @@ export const PurchasePaymentsMadeTab: React.FC = () => {
             <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={handleCloseModal}
                 className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 Cancel
