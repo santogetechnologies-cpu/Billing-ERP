@@ -244,23 +244,78 @@ export const ProductListPage: React.FC = () => {
       )}
 
       {/* Top Header: Title & ONE Primary Action Button (Part B1 & B2) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs print:border-none print:shadow-none print:p-0 print:mb-3">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Products</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Master catalogue supporting loose items, pharma cut-strips, variants & vehicles.
+      <div className="relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 sm:px-6 sm:py-5 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 bg-gradient-to-r from-[#f8fbff] via-[#f0f6ff] to-[#e8f1fd] dark:from-slate-900 dark:via-slate-900 dark:to-blue-950/40 shadow-2xs print:border-none print:shadow-none print:p-0 print:mb-3">
+        {/* Subtle curved wave pattern on the right side */}
+        <div className="absolute right-0 top-0 bottom-0 w-full sm:w-1/2 pointer-events-none overflow-hidden select-none" aria-hidden="true">
+          <svg className="absolute right-0 top-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 400 100" fill="none">
+            <path d="M120 0 C180 40, 160 80, 260 100 L400 100 L400 0 Z" fill="#dbeafe" fillOpacity="0.45" />
+            <path d="M220 0 C260 35, 240 70, 330 100 L400 100 L400 0 Z" fill="#eff6ff" fillOpacity="0.6" />
+          </svg>
+        </div>
+
+        {/* Left Column: Title and Subtitle */}
+        <div className="relative z-10">
+          <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight leading-tight">
+            Products
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Master catalogue supporting loose items, pharma cut-strips, variants &amp; vehicles.
           </p>
         </div>
 
-        {/* ONE Primary Button per page (Part B1) */}
-        <button
-          type="button"
-          onClick={() => navigate('/products/initial-stock')}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-all active:scale-95 cursor-pointer print:hidden no-print"
-        >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>New Product</span>
-        </button>
+        {/* Right Column: Shipping Boxes Illustration & New Product Button */}
+        <div className="flex items-center gap-4 sm:gap-6 shrink-0 relative z-10 self-start sm:self-auto">
+          {/* Shipping Boxes Illustration */}
+          <div className="hidden sm:flex items-center justify-center shrink-0 -my-2 select-none pointer-events-none drop-shadow-xs" aria-hidden="true">
+            <svg width="105" height="82" viewBox="0 0 110 85" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Grounding Shadow */}
+              <ellipse cx="55" cy="80" rx="46" ry="4.5" fill="#bfdbfe" fillOpacity="0.55" />
+
+              {/* 1. Back Center Box (Tall Open Cardboard Box) */}
+              <g transform="translate(36, 10)">
+                <polygon points="4,22 32,22 38,32 10,32" fill="#b45309" />
+                <polygon points="4,22 0,10 14,8 18,22" fill="#f59e0b" />
+                <polygon points="18,22 16,8 30,10 32,22" fill="#d97706" />
+                <polygon points="6,30 2,38 16,40 18,30" fill="#fbbf24" />
+                <polygon points="18,30 20,40 34,38 30,30" fill="#f59e0b" />
+                <polygon points="6,30 18,32 18,65 6,63" fill="#f59e0b" />
+                <polygon points="18,32 32,28 32,60 18,65" fill="#d97706" />
+                <line x1="18" y1="32" x2="18" y2="65" stroke="#b45309" strokeWidth="1.2" opacity="0.6" />
+              </g>
+
+              {/* 2. Front Left Box (Vibrant Blue Parcel with White Straps) */}
+              <g transform="translate(14, 34)">
+                <polygon points="12,0 32,0 38,8 18,8" fill="#60a5fa" />
+                <polygon points="0,6 12,0 18,8 6,14" fill="#3b82f6" />
+                <polygon points="0,6 18,8 18,40 0,36" fill="#2563eb" />
+                <polygon points="18,8 38,8 38,40 18,40" fill="#1d4ed8" />
+                <path d="M0 22 L18 24 L38 24" stroke="#ffffff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+                <path d="M12 0 L18 8 L18 40" stroke="#ffffff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+              </g>
+
+              {/* 3. Front Right Box (Kraft Cardboard Box with Tape) */}
+              <g transform="translate(48, 38)">
+                <polygon points="10,0 28,0 36,7 18,7" fill="#fde68a" />
+                <polygon points="0,6 10,0 18,7 8,13" fill="#fcd34d" />
+                <polygon points="0,6 18,7 18,38 0,35" fill="#f59e0b" />
+                <polygon points="18,7 36,7 36,38 18,38" fill="#d97706" />
+                <polygon points="8,0 14,0 22,7 16,7" fill="#ffffff" opacity="0.9" />
+                <polygon points="8,6 10,6 10,24 8,24" fill="#ffffff" opacity="0.9" />
+                <rect x="7" y="7" width="4" height="24" fill="#ffffff" opacity="0.9" />
+              </g>
+            </svg>
+          </div>
+
+          {/* ONE Primary Button per page (Part B1) */}
+          <button
+            type="button"
+            onClick={() => navigate('/products/initial-stock')}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer print:hidden no-print whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>New Product</span>
+          </button>
+        </div>
       </div>
 
       {/* In-Page Tabs (Part B2 & Part C) */}

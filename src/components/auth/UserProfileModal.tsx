@@ -102,7 +102,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                 </div>
                 <p className="text-xs font-bold text-slate-900">{roleName} Privileges</p>
                 <p className="text-[10px] text-slate-500 mt-0.5">
-                  POS, Sales, CRM & Product Lookup
+                  POS, Sales, CRM, Products & Purchases
                 </p>
               </div>
             </div>
@@ -130,8 +130,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                   <span>Product & Stock Lookup</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-slate-400">
-                  <Lock className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                   <span>Purchases & Vendor Bills</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-slate-400">

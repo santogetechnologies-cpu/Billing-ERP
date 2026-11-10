@@ -79,7 +79,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-16 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
+    <header className="h-16 bg-[#EAF4FF] dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
       {/* Left: Mobile Toggle & Page Title & Store Switcher */}
       <div className="flex items-center gap-3">
         <button
@@ -117,7 +117,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
 
-      {/* Center: Global Search Bar (Ctrl+K) */}
+      {/* Center: Global Search Bar (Ctrl+Q) */}
       <div className="flex-1 max-w-md mx-4 hidden md:block">
         <button
           onClick={onOpenSearch}
@@ -128,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Search products, invoices, customers...</span>
           </div>
           <kbd className="inline-flex items-center gap-0.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400 shadow-2xs">
-            Ctrl + K
+            Ctrl + Q
           </kbd>
         </button>
       </div>

@@ -41,6 +41,342 @@ export interface BulkOrderLineItem {
   taxAmt: number;          // GST Amount = Total Amount * Tax Rate / 100
 }
 
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function generateQuotationPrintHTML(
+  company: any,
+  billNumber: string,
+  orderDate: string,
+  validUntil: string,
+  customerName: string,
+  customerPhone: string,
+  lineItems: BulkOrderLineItem[],
+  summary: { subtotal: number; totalDiscount: number; gstTotal: number; grandTotal: number },
+  isExpired: boolean
+): string {
+  const items = lineItems.filter(i => i.productName && i.productName.trim());
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title></title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      width: 100%;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #0f172a;
+      background: #ffffff;
+      padding: 12mm 15mm;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .quotation-container {
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 14px;
+      margin-bottom: 14px;
+    }
+    .company-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+      text-transform: uppercase;
+    }
+    .company-meta {
+      font-size: 11px;
+      color: #475569;
+      margin-top: 4px;
+      max-width: 380px;
+      line-height: 1.4;
+    }
+    .quote-meta-box {
+      text-align: right;
+    }
+    .badge-quotation {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: ${isExpired ? '#fee2e2' : '#eff6ff'};
+      color: ${isExpired ? '#991b1b' : '#1e40af'};
+      border: 1px solid ${isExpired ? '#f87171' : '#bfdbfe'};
+      margin-bottom: 6px;
+    }
+    .quote-num {
+      font-size: 13px;
+      font-weight: 800;
+      color: #0f172a;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+    .quote-date {
+      font-size: 11px;
+      color: #475569;
+      margin-top: 2px;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+    .cust-section {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+      margin-bottom: 3px;
+    }
+    .cust-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .cust-phone {
+      font-size: 11px;
+      color: #475569;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      margin-top: 2px;
+    }
+    .notice-box {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 14px;
+      font-size: 11px;
+      color: #92400e;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    th {
+      background: #f1f5f9;
+      color: #334155;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 7px 8px;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    td {
+      padding: 7px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 11px;
+      color: #0f172a;
+    }
+    tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    tr:nth-child(even) {
+      background: #f8fafc;
+    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .mono { font-family: ui-monospace, SFMono-Regular, monospace; }
+    .bold { font-weight: 700; }
+    .summary-grid {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      margin-top: 8px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .signature-area {
+      width: 200px;
+      padding-top: 48px;
+    }
+    .signature-line {
+      border-bottom: 1px solid #94a3b8;
+      margin-bottom: 6px;
+    }
+    .signature-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+    }
+    .totals-card {
+      width: 270px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 11px;
+      color: #475569;
+    }
+    .totals-row.grand-total {
+      margin-top: 6px;
+      padding-top: 8px;
+      border-top: 2px solid #cbd5e1;
+      font-size: 13px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .footer-note {
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 10px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 10px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="quotation-container">
+    <!-- Header: Company Name & Contact Details -->
+    <div class="header-row">
+      <div>
+        <div class="company-title">${escapeHtml(company?.name || 'UNIVERSAL ENTERPRISE ERP')}</div>
+        <div class="company-meta">
+          ${company?.address ? escapeHtml(company.address) + '<br/>' : ''}
+          ${company?.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}
+          ${company?.email ? ' | Email: ' + escapeHtml(company.email) : ''}
+          ${company?.gstin ? '<br/><strong>GSTIN: ' + escapeHtml(company.gstin) + '</strong>' : ''}
+        </div>
+      </div>
+      <div class="quote-meta-box">
+        <span class="badge-quotation">${isExpired ? 'QUOTATION (EXPIRED)' : 'COMMERCIAL QUOTATION'}</span>
+        <div class="quote-num">${escapeHtml(billNumber)}</div>
+        <div class="quote-date">Date: ${formatDate(orderDate)}</div>
+        <div class="quote-date" style="color: ${isExpired ? '#dc2626' : '#2563eb'}; font-weight: 700;">
+          Valid Until: ${formatDate(validUntil)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Customer Details -->
+    <div class="cust-section">
+      <div class="section-label">Customer Details</div>
+      <div class="cust-name">${escapeHtml(customerName || 'Valued Customer')}</div>
+      ${customerPhone ? `<div class="cust-phone">Phone: ${escapeHtml(customerPhone)}</div>` : ''}
+    </div>
+
+    <!-- Quotation Validity Notice -->
+    <div class="notice-box">
+      <strong>Notice:</strong> &ldquo;This quotation is valid until the specified date. Prices may change after the validity period.&rdquo;
+    </div>
+
+    <!-- Product Details Table -->
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 28px;" class="text-center">#</th>
+          <th>Product Name</th>
+          <th style="width: 50px;" class="text-center">Quantity</th>
+          <th style="width: 45px;" class="text-center">Unit</th>
+          <th style="width: 85px;" class="text-right">Original Unit Price</th>
+          <th style="width: 65px;" class="text-center">Discount (%)</th>
+          <th style="width: 80px;" class="text-right">Discount Amount</th>
+          <th style="width: 80px;" class="text-right">Final Unit Price</th>
+          <th style="width: 85px;" class="text-right">Total Product Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item, idx) => `
+          <tr>
+            <td class="text-center mono" style="color: #64748b;">${idx + 1}</td>
+            <td class="bold">${escapeHtml(item.productName)}</td>
+            <td class="text-center mono bold">${item.quantity}</td>
+            <td class="text-center">${escapeHtml(item.unit || 'Piece')}</td>
+            <td class="text-right mono">₹${formatNumber(item.originalUnitPrice)}</td>
+            <td class="text-center mono" style="color: #2563eb;">${item.discountPercent > 0 ? item.discountPercent + '%' : '0%'}</td>
+            <td class="text-right mono" style="color: #059669; font-weight: 600;">${item.discountAmount > 0 ? '-₹' + formatNumber(item.discountAmount) : '₹0'}</td>
+            <td class="text-right mono bold">₹${formatNumber(item.finalUnitPrice)}</td>
+            <td class="text-right mono bold">₹${formatNumber(item.totalAmount)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+
+    <!-- Financial Summary & Authorized Signature -->
+    <div class="summary-grid">
+      <div class="signature-area">
+        <div class="signature-line"></div>
+        <div class="signature-label">Authorized Signature</div>
+      </div>
+      <div class="totals-card">
+        <div class="totals-row">
+          <span>Subtotal:</span>
+          <span class="mono bold">₹${formatNumber(summary.subtotal)}</span>
+        </div>
+        <div class="totals-row" style="color: #059669;">
+          <span>Total Discount:</span>
+          <span class="mono bold">- ₹${formatNumber(summary.totalDiscount)}</span>
+        </div>
+        <div class="totals-row">
+          <span>GST (if applicable):</span>
+          <span class="mono bold">+ ₹${formatNumber(summary.gstTotal)}</span>
+        </div>
+        <div class="totals-row grand-total">
+          <span>Grand Total:</span>
+          <span class="mono bold" style="color: #1d4ed8;">₹${formatNumber(summary.grandTotal)}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer Note -->
+    <div class="footer-note">
+      Thank you for your business. For questions regarding this quotation, please contact us.
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 export interface BulkOrderBillModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -97,15 +433,20 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     return todayStr > validUntil;
   }, [validUntil, todayStr]);
 
-  // Load customers & reset on modal open
+  // Load customers & isolate document on modal open
   useEffect(() => {
     if (isOpen) {
+      document.body.classList.add('quotation-modal-open');
       loadCustomers();
       if (lineItems.length === 0) {
         addLineItem();
       }
       setSaveSuccess(null);
       setErrorMessage(null);
+      return () => {
+        document.body.classList.remove('quotation-modal-open');
+        document.body.classList.remove('quotation-print-active');
+      };
     }
   }, [isOpen]);
 
@@ -467,41 +808,96 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     }
   };
 
-  // Print Quotation Handler: prints using existing format, then automatically redirects to main Dashboard after print completes
+  // Print Quotation Handler: prints ONLY the quotation document, completely excluding background content, then redirects to main Dashboard
   const handlePrint = () => {
-    let redirected = false;
+    document.body.classList.add('quotation-print-active');
+    const originalDocumentTitle = document.title;
+    document.title = '';
 
-    const completePrintAndRedirect = () => {
+    const html = generateQuotationPrintHTML(
+      company,
+      billNumber,
+      orderDate,
+      validUntil,
+      customerName,
+      customerPhone,
+      lineItems,
+      summary,
+      isExpired
+    );
+
+    let redirected = false;
+    const finishAndRedirect = () => {
       if (redirected) return;
       redirected = true;
-      window.removeEventListener('afterprint', completePrintAndRedirect);
+      document.title = originalDocumentTitle;
+      const existingIframe = document.getElementById('quotation-print-iframe');
+      if (existingIframe && document.body.contains(existingIframe)) {
+        document.body.removeChild(existingIframe);
+      }
+      document.body.classList.remove('quotation-print-active');
       onClose();
       navigate('/');
     };
 
-    window.addEventListener('afterprint', completePrintAndRedirect, { once: true });
+    // Create an invisible iframe for reliable, 100% isolated single-document printing
+    const iframe = document.createElement('iframe');
+    iframe.id = 'quotation-print-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(iframe);
 
-    // Open print dialog
-    window.print();
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
 
-    // Fallback: window.print() is blocking in desktop browsers, so setTimeout executes after dialog closes
-    setTimeout(() => {
-      completePrintAndRedirect();
-    }, 150);
+      setTimeout(() => {
+        try {
+          const iframeWin = iframe.contentWindow;
+          if (iframeWin) {
+            iframeWin.addEventListener('afterprint', finishAndRedirect, { once: true });
+          }
+          window.addEventListener('afterprint', finishAndRedirect, { once: true });
+          iframeWin?.focus();
+          iframeWin?.print();
+        } catch (e) {
+          console.warn('Iframe print error, falling back to window.print():', e);
+          window.print();
+        } finally {
+          // Fallback timer: in Chromium iframe.print() blocks execution, so this runs after print dialog closes
+          setTimeout(finishAndRedirect, 350);
+        }
+      }, 250);
+    } else {
+      window.print();
+      setTimeout(finishAndRedirect, 350);
+    }
   };
 
-  // Cancel Handler: close modal and return to main Dashboard without saving or printing
+  // Cancel Handler: close modal and return to the unchanged Dashboard without saving or route change
   const handleCancel = () => {
     onClose();
-    navigate('/');
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static print:inset-auto">
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) handleCancel(); }}
+      className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static print:inset-auto quotation-modal-backdrop"
+    >
       {/* Modal Container */}
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:border-none print:shadow-none print:max-w-none print:max-h-none print:w-full">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:border-none print:shadow-none print:max-w-none print:max-h-none print:w-full quotation-modal-container"
+      >
         
         {/* Top Header - Hidden in Print */}
         <div className="p-4 sm:px-6 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800 print:hidden">
@@ -982,23 +1378,23 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
               </div>
             </div>
 
-            {/* Printable Quotation Document - Visible ONLY in Print */}
-            <div id="printable-bulk-bill" className="hidden print:block bg-white p-6 sm:p-8 rounded-xl border border-slate-200 max-w-4xl mx-auto text-slate-900 space-y-6 print:border-none print:p-0 print:m-0 print:max-w-none">
+            {/* DEDICATED PROFESSIONAL A4 QUOTATION PRINT DOCUMENT */}
+            <div id="quotation-print-container" className="hidden print:block quotation-print-document bg-white p-6 sm:p-8 text-slate-900 space-y-6 print:border-none print:p-0 print:m-0 print:max-w-none">
               
-              {/* Document Header */}
-              <div className="flex justify-between items-start border-b border-slate-200 pb-6">
+              {/* Document Header: Company Details & Quotation Number/Date */}
+              <div className="flex justify-between items-start border-b-2 border-slate-900 pb-5">
                 <div>
-                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                  <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase">
                     {company?.name || 'UNIVERSAL ENTERPRISE ERP'}
                   </h1>
-                  <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                  <p className="text-xs text-slate-600 mt-1 max-w-sm leading-relaxed">
                     {company?.address || 'Industrial Area Phase 2, Mumbai, MH - 400001'}
                   </p>
-                  <p className="text-xs text-slate-500">
-                    Phone: {company?.phone || '+91 98765 00000'} | Email: {company?.email || 'info@universalbilling.com'}
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Phone: {company?.phone || '+91 98765 00000'} | Email: {company?.email || 'sales@universalbilling.com'}
                   </p>
                   {company?.gstin && (
-                    <p className="text-xs font-mono font-bold text-slate-700 mt-0.5">
+                    <p className="text-xs font-mono font-bold text-slate-800 mt-1">
                       GSTIN: {company.gstin}
                     </p>
                   )}
@@ -1016,8 +1412,8 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                     <p className="font-bold text-slate-900 text-sm">
                       {billNumber}
                     </p>
-                    <p className="text-slate-500">Date: {formatDate(orderDate)}</p>
-                    <p className={`font-semibold ${isExpired ? 'text-rose-600' : 'text-slate-700'}`}>
+                    <p className="text-slate-600">Date: {formatDate(orderDate)}</p>
+                    <p className={`font-bold ${isExpired ? 'text-rose-700' : 'text-blue-700'}`}>
                       Valid Until: {formatDate(validUntil)}
                     </p>
                   </div>
@@ -1025,15 +1421,15 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
               </div>
 
               {/* Customer Details */}
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
                   Customer Details
                 </span>
                 <p className="font-bold text-slate-900 text-sm">{customerName || 'Valued Customer'}</p>
                 {customerPhone && <p className="text-slate-600 mt-0.5 font-mono">Phone: {customerPhone}</p>}
               </div>
 
-              {/* Validity Notice Box */}
+              {/* Quotation Validity Notice */}
               <div className="p-3 rounded-lg bg-amber-50/80 border border-amber-200 text-amber-900 text-xs">
                 <p className="font-semibold">Notice:</p>
                 <p className="text-[11px] mt-0.5">
@@ -1041,27 +1437,27 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                 </p>
               </div>
 
-              {/* Itemized Table */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
+              {/* Product Details Table */}
+              <div className="border border-slate-300 rounded-lg overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  <thead className="bg-slate-100 text-[10px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-300">
                     <tr>
                       <th className="py-2.5 px-3 w-8 text-center">#</th>
                       <th className="py-2.5 px-3">Product Name</th>
-                      <th className="py-2.5 px-2 text-center">Qty</th>
-                      <th className="py-2.5 px-2 text-center">Unit</th>
-                      <th className="py-2.5 px-2 text-right">Original Price</th>
-                      <th className="py-2.5 px-2 text-center">Discount (%)</th>
-                      <th className="py-2.5 px-2 text-right">Discount Amt</th>
-                      <th className="py-2.5 px-2 text-right">Final Unit Price</th>
-                      <th className="py-2.5 px-3 text-right">Total Amount (₹)</th>
+                      <th className="py-2.5 px-2 text-center w-20">Quantity</th>
+                      <th className="py-2.5 px-2 text-center w-16">Unit</th>
+                      <th className="py-2.5 px-2 text-right w-24">Original Unit Price</th>
+                      <th className="py-2.5 px-2 text-center w-20">Discount (%)</th>
+                      <th className="py-2.5 px-2 text-right w-24">Discount Amount</th>
+                      <th className="py-2.5 px-2 text-right w-24">Final Unit Price</th>
+                      <th className="py-2.5 px-3 text-right w-28">Total Product Amount</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-200">
                     {lineItems
-                      .filter(i => i.productName.trim())
+                      .filter(i => i.productName && i.productName.trim())
                       .map((item, idx) => (
-                        <tr key={item.id} className="hover:bg-slate-50/50">
+                        <tr key={item.id} className="hover:bg-slate-50/50 print-avoid-break">
                           <td className="py-2 px-3 text-center font-mono text-slate-400">
                             {idx + 1}
                           </td>
@@ -1071,10 +1467,10 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                           <td className="py-2 px-2 text-center font-mono font-bold">
                             {item.quantity}
                           </td>
-                          <td className="py-2 px-2 text-center font-medium">
+                          <td className="py-2 px-2 text-center text-slate-700">
                             {item.unit}
                           </td>
-                          <td className="py-2 px-2 text-right font-mono text-slate-600">
+                          <td className="py-2 px-2 text-right font-mono text-slate-700">
                             ₹{formatNumber(item.originalUnitPrice)}
                           </td>
                           <td className="py-2 px-2 text-center font-mono text-blue-700">
@@ -1095,13 +1491,13 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                 </table>
               </div>
 
-              {/* Financial Summary */}
-              <div className="grid grid-cols-2 gap-6 pt-2">
+              {/* Financial Summary & Authorized Signature */}
+              <div className="grid grid-cols-2 gap-6 pt-3 print-avoid-break">
                 <div className="text-xs space-y-3">
-                  <div className="pt-12">
-                    <div className="w-44 border-b border-slate-300 mb-1"></div>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Authorized Signatory
+                  <div className="pt-14">
+                    <div className="w-48 border-b border-slate-400 mb-1.5"></div>
+                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                      Authorized Signature
                     </p>
                   </div>
                 </div>
@@ -1109,7 +1505,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-2">
                   <div className="flex justify-between text-slate-600">
                     <span>Subtotal:</span>
-                    <span className="font-mono">₹{formatNumber(summary.subtotal)}</span>
+                    <span className="font-mono font-semibold text-slate-900">₹{formatNumber(summary.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-emerald-600 font-semibold">
                     <span>Total Discount:</span>
@@ -1129,7 +1525,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
               </div>
 
               {/* Thank You Note */}
-              <div className="text-center pt-4 border-t border-slate-100 text-xs text-slate-400">
+              <div className="text-center pt-4 border-t border-slate-200 text-xs text-slate-400">
                 Thank you for your business. For questions regarding this quotation, please contact us.
               </div>
             </div>

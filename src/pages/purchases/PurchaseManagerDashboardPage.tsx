@@ -33,6 +33,7 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { Modal } from '../../components/common/Modal';
 import { UserProfileModal } from '../../components/auth/UserProfileModal';
 import { ActiveOrdersModal } from '../../components/purchases/ActiveOrdersModal';
+import { BulkOrderBillModal } from '../../components/purchases/BulkOrderBillModal';
 import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { canManageBarcodeOverride } from '../../utils/rbac';
 import { isTableMarkedMissing, markTableMissing, isTableNotFoundError } from '../../utils/schemaDetector';
@@ -604,6 +605,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   const [selectedWarehouseForModal, setSelectedWarehouseForModal] = useState<WarehouseModel | null>(null);
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
   const [warehouseModalSearchTerm, setWarehouseModalSearchTerm] = useState('');
+  const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
 
   // Warehouse inventory statistics calculation
   const getWarehouseStats = useCallback((whId: string) => {
@@ -1015,9 +1017,18 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* 1. Dashboard Header */}
-      <div className="bg-white px-4 py-3.5 sm:px-5 sm:py-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4">
+      <div className="relative overflow-hidden bg-white px-5 py-4 sm:px-6 sm:py-5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Background Light Blue Gradient Wave & Decorative Elements */}
+        <div className="absolute right-0 top-0 bottom-0 w-full sm:w-3/5 pointer-events-none overflow-hidden select-none" aria-hidden="true">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-50/20 to-blue-100/35" />
+          <svg className="absolute right-0 top-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 500 120" fill="none">
+            <path d="M140 0 C210 50, 190 95, 310 120 L500 120 L500 0 Z" fill="#e0f2fe" fillOpacity="0.4" />
+            <path d="M250 0 C300 45, 280 85, 390 120 L500 120 L500 0 Z" fill="#eff6ff" fillOpacity="0.6" />
+          </svg>
+        </div>
+
         {/* Left Column: Breadcrumb & Date (Row 1), Title & Subtitle (Row 2) */}
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0 space-y-1.5 relative z-10">
           {/* Breadcrumb & Date Badge */}
           <div className="flex items-center gap-2 text-xs text-slate-400 font-medium flex-wrap">
             <div className="flex items-center gap-1.5">
@@ -1027,14 +1038,14 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
               <span className="text-slate-600 font-semibold">Procurement Operations</span>
             </div>
             <span className="text-slate-300">•</span>
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100/80 text-slate-600 text-[11px] font-medium border border-slate-200/60 shrink-0">
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100/90 text-slate-600 text-[11px] font-medium border border-slate-200/60 shrink-0">
               <Calendar className="w-3 h-3 text-slate-400" />
               <span>{formattedToday}</span>
             </div>
           </div>
 
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight leading-tight">
               Purchase Manager Dashboard
             </h1>
             <p className="text-xs text-slate-500 max-w-xl mt-0.5">
@@ -1043,29 +1054,131 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Action Controls Toolbar */}
-        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 self-start sm:self-auto">
-          {/* Refresh Button */}
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
-            title="Refresh Procurement Metrics"
-            aria-label="Refresh Procurement Metrics"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
-          </button>
+        {/* Right Column: Shopping Cart Illustration + Action Controls */}
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0 self-start sm:self-auto relative z-10">
+          {/* 3D Procurement & Purchase Manager Illustration (PO Checklist + Stacked Boxes + Shopping Cart) */}
+          <div className="hidden lg:flex items-center justify-center shrink-0 -my-3 select-none pointer-events-none drop-shadow-xs" aria-hidden="true">
+            <svg width="145" height="84" viewBox="0 0 150 85" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Grounding Shadow */}
+              <ellipse cx="78" cy="80" rx="66" ry="4" fill="#bfdbfe" fillOpacity="0.55" />
 
-          <button
-            type="button"
-            onClick={() => navigate('/purchases/orders?new=bulk-order')}
-            className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
-            title="Create Commercial Quotation"
-          >
-            <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span>Quotation</span>
-          </button>
+              {/* 1. Purchase Order (PO) Checklist Board */}
+              <g id="po-board">
+                {/* Clipboard Outer Blue Frame */}
+                <rect x="16" y="14" width="46" height="62" rx="6" fill="#2563eb" />
+                {/* Paper Sheet */}
+                <rect x="18" y="16" width="42" height="58" rx="4" fill="#ffffff" />
+
+                {/* Top Clip Arch / Loop */}
+                <path d="M34 14 C34 8 44 8 44 14" stroke="#1d4ed8" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+                {/* Top Clamp Bar */}
+                <rect x="29" y="12" width="20" height="7" rx="2" fill="#1e40af" />
+                <circle cx="39" cy="15.5" r="1.5" fill="#ffffff" opacity="0.9" />
+
+                {/* "PO" Bold Header */}
+                <text x="39" y="32" textAnchor="middle" fill="#1d4ed8" fontSize="13" fontWeight="900" fontFamily="system-ui, -apple-system, sans-serif" letterSpacing="0.5">PO</text>
+
+                {/* Tick Mark Rows (Green Checkmarks with Info Lines) */}
+                {/* Row 1 */}
+                <path d="M23 41 L26.5 44.5 L33 38" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <line x1="36" y1="41" x2="52" y2="41" stroke="#93c5fd" strokeWidth="2.2" strokeLinecap="round" />
+
+                {/* Row 2 */}
+                <path d="M23 51 L26.5 54.5 L33 48" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <line x1="36" y1="51" x2="49" y2="51" stroke="#93c5fd" strokeWidth="2.2" strokeLinecap="round" />
+
+                {/* Row 3 */}
+                <path d="M23 61 L26.5 64.5 L33 58" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <line x1="36" y1="61" x2="45" y2="61" stroke="#93c5fd" strokeWidth="2.2" strokeLinecap="round" />
+              </g>
+
+              {/* 2. Stacked Delivery Packages (Amber & Kraft Boxes) */}
+              {/* Top Box */}
+              <g id="stacked-box-top">
+                <polygon points="63,28 74,24 84,28 73,32" fill="#fde68a" />
+                <polygon points="63,28 73,32 73,46 63,42" fill="#f59e0b" />
+                <polygon points="73,32 84,28 84,42 73,46" fill="#d97706" />
+                <line x1="68.5" y1="26" x2="78.5" y2="30" stroke="#ffffff" strokeWidth="1.6" opacity="0.9" />
+              </g>
+
+              {/* Bottom Left Box */}
+              <g id="stacked-box-bottom-left">
+                <polygon points="46,48 57,44 68,48 57,52" fill="#fde68a" />
+                <polygon points="46,48 57,52 57,72 46,68" fill="#f59e0b" />
+                <polygon points="57,52 68,48 68,68 57,72" fill="#d97706" />
+                <line x1="51.5" y1="46" x2="62.5" y2="50" stroke="#ffffff" strokeWidth="1.8" opacity="0.9" />
+              </g>
+
+              {/* Bottom Right Box */}
+              <g id="stacked-box-bottom-right">
+                <polygon points="68,46 80,42 90,46 78,50" fill="#fde68a" />
+                <polygon points="68,46 78,50 78,72 68,68" fill="#f59e0b" />
+                <polygon points="78,50 90,46 90,68 78,72" fill="#d97706" />
+                <line x1="74" y1="44" x2="84" y2="48" stroke="#ffffff" strokeWidth="1.8" opacity="0.9" />
+                <rect x="80" y="52" width="6" height="4" rx="0.5" fill="#ffffff" opacity="0.9" />
+                <line x1="81" y1="54" x2="85" y2="54" stroke="#1e293b" strokeWidth="0.7" opacity="0.7" />
+              </g>
+
+              {/* 3. Small Procurement / Shopping Cart */}
+              <g id="procurement-cart">
+                {/* Small Package Inside Cart */}
+                <polygon points="108,36 118,33 125,36 115,39" fill="#fde68a" />
+                <polygon points="108,36 115,39 115,50 108,47" fill="#f59e0b" />
+                <polygon points="115,39 125,36 125,47 115,50" fill="#d97706" />
+                <line x1="111.5" y1="34.5" x2="120" y2="37.5" stroke="#ffffff" strokeWidth="1.2" opacity="0.9" />
+
+                {/* Wire Basket Body */}
+                <path d="M96 42 L132 42 L127 64 L102 64 Z" fill="#3b82f6" fillOpacity="0.12" stroke="#2563eb" strokeWidth="2.2" strokeLinejoin="round" />
+                
+                {/* Horizontal Wires */}
+                <line x1="98" y1="49" x2="130" y2="49" stroke="#3b82f6" strokeWidth="1.5" />
+                <line x1="100" y1="56" x2="128" y2="56" stroke="#3b82f6" strokeWidth="1.5" />
+
+                {/* Vertical Wires */}
+                <line x1="104" y1="42" x2="107" y2="64" stroke="#3b82f6" strokeWidth="1.3" />
+                <line x1="113" y1="42" x2="114" y2="64" stroke="#3b82f6" strokeWidth="1.3" />
+                <line x1="122" y1="42" x2="121" y2="64" stroke="#3b82f6" strokeWidth="1.3" />
+
+                {/* Cart Handle */}
+                <path d="M130 42 L138 34 L142 34" stroke="#1d4ed8" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+
+                {/* Lower Frame */}
+                <path d="M106 64 L103 72 L125 72 L124 64" stroke="#1d4ed8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+                {/* Wheels */}
+                <circle cx="104" cy="76" r="4" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1.3" />
+                <circle cx="104" cy="76" r="1.3" fill="#ffffff" />
+                
+                <circle cx="124" cy="76" r="4" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1.3" />
+                <circle cx="124" cy="76" r="1.3" fill="#ffffff" />
+              </g>
+            </svg>
+          </div>
+
+          {/* Action Controls Toolbar */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Refresh Button */}
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
+              title="Refresh Procurement Metrics"
+              aria-label="Refresh Procurement Metrics"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsQuotationModalOpen(true)}
+              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
+              title="Create Commercial Quotation"
+            >
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <span>Quotation</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1098,7 +1211,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Package className="w-4 h-4 text-blue-600" />
                   <h3 className="text-sm font-bold text-slate-900">Stock Status Overview</h3>
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200/60">
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-200/50">
                     {formatNumber(stockData.totalProducts)} {stockData.totalProducts === 1 ? 'Product' : 'Products'}
                   </span>
                 </div>
@@ -1109,7 +1222,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigate('/products')}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
                 title="View complete product stock catalog"
               >
                 <span>View Catalog</span>
@@ -1234,10 +1347,10 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
               <div>
                 <div className="flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-indigo-600" />
+                  <Building2 className="w-4 h-4 text-blue-600" />
                   <h3 className="text-sm font-bold text-slate-900">Supplier Overview</h3>
                   {supplierOverviewList.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-200/50">
                       {supplierOverviewList.length} {supplierOverviewList.length === 1 ? 'Supplier' : 'Suppliers'}
                     </span>
                   )}
@@ -1248,7 +1361,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
               </div>
               <button
                 onClick={() => navigate('/suppliers')}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer shrink-0"
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
               >
                 <span>View All Suppliers</span>
                 <ArrowRight className="w-3 h-3" />
@@ -1280,8 +1393,8 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                           <td className="py-2.5 px-3 text-right whitespace-nowrap">
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                               sup.status === 'Active'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200/80'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${
                                 sup.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
@@ -1314,7 +1427,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
               <Truck className="w-4 h-4 text-blue-600" />
               <h3 className="text-sm font-bold text-slate-900">Recent Purchase Orders</h3>
               {allPurchaseOrders.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200/60">
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-200/50">
                   {allPurchaseOrders.length} {allPurchaseOrders.length === 1 ? 'Order' : 'Orders'}
                 </span>
               )}
@@ -1327,7 +1440,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => navigate('/purchases/orders')}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer transition-colors"
             >
               <span>View All Orders</span>
               <ArrowRight className="w-3 h-3" />
@@ -1349,7 +1462,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             <div className="overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/80">
+                  <tr className="border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/90">
                     <th className="py-2.5 px-2.5">Purchase Order Number</th>
                     <th className="py-2.5 px-2">Order Date</th>
                     <th className="py-2.5 px-2">Supplier Name</th>
@@ -1380,7 +1493,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                       </td>
                       <td className="py-2 px-2">
                         <span className="text-slate-700 flex items-center gap-1">
-                          <WarehouseIcon className="w-3 h-3 text-indigo-500 shrink-0" />
+                          <WarehouseIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span className="truncate max-w-[100px] xl:max-w-[120px]" title={order.destinationWarehouse}>
                             {order.destinationWarehouse}
                           </span>
@@ -1399,24 +1512,19 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
                         {order.expectedDelivery !== 'Not available' ? formatDate(order.expectedDelivery) : <span className="text-slate-400">Not available</span>}
                       </td>
                       <td className="py-2 px-1.5 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          order.deliveryStatus === 'Received'
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : order.deliveryStatus === 'Ordered'
-                            ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                            : 'bg-blue-100 text-blue-800 border border-blue-200'
-                        }`}>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                          <Truck className="w-3 h-3 text-emerald-600 shrink-0" />
                           <span>{order.deliveryStatus}</span>
                         </span>
                       </td>
                       <td className="py-2 px-2 text-center whitespace-nowrap">
                         <button
                           onClick={() => setSelectedOrderForModal(order)}
-                          className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg inline-flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
+                          className="p-1.5 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg inline-flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
                           title="View Purchase Order Details"
                           aria-label="View Purchase Order Details"
                         >
-                          <Eye className="w-4 h-4 text-slate-500" />
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
@@ -1742,6 +1850,15 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Commercial Quotation Modal */}
+      <BulkOrderBillModal
+        isOpen={isQuotationModalOpen}
+        onClose={() => setIsQuotationModalOpen(false)}
+        onSaved={async () => {
+          if (refreshData) await refreshData();
+        }}
+      />
     </div>
   );
 };

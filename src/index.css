@@ -150,10 +150,10 @@ aside *::-webkit-scrollbar:horizontal,
   display: none;
 }
 
-/* Print Styles for Invoices, Barcodes and Reports */
+/* Print Styles for Invoices, Barcodes, Quotations and Reports */
 @media print {
   @page {
-    margin: 6mm;
+    margin: 0;
     size: auto;
   }
 
@@ -275,12 +275,28 @@ aside *::-webkit-scrollbar:horizontal,
   body.invoice-modal-open nav,
   body:has(.invoice-modal-backdrop) aside,
   body:has(.invoice-modal-backdrop) header,
-  body:has(.invoice-modal-backdrop) nav {
+  body:has(.invoice-modal-backdrop) nav,
+  body.quotation-modal-open aside,
+  body.quotation-modal-open header,
+  body.quotation-modal-open nav,
+  body.quotation-print-active aside,
+  body.quotation-print-active header,
+  body.quotation-print-active nav,
+  body:has(.quotation-modal-backdrop) aside,
+  body:has(.quotation-modal-backdrop) header,
+  body:has(.quotation-modal-backdrop) nav,
+  body:has(#quotation-print-container) aside,
+  body:has(#quotation-print-container) header,
+  body:has(#quotation-print-container) nav {
     display: none !important;
   }
 
   body.invoice-modal-open main,
-  body:has(.invoice-modal-backdrop) main {
+  body:has(.invoice-modal-backdrop) main,
+  body.quotation-modal-open main,
+  body.quotation-print-active main,
+  body:has(.quotation-modal-backdrop) main,
+  body:has(#quotation-print-container) main {
     padding: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
@@ -288,7 +304,8 @@ aside *::-webkit-scrollbar:horizontal,
     min-height: 0 !important;
   }
 
-  .invoice-modal-backdrop {
+  .invoice-modal-backdrop,
+  .quotation-modal-backdrop {
     position: static !important;
     inset: auto !important;
     padding: 0 !important;
@@ -304,7 +321,8 @@ aside *::-webkit-scrollbar:horizontal,
     z-index: auto !important;
   }
 
-  .invoice-modal-container {
+  .invoice-modal-container,
+  .quotation-modal-container {
     position: static !important;
     width: 100% !important;
     max-width: none !important;
@@ -318,6 +336,18 @@ aside *::-webkit-scrollbar:horizontal,
     margin: 0 !important;
     padding: 0 !important;
     display: block !important;
+  }
+
+  #quotation-print-container,
+  .quotation-print-document {
+    width: 100% !important;
+    max-width: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 12mm 15mm !important;
+    margin: 0 !important;
+    display: block !important;
+    box-sizing: border-box !important;
   }
 
   .invoice-preview-viewport {

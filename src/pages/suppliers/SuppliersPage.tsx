@@ -244,27 +244,112 @@ export const SuppliersPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs print:hidden no-print">
-        <div>
+      <div className="relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 sm:px-6 sm:py-5 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 bg-gradient-to-r from-[#f8fbff] via-[#f0f6ff] to-[#e8f1fd] dark:from-slate-900 dark:via-slate-900 dark:to-blue-950/40 shadow-2xs print:hidden no-print">
+        {/* Subtle curved wave pattern on the right side */}
+        <div className="absolute right-0 top-0 bottom-0 w-full sm:w-1/2 pointer-events-none overflow-hidden select-none" aria-hidden="true">
+          <svg className="absolute right-0 top-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 400 100" fill="none">
+            <path d="M120 0 C180 40, 160 80, 260 100 L400 100 L400 0 Z" fill="#dbeafe" fillOpacity="0.45" />
+            <path d="M220 0 C260 35, 240 70, 330 100 L400 100 L400 0 Z" fill="#eff6ff" fillOpacity="0.6" />
+          </svg>
+        </div>
+
+        {/* Left Column: Icon, Title & Subtitle */}
+        <div className="relative z-10">
           <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <Building2 className="w-5 h-5 text-indigo-600" />
-            Supplier Details & Management
+            Supplier Details &amp; Management
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Maintain supplier vendor profiles, contact persons, phone numbers, addresses, GSTIN master, and accounts payable balances.
           </p>
         </div>
 
-        {hasPermission(profile?.role, 'suppliers', 'create') && (
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors self-start sm:self-auto cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add New Supplier</span>
-          </button>
-        )}
+        {/* Right Column: Delivery Van Illustration & Add Button */}
+        <div className="flex items-center gap-4 sm:gap-6 shrink-0 relative z-10 self-start sm:self-auto">
+          {/* Delivery Van & Packages Illustration */}
+          <div className="hidden sm:flex items-center justify-center shrink-0 -my-2 select-none pointer-events-none drop-shadow-xs" aria-hidden="true">
+            <svg width="125" height="74" viewBox="0 0 135 75" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Ground Shadow */}
+              <ellipse cx="72" cy="70" rx="58" ry="3.5" fill="#bfdbfe" fillOpacity="0.55" />
+
+              {/* Speed motion lines behind van */}
+              <line x1="28" y1="36" x2="38" y2="36" stroke="#93c5fd" strokeWidth="1.8" strokeLinecap="round" opacity="0.7" />
+              <line x1="31" y1="42" x2="40" y2="42" stroke="#93c5fd" strokeWidth="1.8" strokeLinecap="round" opacity="0.7" />
+
+              {/* Stacked Cardboard Packages */}
+              {/* Box 1 (bottom left) */}
+              <rect x="14" y="52" width="16" height="17" rx="2" fill="#f59e0b" />
+              <rect x="14" y="52" width="16" height="4" rx="1" fill="#fde68a" />
+              <line x1="22" y1="52" x2="22" y2="69" stroke="#ffffff" strokeWidth="1.8" opacity="0.85" />
+
+              {/* Box 2 (bottom right) */}
+              <rect x="26" y="50" width="15" height="19" rx="2" fill="#d97706" />
+              <rect x="26" y="50" width="15" height="4" rx="1" fill="#fde68a" />
+              <line x1="33.5" y1="50" x2="33.5" y2="69" stroke="#ffffff" strokeWidth="1.8" opacity="0.85" />
+
+              {/* Box 3 (top box) */}
+              <rect x="18" y="38" width="15" height="15" rx="2" fill="#f59e0b" />
+              <rect x="18" y="38" width="15" height="3.5" rx="1" fill="#fde68a" />
+              <line x1="25.5" y1="38" x2="25.5" y2="53" stroke="#ffffff" strokeWidth="1.6" opacity="0.85" />
+
+              {/* Delivery Van Body */}
+              {/* Blue Cargo Container */}
+              <rect x="40" y="20" width="46" height="38" rx="5" fill="#2563eb" />
+              <path d="M40 25 C40 22 42 20 45 20 L81 20 C84 20 86 22 86 25 L86 27 L40 27 Z" fill="#3b82f6" />
+              <line x1="43" y1="21" x2="43" y2="57" stroke="#1d4ed8" strokeWidth="1.5" />
+
+              {/* Fast Delivery Graphic (White Arrow & Speed Lines on Cargo) */}
+              <line x1="50" y1="34" x2="57" y2="34" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
+              <line x1="48" y1="39" x2="58" y2="39" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
+              <line x1="51" y1="44" x2="56" y2="44" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
+              <path d="M59 39 L74 39 M68 33 L74 39 L68 45" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+
+              {/* White Front Cabin */}
+              <path d="M84 26 L96 26 C98 26 100 27 101 28.5 L110 39 C111 40 113 41 115 41 L117 41 C119 41 120 42 120 44 L120 58 L84 58 Z" fill="#ffffff" stroke="#cbd5e1" strokeWidth="0.8" />
+
+              {/* Windshield & Windows */}
+              <path d="M87 30 L96 30 C97.5 30 98.8 30.8 99.5 32 L107 41 L87 41 Z" fill="#93c5fd" />
+              <line x1="97" y1="30" x2="97" y2="41" stroke="#ffffff" strokeWidth="1.8" />
+
+              {/* Side Mirror */}
+              <rect x="100" y="38" width="3" height="5" rx="1" fill="#1e293b" />
+
+              {/* Door Handle */}
+              <rect x="90" y="45" width="4.5" height="1.5" rx="0.7" fill="#64748b" />
+
+              {/* Headlight */}
+              <path d="M117 44 L120 44 L120 48 L117 47 Z" fill="#f59e0b" />
+
+              {/* Front Bumper */}
+              <rect x="115" y="53" width="7" height="6" rx="2" fill="#1e293b" />
+
+              {/* Chassis Base */}
+              <rect x="42" y="57" width="76" height="3" fill="#1e293b" />
+
+              {/* Wheels */}
+              {/* Rear Wheel */}
+              <circle cx="58" cy="60" r="8.5" fill="#1e293b" />
+              <circle cx="58" cy="60" r="5" fill="#60a5fa" />
+              <circle cx="58" cy="60" r="2.2" fill="#ffffff" />
+
+              {/* Front Wheel */}
+              <circle cx="104" cy="60" r="8.5" fill="#1e293b" />
+              <circle cx="104" cy="60" r="5" fill="#60a5fa" />
+              <circle cx="104" cy="60" r="2.2" fill="#ffffff" />
+            </svg>
+          </div>
+
+          {hasPermission(profile?.role, 'suppliers', 'create') && (
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>Add New Supplier</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table: Full Vertical Scrolling instead of Pagination */}

@@ -200,27 +200,95 @@ export const CustomersPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs print:hidden no-print">
-        <div>
+      <div className="relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 sm:px-6 sm:py-5 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 bg-gradient-to-r from-[#f8fbff] via-[#f0f6ff] to-[#e8f1fd] dark:from-slate-900 dark:via-slate-900 dark:to-blue-950/40 shadow-2xs print:hidden no-print">
+        {/* Subtle curved wave pattern on the right side */}
+        <div className="absolute right-0 top-0 bottom-0 w-full sm:w-1/2 pointer-events-none overflow-hidden select-none" aria-hidden="true">
+          <svg className="absolute right-0 top-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 400 100" fill="none">
+            <path d="M120 0 C180 40, 160 80, 260 100 L400 100 L400 0 Z" fill="#dbeafe" fillOpacity="0.45" />
+            <path d="M220 0 C260 35, 240 70, 330 100 L400 100 L400 0 Z" fill="#eff6ff" fillOpacity="0.6" />
+          </svg>
+        </div>
+
+        {/* Left Column: Icon, Title & Subtitle */}
+        <div className="relative z-10">
           <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <Users className="w-5 h-5 text-indigo-600" />
-            Customer Details & Management
+            Customer Details &amp; Management
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Maintain customer accounts, contact details, classifications, credit terms, and receivable balances.
           </p>
         </div>
 
-        {hasPermission(profile?.role, 'customers', 'create') && (
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors self-start sm:self-auto cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add New Customer</span>
-          </button>
-        )}
+        {/* Right Column: Customer Management Illustration & Add Button */}
+        <div className="flex items-center gap-4 sm:gap-6 shrink-0 relative z-10 self-start sm:self-auto">
+          {/* Customer Management 3D Illustration */}
+          <div className="hidden sm:flex items-center justify-center shrink-0 -my-2 select-none pointer-events-none drop-shadow-xs" aria-hidden="true">
+            <svg width="105" height="82" viewBox="0 0 110 85" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Grounding Shadow */}
+              <ellipse cx="60" cy="78" rx="46" ry="4" fill="#bfdbfe" fillOpacity="0.55" />
+
+              {/* 1. Customer Profile Card */}
+              <g id="customer-card">
+                {/* Outer Card Frame */}
+                <rect x="16" y="14" width="46" height="62" rx="6" fill="#2563eb" />
+                {/* Inner Sheet */}
+                <rect x="18" y="16" width="42" height="58" rx="4" fill="#ffffff" />
+
+                {/* Top Clip Arch / Loop */}
+                <path d="M34 14 C34 8 44 8 44 14" stroke="#1d4ed8" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+                {/* Top Clamp Bar */}
+                <rect x="29" y="12" width="20" height="7" rx="2" fill="#1e40af" />
+                <circle cx="39" cy="15.5" r="1.5" fill="#ffffff" opacity="0.9" />
+
+                {/* Customer Avatar Badge on Card */}
+                <circle cx="39" cy="30" r="8.5" fill="#eff6ff" stroke="#bfdbfe" strokeWidth="1" />
+                <circle cx="39" cy="28" r="3.2" fill="#2563eb" />
+                <path d="M33.5 36.5 C33.5 33 36 33 39 33 C42 33 44.5 33 44.5 36.5" fill="#2563eb" />
+
+                {/* Contact & Detail Lines */}
+                {/* Line 1 */}
+                <circle cx="24" cy="44" r="2" fill="#3b82f6" />
+                <line x1="29" y1="44" x2="52" y2="44" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+
+                {/* Line 2 */}
+                <circle cx="24" cy="52" r="2" fill="#3b82f6" />
+                <line x1="29" y1="52" x2="49" y2="52" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+
+                {/* Line 3 */}
+                <circle cx="24" cy="60" r="2" fill="#3b82f6" />
+                <line x1="29" y1="60" x2="45" y2="60" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+              </g>
+
+              {/* 2. Amber / Gold User Figure (Right) */}
+              <g id="amber-user">
+                <circle cx="78" cy="52" r="7.5" fill="#f59e0b" />
+                <ellipse cx="76" cy="49" rx="2.5" ry="1.5" fill="#fde68a" opacity="0.8" />
+                <path d="M68 76 C68 67 72 63 78 63 C84 63 88 67 88 76 Z" fill="#d97706" />
+                <path d="M71 74 C72 68 75 65 78 65" stroke="#fbbf24" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.7" />
+              </g>
+
+              {/* 3. Blue User Figure (Front Left) */}
+              <g id="blue-user">
+                <circle cx="62" cy="54" r="8" fill="#3b82f6" />
+                <ellipse cx="60" cy="51" rx="2.5" ry="1.5" fill="#93c5fd" opacity="0.8" />
+                <path d="M50 76 C50 67 55 64 62 64 C69 64 74 67 74 76 Z" fill="#2563eb" />
+                <path d="M53 74 C54 68 58 66 62 66" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.7" />
+              </g>
+            </svg>
+          </div>
+
+          {hasPermission(profile?.role, 'customers', 'create') && (
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>Add New Customer</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table: Full Vertical Scrolling instead of Pagination */}

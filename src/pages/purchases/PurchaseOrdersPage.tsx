@@ -490,7 +490,9 @@ export const PurchaseOrdersPage: React.FC<PurchaseOrdersPageProps> = ({
 
   return (
     <div className={embedded ? "space-y-4 animate-fadeIn" : "space-y-6"}>
-      {/* Top Breadcrumb & Action Header */}
+      {/* Background Page Content - Completely excluded during print when Quotation Modal is active */}
+      <div className={`space-y-6 ${isBulkOrderModalOpen ? 'print:hidden no-print' : ''}`}>
+        {/* Top Breadcrumb & Action Header */}
       {!embedded && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
           <div className="flex items-center gap-3">
@@ -1206,6 +1208,7 @@ export const PurchaseOrdersPage: React.FC<PurchaseOrdersPageProps> = ({
           </div>
         </Modal>
       )}
+      </div>
 
       {/* Bulk Order Bill / Quotation Modal */}
       <BulkOrderBillModal

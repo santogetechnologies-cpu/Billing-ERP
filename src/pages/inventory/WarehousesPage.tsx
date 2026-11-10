@@ -487,10 +487,19 @@ export const WarehousesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Banner Header: Dynamic based on active section */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600">
+      <div className="relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 sm:px-6 sm:py-5 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 bg-gradient-to-r from-[#f8fbff] via-[#f0f6ff] to-[#e8f1fd] dark:from-slate-900 dark:via-slate-900 dark:to-blue-950/40 shadow-2xs">
+        {/* Subtle curved wave pattern on the right side */}
+        <div className="absolute right-0 top-0 bottom-0 w-full sm:w-1/2 pointer-events-none overflow-hidden select-none" aria-hidden="true">
+          <svg className="absolute right-0 top-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 400 100" fill="none">
+            <path d="M120 0 C180 40, 160 80, 260 100 L400 100 L400 0 Z" fill="#dbeafe" fillOpacity="0.45" />
+            <path d="M220 0 C260 35, 240 70, 330 100 L400 100 L400 0 Z" fill="#eff6ff" fillOpacity="0.6" />
+          </svg>
+        </div>
+
+        {/* Left Column: Icon, Title, Badge & Subtitle */}
+        <div className="relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-white/80 dark:bg-slate-800/80 rounded-xl text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/50 shadow-2xs shrink-0">
               {activeTab === 'transfers' ? (
                 <ArrowLeftRight className="w-6 h-6" />
               ) : activeTab === 'adjustments' ? (
@@ -500,13 +509,13 @@ export const WarehousesPage: React.FC = () => {
               )}
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                 {activeTab === 'transfers'
                   ? 'Stock Transfer Management'
                   : activeTab === 'adjustments'
                   ? 'Stock Adjustment Management'
                   : 'Multi-Warehouse Management'}
-                <span className="text-xs px-2.5 py-0.5 font-semibold bg-blue-50 text-blue-700 border border-blue-200/60 rounded-full">
+                <span className="text-xs px-2.5 py-0.5 font-semibold bg-blue-100/70 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800 rounded-full">
                   {activeTab === 'transfers'
                     ? `${stockTransfers.length} Transfers`
                     : activeTab === 'adjustments'
@@ -514,7 +523,7 @@ export const WarehousesPage: React.FC = () => {
                     : `${warehouses.length} Locations`}
                 </span>
               </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {activeTab === 'transfers'
                   ? 'Dispatch and receive inter-warehouse inventory shipments with automated stock tracking.'
                   : activeTab === 'adjustments'
@@ -525,41 +534,105 @@ export const WarehousesPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        {/* Right Column: Warehouse Illustration & Actions */}
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0 relative z-10 self-start sm:self-auto">
+          {/* Warehouse & Storage Depot Illustration */}
+          <div className="hidden sm:flex items-center justify-center shrink-0 -my-2 select-none pointer-events-none drop-shadow-xs" aria-hidden="true">
+            <svg width="105" height="82" viewBox="0 0 110 85" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Ground Shadow */}
+              <ellipse cx="55" cy="78" rx="48" ry="4.5" fill="#bfdbfe" fillOpacity="0.55" />
+
+              {/* Warehouse Building */}
+              <polygon points="6,36 32,22 58,36 58,72 6,72" fill="#f1f5f9" />
+              <polygon points="58,36 96,22 96,58 58,72" fill="#93c5fd" />
+              <polygon points="32,22 70,8 96,22 58,36" fill="#2563eb" />
+              <polygon points="32,22 6,36 2,33 28,19" fill="#3b82f6" />
+              <polygon points="6,36 32,22 58,36 58,38 32,24 6,38" fill="#1d4ed8" />
+
+              {/* Standing Seam Roof Lines */}
+              <line x1="38" y1="25" x2="76" y2="11" stroke="#1d4ed8" strokeWidth="1.2" opacity="0.7" />
+              <line x1="44" y1="28" x2="82" y2="14" stroke="#1d4ed8" strokeWidth="1.2" opacity="0.7" />
+              <line x1="50" y1="31" x2="88" y2="17" stroke="#1d4ed8" strokeWidth="1.2" opacity="0.7" />
+
+              {/* Corrugated Wall Seams */}
+              <line x1="68" y1="36" x2="68" y2="68" stroke="#60a5fa" strokeWidth="1" strokeDasharray="2 2" opacity="0.6" />
+              <line x1="78" y1="32" x2="78" y2="64" stroke="#60a5fa" strokeWidth="1" strokeDasharray="2 2" opacity="0.6" />
+              <line x1="88" y1="28" x2="88" y2="60" stroke="#60a5fa" strokeWidth="1" strokeDasharray="2 2" opacity="0.6" />
+
+              {/* Industrial Rolling Shutter Door */}
+              <rect x="18" y="44" width="28" height="28" rx="2" fill="#1e3a8a" />
+              <rect x="20" y="46" width="24" height="26" rx="1" fill="#3b82f6" />
+              <line x1="20" y1="51" x2="44" y2="51" stroke="#93c5fd" strokeWidth="1.2" />
+              <line x1="20" y1="56" x2="44" y2="56" stroke="#93c5fd" strokeWidth="1.2" />
+              <line x1="20" y1="61" x2="44" y2="61" stroke="#93c5fd" strokeWidth="1.2" />
+              <line x1="20" y1="66" x2="44" y2="66" stroke="#93c5fd" strokeWidth="1.2" />
+              <line x1="20" y1="71" x2="44" y2="71" stroke="#93c5fd" strokeWidth="1.2" />
+
+              {/* Overhead Warehouse Lamp */}
+              <circle cx="32" cy="38" r="2.5" fill="#f59e0b" />
+
+              {/* High Clerestory Windows */}
+              <polygon points="66,42 78,38 78,47 66,51" fill="#eff6ff" fillOpacity="0.9" />
+              <polygon points="82,36 91,33 91,42 82,45" fill="#eff6ff" fillOpacity="0.9" />
+
+              {/* Staged Cargo: Wooden Pallet */}
+              <polygon points="64,68 88,60 102,64 78,72" fill="#f59e0b" />
+              <polygon points="64,68 78,72 78,75 64,71" fill="#d97706" />
+              <polygon points="78,72 102,64 102,67 78,75" fill="#b45309" />
+
+              {/* Cardboard Box on Pallet */}
+              <polygon points="74,50 86,45 98,49 86,54" fill="#fde68a" />
+              <polygon points="74,50 86,54 86,68 74,64" fill="#f59e0b" />
+              <polygon points="86,54 98,49 98,63 86,68" fill="#d97706" />
+              <line x1="80" y1="47" x2="92" y2="51" stroke="#ffffff" strokeWidth="2" opacity="0.9" />
+              <rect x="76" y="54" width="6" height="4" rx="0.5" fill="#ffffff" opacity="0.9" />
+
+              {/* Front Blue Parcel */}
+              <polygon points="52,58 64,54 74,57 62,61" fill="#60a5fa" />
+              <polygon points="52,58 62,61 62,74 52,71" fill="#2563eb" />
+              <polygon points="62,61 74,57 74,70 62,74" fill="#1d4ed8" />
+              <path d="M52 65 L62 68 L74 64" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+            </svg>
+          </div>
+
           <button
+            type="button"
             onClick={() => refreshStockBalances()}
             title="Refresh Live Balances"
-            className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+            className="p-2.5 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white/80 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 rounded-xl border border-blue-100 dark:border-slate-700 shadow-2xs transition-colors cursor-pointer"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
 
           {canManageWarehouse && activeTab === 'warehouse' && (
             <button
+              type="button"
               onClick={handleTopRightAction}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-4 sm:px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Add Warehouse</span>
             </button>
           )}
 
           {canManageWarehouse && activeTab === 'transfers' && (
             <button
+              type="button"
               onClick={handleTopRightAction}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-4 sm:px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Create Stock Transfer</span>
             </button>
           )}
 
           {canManageWarehouse && activeTab === 'adjustments' && (
             <button
+              type="button"
               onClick={handleTopRightAction}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-4 sm:px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Create Adjustment</span>
             </button>
           )}

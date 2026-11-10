@@ -107,27 +107,109 @@ export const PurchaseInvoicesPage: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* Universal Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-2xs">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+      <div className="relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 sm:px-6 sm:py-5 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 bg-gradient-to-r from-[#f8fbff] via-[#f0f6ff] to-[#e8f1fd] dark:from-slate-900 dark:via-slate-900 dark:to-blue-950/40 shadow-2xs">
+        {/* Subtle curved wave pattern on the right side */}
+        <div className="absolute right-0 top-0 bottom-0 w-full sm:w-1/2 pointer-events-none overflow-hidden select-none" aria-hidden="true">
+          <svg className="absolute right-0 top-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 400 100" fill="none">
+            <path d="M120 0 C180 40, 160 80, 260 100 L400 100 L400 0 Z" fill="#dbeafe" fillOpacity="0.45" />
+            <path d="M220 0 C260 35, 240 70, 330 100 L400 100 L400 0 Z" fill="#eff6ff" fillOpacity="0.6" />
+          </svg>
+        </div>
+
+        {/* Left Column: Icon, Title & Subtitle */}
+        <div className="relative z-10">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <ShoppingBag className="w-5 h-5 text-indigo-600" />
-            Purchases & PO
+            Purchases &amp; PO
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Manage purchase orders, vendor bills, debit notes, and payments.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Right Column: Clipboard Checklist & Packages Illustration + Action Button */}
+        <div className="flex items-center gap-4 sm:gap-6 shrink-0 relative z-10 self-start sm:self-auto">
+          {/* Clipboard Checklist and Stacked Packages Illustration */}
+          <div className="hidden sm:flex items-center justify-center shrink-0 -my-2 select-none pointer-events-none drop-shadow-xs" aria-hidden="true">
+            <svg width="105" height="82" viewBox="0 0 110 85" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Grounding Shadow */}
+              <ellipse cx="60" cy="78" rx="46" ry="4" fill="#bfdbfe" fillOpacity="0.55" />
+
+              {/* 1. Clipboard Checklist */}
+              <g id="clipboard">
+                {/* Clipboard Outer Board */}
+                <rect x="16" y="14" width="46" height="62" rx="6" fill="#2563eb" />
+                {/* Paper Sheet */}
+                <rect x="18" y="16" width="42" height="58" rx="4" fill="#ffffff" />
+
+                {/* Top Clip Arch / Loop */}
+                <path d="M34 14 C34 8 44 8 44 14" stroke="#1d4ed8" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+                {/* Top Clamp Bar */}
+                <rect x="29" y="12" width="20" height="7" rx="2" fill="#1e40af" />
+                <circle cx="39" cy="15.5" r="1.5" fill="#ffffff" opacity="0.9" />
+
+                {/* Checklist Line 1 */}
+                <path d="M23 27 L26.5 30.5 L33 24" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <line x1="36" y1="27" x2="53" y2="27" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+
+                {/* Checklist Line 2 */}
+                <path d="M23 37 L26.5 40.5 L33 34" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <line x1="36" y1="37" x2="53" y2="37" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+
+                {/* Checklist Line 3 */}
+                <path d="M23 47 L26.5 50.5 L33 44" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <line x1="36" y1="47" x2="50" y2="47" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+
+                {/* Checklist Line 4 */}
+                <path d="M23 57 L26.5 60.5 L33 54" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <line x1="36" y1="57" x2="46" y2="57" stroke="#93c5fd" strokeWidth="2.5" strokeLinecap="round" />
+              </g>
+
+              {/* 2. Stacked Packages (Kraft & Amber Boxes) */}
+              {/* Top Box */}
+              <g id="top-box">
+                <polygon points="65,28 78,23 89,27 76,32" fill="#fde68a" />
+                <polygon points="65,28 76,32 76,46 65,42" fill="#f59e0b" />
+                <polygon points="76,32 89,27 89,41 76,46" fill="#d97706" />
+                <line x1="71.5" y1="25.5" x2="82.5" y2="29.5" stroke="#ffffff" strokeWidth="1.8" opacity="0.9" />
+                <line x1="76" y1="32" x2="76" y2="46" stroke="#b45309" strokeWidth="0.8" opacity="0.6" />
+              </g>
+
+              {/* Bottom Right Box */}
+              <g id="bottom-right-box">
+                <polygon points="74,46 89,41 100,46 85,51" fill="#fde68a" />
+                <polygon points="74,46 85,51 85,72 74,67" fill="#f59e0b" />
+                <polygon points="85,51 100,46 100,67 85,72" fill="#d97706" />
+                <line x1="81.5" y1="43.5" x2="92.5" y2="48.5" stroke="#ffffff" strokeWidth="2" opacity="0.9" />
+                <line x1="85" y1="51" x2="85" y2="72" stroke="#b45309" strokeWidth="0.8" opacity="0.6" />
+                {/* Barcode label */}
+                <rect x="88" y="54" width="6" height="4" rx="0.5" fill="#ffffff" opacity="0.9" />
+                <line x1="89" y1="56" x2="93" y2="56" stroke="#1e293b" strokeWidth="0.7" opacity="0.7" />
+              </g>
+
+              {/* Bottom Left Box */}
+              <g id="bottom-left-box">
+                <polygon points="49,50 62,45 74,49 61,54" fill="#fde68a" />
+                <polygon points="49,50 61,54 61,74 49,70" fill="#f59e0b" />
+                <polygon points="61,54 74,49 74,69 61,74" fill="#d97706" />
+                <line x1="55.5" y1="47.5" x2="67.5" y2="51.5" stroke="#ffffff" strokeWidth="2" opacity="0.9" />
+                <line x1="61" y1="54" x2="61" y2="74" stroke="#b45309" strokeWidth="0.8" opacity="0.6" />
+                {/* Barcode label */}
+                <rect x="52" y="58" width="5.5" height="3.5" rx="0.5" fill="#ffffff" opacity="0.9" />
+                <line x1="53" y1="60" x2="56.5" y2="60" stroke="#1e293b" strokeWidth="0.6" opacity="0.7" />
+              </g>
+            </svg>
+          </div>
+
           {activeTab === 'orders' ? (
             <button
               onClick={() => {
                 setDocumentModalType('purchase_order');
                 setIsDocumentModalOpen(true);
               }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Create Purchase Order</span>
             </button>
           ) : activeTab === 'bills' ? (
@@ -136,25 +218,25 @@ export const PurchaseInvoicesPage: React.FC = () => {
                 setDocumentModalType('standard_invoice');
                 setIsDocumentModalOpen(true);
               }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>New Purchase Bill</span>
             </button>
           ) : activeTab === 'returns' ? (
             <button
               onClick={() => setIsAddReturnModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Add Return</span>
             </button>
           ) : activeTab === 'payments' ? (
             <button
               onClick={() => setIsRecordPaymentOpen(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Record Payment</span>
             </button>
           ) : activeTab === 'history' ? (
@@ -163,9 +245,9 @@ export const PurchaseInvoicesPage: React.FC = () => {
                 setDocumentModalType('purchase_order');
                 setIsDocumentModalOpen(true);
               }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Create Purchase Order</span>
             </button>
           ) : null}
