@@ -72,7 +72,7 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
   const { profile } = useAuth();
-  const { addProduct, updateProduct, generateSKU, generateBarcode, units, warehouses, products, refreshData, customCategories, addCustomCategory, batches, serialNumbers, addSerialNumber } = useERP();
+  const { addProduct, updateProduct, generateSKU, generateBarcode, generateNextBatchNumber, units, warehouses, products, refreshData, customCategories, addCustomCategory, batches, serialNumbers, addSerialNumber } = useERP();
   const existingProduct = isEditMode && id ? products.find(p => p.id === id) : null;
 
   const handleCancel = () => {
@@ -237,12 +237,74 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
     if (errors.serialNumbers) setErrors(prev => ({ ...prev, serialNumbers: '' }));
   };
 
-  const handleAutoGenerateBatchNumber = () => {
-    const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-    const rand = Math.floor(100 + Math.random() * 900);
-    const newBatch = `BAT-${dateStr}-${rand}`;
-    setBatchNumber(newBatch);
+  const computeNextBatchPreview = (currentBatch?: string): string => {
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const prefix = `BTH-${yy}${mm}-`;
+
+    const usedNumbers = new Set<string>();
+    let maxNum = 0;
+    (batches || []).forEach(b => {
+      if (b.batchNumber) {
+        const clean = b.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    });
+
+    (products || []).forEach(p => {
+      if (p.batchNumber) {
+        const clean = p.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    });
+
+    if (currentBatch) {
+      const clean = currentBatch.trim().toUpperCase();
+      usedNumbers.add(clean);
+      const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+
+    let nextSeq = maxNum + 1;
+    let candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    while (usedNumbers.has(candidate)) {
+      nextSeq++;
+      candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    }
+    return candidate;
+  };
+
+  const handleAutoGenerateBatchNumber = async () => {
+    const currentNum = batchNumber.trim();
+    const preview = computeNextBatchPreview(currentNum);
+    setBatchNumber(preview);
     if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
+
+    try {
+      const exclude = currentNum ? [currentNum] : [];
+      if (generateNextBatchNumber) {
+        const newBatch = await generateNextBatchNumber(undefined, exclude);
+        if (newBatch) {
+          setBatchNumber(newBatch);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to auto-generate batch number via service:', err);
+    }
   };
 
   const [primaryUnit, setPrimaryUnit] = useState('Piece');
@@ -398,6 +460,14 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
       if (def) setWarehouse(def.id);
     }
   }, [warehouses, warehouse, isEditMode]);
+
+  // Auto-generate batch number for new product
+  useEffect(() => {
+    if (!isEditMode && !batchNumber) {
+      const preview = computeNextBatchPreview();
+      setBatchNumber(preview);
+    }
+  }, [isEditMode]);
 
   // Regenerate SKU helper
   const handleRegenerateSKU = () => {
@@ -1888,18 +1958,28 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Batch Number */}
                 <div className="flex flex-col">
-                  <label htmlFor="field-batchNumber" className="block font-medium text-slate-700 mb-1">
-                    Batch Number <span className="text-rose-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1 min-h-[18px]">
+                    <label htmlFor="field-batchNumber" className="block font-medium text-slate-700">
+                      Batch Number <span className="text-rose-500">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAutoGenerateBatchNumber}
+                      className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                      title="Generate next sequential batch number"
+                    >
+                      Regenerate
+                    </button>
+                  </div>
                   <input
                     id="field-batchNumber"
                     type="text"
                     value={batchNumber}
                     onChange={e => {
-                      setBatchNumber(e.target.value);
+                      setBatchNumber(e.target.value.toUpperCase());
                       if (errors.batchNumber) setErrors(prev => ({ ...prev, batchNumber: '' }));
                     }}
-                    placeholder="e.g. BAT-2026-001 or LOT-A92"
+                    placeholder={`e.g. BTH-${String(new Date().getFullYear()).slice(-2)}${String(new Date().getMonth() + 1).padStart(2, '0')}-001`}
                     className={`w-full px-3 py-2 bg-slate-50 border rounded-lg font-mono font-bold text-slate-900 text-xs transition-colors ${
                       errors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200 focus:bg-white focus:border-blue-500'
                     }`}
@@ -1907,9 +1987,15 @@ export const NewProductPage: React.FC<NewProductPageProps> = ({
                   {errors.batchNumber ? (
                     <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.batchNumber}</p>
                   ) : (
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      Identification lot or batch code printed on the item package.
-                    </p>
+                    <div className="flex items-center justify-between mt-1 min-h-[16px]">
+                      <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                        Auto-generated
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Format: BTH-YYMM-###
+                      </span>
+                    </div>
                   )}
                 </div>
 

@@ -54,40 +54,65 @@ export const UpdateStockPage: React.FC = () => {
   const canAssign = canAssignBarcode(profile?.role);
   const canOverride = canManageBarcodeOverride(profile?.role);
 
-  const getNextBatch = async (targetDate?: string): Promise<string> => {
+  const getNextBatch = async (targetDate?: string, excludeBatches?: string[]): Promise<string> => {
     if (generateNextBatchNumber) {
-      return await generateNextBatchNumber(targetDate);
+      return await generateNextBatchNumber(targetDate, excludeBatches);
     }
     const cId = (profile as any)?.company_id || (profile as any)?.companyId;
-    return await productService.generateNextBatchNumber(cId, targetDate);
+    return await productService.generateNextBatchNumber(cId, targetDate, excludeBatches);
   };
 
   // Computes the next batch number sequentially based on DB batches and product catalog
-  const computeNextBatchPreview = (targetDate?: string): string => {
+  const computeNextBatchPreview = (targetDate?: string, currentBatch?: string): string => {
     const d = targetDate ? new Date(targetDate) : new Date();
-    const yy = String(d.getFullYear()).slice(-2);
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const validDate = isNaN(d.getTime()) ? new Date() : d;
+    const yy = String(validDate.getFullYear()).slice(-2);
+    const mm = String(validDate.getMonth() + 1).padStart(2, '0');
     const prefix = `BTH-${yy}${mm}-`;
 
+    const usedNumbers = new Set<string>();
     let maxNum = 0;
     (batches || []).forEach(b => {
-      const match = (b.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxNum) maxNum = num;
+      if (b.batchNumber) {
+        const clean = b.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
       }
     });
 
     (products || []).forEach(p => {
-      const match = (p.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
+      if (p.batchNumber) {
+        const clean = p.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    });
+
+    if (currentBatch) {
+      const clean = currentBatch.trim().toUpperCase();
+      usedNumbers.add(clean);
+      const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
       if (match) {
         const num = parseInt(match[1], 10);
         if (!isNaN(num) && num > maxNum) maxNum = num;
       }
-    });
+    }
 
-    const nextSeq = maxNum + 1;
-    return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    let nextSeq = maxNum + 1;
+    let candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    while (usedNumbers.has(candidate)) {
+      nextSeq++;
+      candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    }
+    return candidate;
   };
 
   // URL query pre-population
@@ -301,19 +326,15 @@ export const UpdateStockPage: React.FC = () => {
   };
 
   const handleAutoBatch = async () => {
-    if (batchNumber.trim()) {
-      const confirmOverwrite = window.confirm(
-        `A batch number is already entered ("${batchNumber.trim()}"). Do you want to overwrite it with an automatically generated batch number?`
-      );
-      if (!confirmOverwrite) return;
-    }
-
     setBatchMode('new');
     setSelectedBatchId('');
-    setBatchNumber(computeNextBatchPreview(expiryDate || undefined));
+    const currentNum = batchNumber.trim();
+    const preview = computeNextBatchPreview(undefined, currentNum);
+    setBatchNumber(preview);
 
     try {
-      const newBatch = await getNextBatch(expiryDate || undefined);
+      const exclude = currentNum ? [currentNum] : [];
+      const newBatch = await getNextBatch(undefined, exclude);
       if (newBatch) {
         setBatchNumber(newBatch);
       }
@@ -1020,7 +1041,7 @@ export const UpdateStockPage: React.FC = () => {
                       setBatchNumber(e.target.value.toUpperCase());
                       if (trackingErrors.batchNumber) setTrackingErrors(prev => ({ ...prev, batchNumber: undefined }));
                     }}
-                    placeholder="e.g. BTH-2610-001"
+                    placeholder={`e.g. BTH-${String(new Date().getFullYear()).slice(-2)}${String(new Date().getMonth() + 1).padStart(2, '0')}-001`}
                     className={`w-full text-xs font-mono px-3 py-1.5 bg-white border rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900 ${
                       trackingErrors.batchNumber ? 'border-rose-300 ring-1 ring-rose-400 bg-rose-50/30' : 'border-slate-200'
                     }`}

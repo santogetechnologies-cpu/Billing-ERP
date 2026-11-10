@@ -28,10 +28,14 @@ export const PurchaseGoodsReceivedTab: React.FC<PurchaseGoodsReceivedTabProps> =
 
   const handleOpenReceive = (po: PurchaseInvoice) => {
     setSelectedPO(po);
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const prefix = `BTH-${yy}${mm}-`;
     const initialBatch: Record<string, { batchNumber: string; expiryDate: string; receivedQty: number }> = {};
-    po.items.forEach(it => {
+    po.items.forEach((it, idx) => {
       initialBatch[it.productId] = {
-        batchNumber: `BATCH-${Date.now().toString().slice(-4)}`,
+        batchNumber: `${prefix}${String(idx + 1).padStart(3, '0')}`,
         expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         receivedQty: it.qty
       };

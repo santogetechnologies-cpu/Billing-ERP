@@ -1346,15 +1346,19 @@ export const productService = {
   /**
    * Generates next sequential batch number in BTH-YYMM-### format.
    * Resets to 001 every new month.
-   * Atomically tracks and reserves sequence using invoice_sequences and checks product_batches.
+   * Concurrency-safe, prevents duplicates against existing batches, catalog products, and in-form numbers.
    */
-  async generateNextBatchNumber(companyId?: string, targetDate?: string): Promise<string> {
+  async generateNextBatchNumber(
+    companyId?: string,
+    targetDate?: string,
+    excludeBatches?: string[]
+  ): Promise<string> {
     return batchSeqMutex.runExclusive(async () => {
       const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
-      const effectiveDate = targetDate || new Date().toISOString().split('T')[0];
-      const d = new Date(effectiveDate);
-      const yy = String(d.getFullYear()).slice(-2);
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const d = targetDate ? new Date(targetDate) : new Date();
+      const validDate = isNaN(d.getTime()) ? new Date() : d;
+      const yy = String(validDate.getFullYear()).slice(-2);
+      const mm = String(validDate.getMonth() + 1).padStart(2, '0');
       const yymm = `${yy}${mm}`;
       const prefix = `BTH-${yymm}-`;
 
@@ -1362,10 +1366,12 @@ export const productService = {
       try {
         const { data: rpcVal, error: rpcErr } = await supabase.rpc('get_next_batch_number', {
           p_company_id: finalCompanyId,
-          p_date: effectiveDate
+          p_date: validDate.toISOString().split('T')[0]
         });
         if (!rpcErr && rpcVal && typeof rpcVal === 'string' && rpcVal.startsWith(prefix)) {
-          return rpcVal;
+          if (!excludeBatches || !excludeBatches.some(e => e.trim().toUpperCase() === rpcVal.trim().toUpperCase())) {
+            return rpcVal;
+          }
         }
       } catch {
         // Fallback to table sequence allocation
@@ -1386,16 +1392,44 @@ export const productService = {
         .eq('company_id', finalCompanyId)
         .ilike('batch_number', `${prefix}%`);
 
+      const usedNumbers = new Set<string>();
       let maxNum = 0;
+
       (existingBatches || []).forEach(b => {
-        const match = (b.batch_number || '').match(new RegExp(`^${prefix}(\\d+)$`));
-        if (match) {
-          const num = parseInt(match[1], 10);
-          if (!isNaN(num) && num > maxNum) maxNum = num;
+        if (b.batch_number) {
+          const clean = b.batch_number.trim().toUpperCase();
+          usedNumbers.add(clean);
+          const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxNum) maxNum = num;
+          }
         }
       });
 
-      const nextSeq = Math.max(maxNum + 1, seqRow?.current_sequence || 1);
+      (excludeBatches || []).forEach(b => {
+        if (b) {
+          const clean = b.trim().toUpperCase();
+          usedNumbers.add(clean);
+          const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxNum) maxNum = num;
+          }
+        }
+      });
+
+      // Sequence starts at 1 (001) when a new month begins.
+      let nextSeq = Math.max(1, maxNum + 1);
+      if (seqRow?.current_sequence && seqRow.current_sequence > nextSeq && maxNum > 0) {
+        nextSeq = seqRow.current_sequence;
+      }
+
+      let candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+      while (usedNumbers.has(candidate)) {
+        nextSeq++;
+        candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+      }
 
       if (seqRow?.id) {
         await supabase
@@ -1418,7 +1452,7 @@ export const productService = {
           });
       }
 
-      return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+      return candidate;
     });
   },
 

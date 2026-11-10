@@ -218,43 +218,74 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
   const computeNextBatchPreview = (
     indexOffset = 0,
     existingInForm?: ProductEntryItem[],
-    targetDate?: string
+    targetDate?: string,
+    currentBatchNumber?: string
   ): string => {
     const d = targetDate ? new Date(targetDate) : new Date();
-    const yy = String(d.getFullYear()).slice(-2);
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const validDate = isNaN(d.getTime()) ? new Date() : d;
+    const yy = String(validDate.getFullYear()).slice(-2);
+    const mm = String(validDate.getMonth() + 1).padStart(2, '0');
     const prefix = `BTH-${yy}${mm}-`;
 
+    const usedNumbers = new Set<string>();
     let maxNum = 0;
+
     // Check batches already loaded in context from database
     (batches || []).forEach(b => {
-      const match = (b.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxNum) maxNum = num;
+      if (b.batchNumber) {
+        const clean = b.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
       }
     });
 
     // Check products catalog
     (products || []).forEach(p => {
-      const match = (p.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxNum) maxNum = num;
+      if (p.batchNumber) {
+        const clean = p.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
       }
     });
 
     // Check items currently in form
     (existingInForm || []).forEach(item => {
-      const match = (item.batchNumber || '').match(new RegExp(`^${prefix}(\\d+)$`));
+      if (item.batchNumber) {
+        const clean = item.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    });
+
+    if (currentBatchNumber) {
+      const clean = currentBatchNumber.trim().toUpperCase();
+      usedNumbers.add(clean);
+      const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
       if (match) {
         const num = parseInt(match[1], 10);
         if (!isNaN(num) && num > maxNum) maxNum = num;
       }
-    });
+    }
 
-    const nextSeq = maxNum + 1 + indexOffset;
-    return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    let nextSeq = maxNum + 1 + indexOffset;
+    let candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    while (usedNumbers.has(candidate)) {
+      nextSeq++;
+      candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    }
+    return candidate;
   };
 
   const createDefaultItem = (index: number, existingItems?: ProductEntryItem[], initialBatch?: string): ProductEntryItem => {
@@ -507,29 +538,27 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
 
   const handleAutoGenerateBatch = async (index: number) => {
     const item = items[index];
-    if (item.batchNumber && item.batchNumber.trim()) {
-      const confirmOverwrite = window.confirm(
-        `A batch number is already entered ("${item.batchNumber.trim()}"). Do you want to overwrite it with an automatically generated batch number?`
-      );
-      if (!confirmOverwrite) return;
+    const existingInFormBatches = items
+      .map((it, idx) => (idx !== index ? it.batchNumber : undefined))
+      .filter(Boolean) as string[];
+
+    if (item.batchNumber) {
+      existingInFormBatches.push(item.batchNumber);
     }
+
+    // Instant optimistic preview update using current year and month
+    const preview = computeNextBatchPreview(0, items, undefined, item.batchNumber);
+    handleUpdateItem(index, 'batchNumber', preview);
 
     try {
       if (generateNextBatchNumber) {
-        const newBatch = await generateNextBatchNumber(item.expiryDate || undefined);
-        handleUpdateItem(index, 'batchNumber', newBatch);
-      } else {
-        const now = new Date();
-        const yy = String(now.getFullYear()).slice(-2);
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        handleUpdateItem(index, 'batchNumber', `BTH-${yy}${mm}-001`);
+        const newBatch = await generateNextBatchNumber(undefined, existingInFormBatches);
+        if (newBatch) {
+          handleUpdateItem(index, 'batchNumber', newBatch);
+        }
       }
     } catch (err) {
       console.warn('Failed to auto-generate batch number via service:', err);
-      const now = new Date();
-      const yy = String(now.getFullYear()).slice(-2);
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      handleUpdateItem(index, 'batchNumber', `BTH-${yy}${mm}-001`);
     }
   };
 
@@ -1660,7 +1689,7 @@ export const InitialStockPage: React.FC<InitialStockPageProps> = ({
                       </div>
                       <input
                         type="text"
-                        placeholder="e.g. BTH-2610-001"
+                        placeholder={`e.g. BTH-${String(new Date().getFullYear()).slice(-2)}${String(new Date().getMonth() + 1).padStart(2, '0')}-001`}
                         value={item.batchNumber}
                         onChange={e => handleUpdateItem(idx, 'batchNumber', e.target.value.toUpperCase())}
                         className="h-9 w-full text-xs font-mono px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white text-slate-900"

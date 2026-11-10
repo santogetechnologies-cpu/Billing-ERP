@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Calendar,
@@ -32,7 +32,7 @@ export const BatchManagementPage: React.FC = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { profile } = useAuth();
-  const { batches, products, addBatch } = useERP();
+  const { batches, products, addBatch, generateNextBatchNumber } = useERP();
 
   // Extract navigation context from location.state or query params (e.g. from Dispatch button)
   const dispatchContext = useMemo(() => {
@@ -80,25 +80,80 @@ export const BatchManagementPage: React.FC = () => {
   const [cost, setCost] = useState<string>('');
   const [qty, setQty] = useState<string>('');
 
+  const computeNextBatchPreview = (currentBatch?: string): string => {
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const prefix = `BTH-${yy}${mm}-`;
+
+    const usedNumbers = new Set<string>();
+    let maxNum = 0;
+    (batches || []).forEach(b => {
+      if (b.batchNumber) {
+        const clean = b.batchNumber.trim().toUpperCase();
+        usedNumbers.add(clean);
+        const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    });
+
+    if (currentBatch) {
+      const clean = currentBatch.trim().toUpperCase();
+      usedNumbers.add(clean);
+      const match = clean.match(new RegExp(`^${prefix}(\\d+)$`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+
+    let nextSeq = maxNum + 1;
+    let candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    while (usedNumbers.has(candidate)) {
+      nextSeq++;
+      candidate = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+    }
+    return candidate;
+  };
+
+  const handleAutoGenerateBatch = async () => {
+    const currentNum = batchNumber.trim();
+    const preview = computeNextBatchPreview(currentNum);
+    setBatchNumber(preview);
+
+    try {
+      const exclude = currentNum ? [currentNum] : [];
+      if (generateNextBatchNumber) {
+        const newBatch = await generateNextBatchNumber(undefined, exclude);
+        if (newBatch) {
+          setBatchNumber(newBatch);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to auto-generate batch number via service:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (isModalOpen && !batchNumber) {
+      handleAutoGenerateBatch();
+    }
+  }, [isModalOpen]);
+
   const handleCreateBatch = (e: React.FormEvent) => {
     e.preventDefault();
     const prod = products.find(p => p.id === productId) || products[0];
     if (!prod) return;
 
-    let maxSeq = 1000;
-    batches.forEach(b => {
-      const match = (b.batchNumber || '').match(/B-.*?(\d+)$/);
-      if (match && match[1]) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxSeq) maxSeq = num;
-      }
-    });
-    const autoBatch = `B-${String(maxSeq + 1).padStart(5, '0')}`;
+    const autoBatch = computeNextBatchPreview();
 
     addBatch({
       productId: prod.id,
       productName: prod.name,
-      batchNumber: batchNumber || autoBatch,
+      batchNumber: batchNumber.trim() || autoBatch,
       mfgDate,
       expiryDate,
       purchaseDate,
@@ -514,14 +569,33 @@ export const BatchManagementPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-medium text-slate-700 mb-1">Batch Number</label>
+            <div className="flex items-center justify-between mb-1 min-h-[18px]">
+              <label className="block font-medium text-slate-700">Batch Number</label>
+              <button
+                type="button"
+                onClick={handleAutoGenerateBatch}
+                className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                title="Generate next sequential batch number"
+              >
+                Regenerate
+              </button>
+            </div>
             <input
               type="text"
               value={batchNumber}
-              onChange={e => setBatchNumber(e.target.value)}
-              placeholder="e.g. B-RIC-2026-09"
+              onChange={e => setBatchNumber(e.target.value.toUpperCase())}
+              placeholder={`e.g. BTH-${String(new Date().getFullYear()).slice(-2)}${String(new Date().getMonth() + 1).padStart(2, '0')}-001`}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold"
             />
+            <div className="flex items-center justify-between mt-1 min-h-[16px]">
+              <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                Auto-generated
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Format: BTH-YYMM-###
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
