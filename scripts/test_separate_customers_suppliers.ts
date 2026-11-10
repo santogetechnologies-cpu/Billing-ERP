@@ -122,12 +122,14 @@ async function runTests() {
   assert(suppliersCode.includes('Add New Supplier'), '4.1 Has "+ Add New Supplier" button');
   console.log('  ✓ PASS: 4.1 Full vertical scrolling without pagination & Add New Supplier button present');
 
-  // 4.2 Required supplier information columns
-  const requiredSupplierCols = ['Supplier Name', 'Contact Person', 'Phone Number', 'Email', 'Address', 'GST Number', 'Status'];
+  // 4.2 Required supplier information columns (Address removed for clean table alignment)
+  const requiredSupplierCols = ['Supplier Name', 'Contact Person', 'Phone Number', 'Email', 'GST Number', 'Status', 'Payable Balance'];
   for (const col of requiredSupplierCols) {
     assert(suppliersCode.includes(col), `4.2 Must display ${col} column`);
   }
-  console.log('  ✓ PASS: 4.2 All required columns present: Supplier Name, Contact Person, Phone, Email, Address, GST Number, Status');
+  assert(!suppliersCode.includes("header: 'Address'"), '4.2 Address column is removed from supplier table');
+  assert(suppliersCode.includes('hideHorizontalScroll={true}') && suppliersCode.includes('tableFixed={true}'), '4.2 Table fixed and horizontal scrollbar eliminated');
+  console.log('  ✓ PASS: 4.2 Required columns aligned without Address column: Supplier Name, Contact Person, Phone, Email, GST Number, Status, Payable Balance');
 
   // 4.3 Search and filtering
   assert(suppliersCode.includes("searchPlaceholder=\"Search suppliers by supplier name or phone number...\""), '4.3 Search placeholder mentions name and phone');

@@ -130,7 +130,7 @@ export const SuppliersPage: React.FC = () => {
       key: 'company',
       header: 'Supplier Name',
       sortable: true,
-      width: '22%',
+      width: '19%',
       render: row => (
         <div className="min-w-0 pr-2">
           <span className="font-semibold text-slate-900 dark:text-white block truncate" title={row.company || row.name}>
@@ -146,7 +146,7 @@ export const SuppliersPage: React.FC = () => {
       key: 'name',
       header: 'Contact Person',
       sortable: true,
-      width: '14%',
+      width: '13%',
       render: row => (
         <span className="text-slate-700 dark:text-slate-300 text-xs block truncate">
           {row.name || row.company || '—'}
@@ -168,26 +168,12 @@ export const SuppliersPage: React.FC = () => {
       key: 'email',
       header: 'Email',
       sortable: true,
-      width: '15%',
+      width: '16%',
       render: row => (
         <span className="text-slate-500 text-xs truncate block" title={row.email || undefined}>
           {row.email || '—'}
         </span>
       )
-    },
-    {
-      key: 'address',
-      header: 'Address',
-      sortable: true,
-      width: '16%',
-      render: row => {
-        const fullAddr = [row.address, row.state].filter(Boolean).join(', ');
-        return (
-          <span className="text-slate-600 dark:text-slate-300 text-xs truncate block" title={fullAddr || undefined}>
-            {fullAddr || '—'}
-          </span>
-        );
-      }
     },
     {
       key: 'gstin',
@@ -205,7 +191,7 @@ export const SuppliersPage: React.FC = () => {
       header: 'Status',
       sortable: true,
       align: 'center',
-      width: '9%',
+      width: '8%',
       render: row => (
         <span
           className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${
@@ -230,7 +216,7 @@ export const SuppliersPage: React.FC = () => {
       align: 'right',
       width: '10%',
       render: row => (
-        <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400">
+        <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 pr-2.5 block truncate">
           {formatCurrency(row.currentOutstanding || 0)}
         </span>
       )
@@ -300,13 +286,16 @@ export const SuppliersPage: React.FC = () => {
         ]}
         enablePagination={false}
         selectable={false}
+        hideHorizontalScroll={true}
+        tableFixed={true}
+        actionsWidth="10%"
         actions={row => (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center justify-end gap-1 shrink-0">
             {/* View Complete Supplier Details */}
             <button
               type="button"
               onClick={() => handleOpenView(row)}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
               title="View Supplier Details"
             >
               <Eye className="w-4 h-4" />
@@ -317,7 +306,7 @@ export const SuppliersPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleOpenEdit(row)}
-                className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-1 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                 title="Edit Supplier"
               >
                 <Edit className="w-4 h-4" />
@@ -329,7 +318,7 @@ export const SuppliersPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSupplierToDelete(row)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                 title="Delete Supplier"
               >
                 <Trash2 className="w-4 h-4" />
