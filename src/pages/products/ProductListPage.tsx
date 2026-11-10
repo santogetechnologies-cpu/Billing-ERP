@@ -123,11 +123,11 @@ export const ProductListPage: React.FC = () => {
       sortable: true,
       render: (p: Product) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0 print:hidden no-print">
             <Package className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-slate-900 dark:text-white truncate max-w-xs">{p.name}</p>
+            <p className="font-semibold text-slate-900 dark:text-white truncate max-w-xs print:whitespace-normal print:max-w-none">{p.name}</p>
             <p className="text-[10px] text-slate-400 font-mono">
               SKU: {p.sku || '—'} {p.barcode ? `| Barcode: ${p.barcode}` : ''}
             </p>
@@ -198,6 +198,8 @@ export const ProductListPage: React.FC = () => {
     {
       key: 'actions',
       header: 'Actions',
+      className: 'print:hidden no-print',
+      headerClassName: 'print:hidden no-print',
       render: (p: Product) => (
         <div className="flex items-center gap-1">
           <button
@@ -242,7 +244,7 @@ export const ProductListPage: React.FC = () => {
       )}
 
       {/* Top Header: Title & ONE Primary Action Button (Part B1 & B2) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs print:border-none print:shadow-none print:p-0 print:mb-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Products</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -254,7 +256,7 @@ export const ProductListPage: React.FC = () => {
         <button
           type="button"
           onClick={() => navigate('/products/initial-stock')}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-all active:scale-95 cursor-pointer print:hidden no-print"
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
           <span>New Product</span>
@@ -262,16 +264,18 @@ export const ProductListPage: React.FC = () => {
       </div>
 
       {/* In-Page Tabs (Part B2 & Part C) */}
-      <Tabs
-        tabs={tabs}
-        activeTab={activeTab}
-        onChange={handleTabChange}
-        syncWithUrlQuery="tab"
-      />
+      <div className="print:hidden no-print">
+        <Tabs
+          tabs={tabs}
+          activeTab={activeTab}
+          onChange={handleTabChange}
+          syncWithUrlQuery="tab"
+        />
+      </div>
 
       {/* Tab 1: All Products Catalogue */}
       {activeTab === 'all' && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-hidden print:border-none print:shadow-none print:overflow-visible">
           <DataTable
             data={productsWithStatus}
             columns={columns}

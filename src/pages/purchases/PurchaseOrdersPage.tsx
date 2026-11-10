@@ -756,24 +756,24 @@ export const PurchaseOrdersPage: React.FC<PurchaseOrdersPageProps> = ({
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-4">Order # & Date</th>
-                  <th className="py-3 px-4">Supplier / Contact</th>
-                  <th className="py-3 px-4">Destination Hub</th>
-                  <th className="py-3 px-4 text-center">Quantities (Ord / Rec / Pend)</th>
-                  <th className="py-3 px-4">Expected Delivery</th>
-                  <th className="py-3 px-4 text-center">Delivery Status</th>
-                  <th className="py-3 px-4 text-right">Order Value</th>
-                  <th className="py-3 px-4 text-center">Actions</th>
+              <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th className="py-3 px-4 text-left whitespace-nowrap">PO Number & Date</th>
+                  <th className="py-3 px-4 text-left whitespace-nowrap">Supplier</th>
+                  <th className="py-3 px-4 text-left whitespace-nowrap">Destination Warehouse</th>
+                  <th className="py-3 px-4 text-left whitespace-nowrap">Expected Delivery</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap">Status</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap">Total Amount (₹)</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredOrders.map(order => (
                   <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-mono font-bold text-blue-600 block">
+                    {/* 1. PO Number & Date */}
+                    <td className="py-3 px-4 whitespace-nowrap align-middle">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-blue-600 text-xs">
                           {order.orderNumber}
                         </span>
                         {order.docType === 'bulk_order' && (
@@ -788,57 +788,51 @@ export const PurchaseOrdersPage: React.FC<PurchaseOrdersPageProps> = ({
                         )}
                       </div>
                       <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
-                        <Calendar className="w-3 h-3 text-slate-400" />
-                        {formatDate(order.date)}
+                        <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span>{formatDate(order.date)}</span>
                       </span>
                     </td>
 
-                    <td className="py-3 px-4">
-                      <span className="font-semibold text-slate-900 block truncate max-w-[200px]">
+                    {/* 2. Supplier */}
+                    <td className="py-3 px-4 whitespace-nowrap align-middle">
+                      <div className="font-semibold text-slate-900 text-xs">
                         {order.supplierName}
-                      </span>
-                      <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                        <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="font-mono">{order.supplierContact}</span>
-                      </span>
+                      </div>
+                      {order.supplierContact && order.supplierContact !== 'Not available' ? (
+                        <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{order.supplierContact}</span>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                          No phone
+                        </div>
+                      )}
                       {order.bulkMetadata?.customerName && order.bulkMetadata.customerName !== order.supplierName && (
-                        <span className="text-[10px] text-slate-400 block truncate max-w-[200px]">
+                        <div className="text-[10px] text-slate-400 mt-0.5">
                           Client: {order.bulkMetadata.customerName}
-                        </span>
+                        </div>
                       )}
                     </td>
 
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center gap-1 font-mono text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                        <WarehouseIcon className="w-3 h-3 text-slate-400" />
-                        {order.warehouseName}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-4 text-center">
-                      <div className="font-mono font-semibold text-slate-700">
-                        <span className="text-slate-900 font-bold">{order.totalQty}</span>
-                        <span className="text-slate-400 mx-1">/</span>
-                        <span className="text-emerald-600">{order.receivedQty}</span>
-                        <span className="text-slate-400 mx-1">/</span>
-                        <span className={`font-bold ${order.pendingQty > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
-                          {order.pendingQty}
-                        </span>
+                    {/* 3. Destination Warehouse */}
+                    <td className="py-3 px-4 whitespace-nowrap align-middle">
+                      <div className="inline-flex items-center gap-1.5 text-xs text-slate-800 font-medium">
+                        <WarehouseIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{order.warehouseName || 'Main Warehouse'}</span>
                       </div>
-                      <span className="text-[10px] text-slate-400 block">
-                        {order.items.length} item{order.items.length !== 1 ? 's' : ''} listed
-                      </span>
                     </td>
 
-                    <td className="py-3 px-4">
+                    {/* 4. Expected Delivery */}
+                    <td className="py-3 px-4 whitespace-nowrap align-middle">
                       {order.expectedDelivery ? (
                         <div>
                           <span className={`font-medium text-xs block ${order.isOverdue ? 'text-rose-600 font-bold' : 'text-slate-700'}`}>
                             {formatDate(order.expectedDelivery)}
                           </span>
                           {order.isOverdue && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-600">
-                              <AlertCircle className="w-3 h-3" />
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 mt-0.5">
+                              <AlertCircle className="w-3 h-3 shrink-0" />
                               <span>Overdue</span>
                             </span>
                           )}
@@ -848,9 +842,10 @@ export const PurchaseOrdersPage: React.FC<PurchaseOrdersPageProps> = ({
                       )}
                     </td>
 
-                    <td className="py-3 px-4 text-center">
+                    {/* 5. Status */}
+                    <td className="py-3 px-4 text-center whitespace-nowrap align-middle">
                       <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${
                           order.status === 'Received'
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                             : order.status === 'Cancelled'
@@ -860,51 +855,35 @@ export const PurchaseOrdersPage: React.FC<PurchaseOrdersPageProps> = ({
                             : 'bg-blue-100 text-blue-800 border border-blue-200'
                         }`}
                       >
-                        {order.status === 'Received' && <CheckCircle2 className="w-3 h-3" />}
-                        {order.status === 'Ordered' && <Truck className="w-3 h-3" />}
-                        {order.status === 'Draft' && <FileText className="w-3 h-3" />}
+                        {order.status === 'Received' && <CheckCircle2 className="w-3 h-3 shrink-0" />}
+                        {order.status === 'Ordered' && <Truck className="w-3 h-3 shrink-0" />}
+                        {order.status === 'Draft' && <FileText className="w-3 h-3 shrink-0" />}
                         <span>{order.status}</span>
                       </span>
                     </td>
 
-                    <td className="py-3 px-4 text-right">
+                    {/* 6. Total Amount (₹) */}
+                    <td className="py-3 px-4 text-right whitespace-nowrap align-middle">
                       <span className="font-bold text-slate-900 font-mono text-xs">
                         {order.grandTotal > 0 ? formatCurrency(order.grandTotal) : '—'}
                       </span>
                     </td>
 
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
+                    {/* 7. Action */}
+                    <td className="py-3 px-4 text-center whitespace-nowrap align-middle">
+                      {order.status !== 'Cancelled' ? (
                         <button
-                          onClick={() => handleOpenDetailModal(order)}
-                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                          title="View Order Details"
+                          type="button"
+                          onClick={() => navigate(`/purchases/new?poId=${order.id}${order.linkedRequestId ? `&requestId=${order.linkedRequestId}` : ''}`)}
+                          className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/90 rounded-lg font-semibold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                          title="Record Supplier Invoice against this Purchase Order"
                         >
-                          <Eye className="w-4 h-4" />
+                          <FileText className="w-3.5 h-3.5 shrink-0" />
+                          <span>Bill</span>
                         </button>
-
-                        {hasPermission(profile?.role, 'purchases', 'create') && order.status !== 'Cancelled' && (
-                          <button
-                            onClick={() => navigate(`/purchases/new?poId=${order.id}${order.linkedRequestId ? `&requestId=${order.linkedRequestId}` : ''}`)}
-                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Record Supplier Invoice against this Purchase Order"
-                          >
-                            <FileText className="w-3 h-3" />
-                            <span>Bill</span>
-                          </button>
-                        )}
-
-                        {order.pendingQty > 0 && order.status === 'Ordered' && (
-                          <button
-                            onClick={() => handleOpenReceiveModal(order)}
-                            className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Record Inward Goods Receipt (GRN)"
-                          >
-                            <PackageCheck className="w-3 h-3" />
-                            <span>Receive</span>
-                          </button>
-                        )}
-                      </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

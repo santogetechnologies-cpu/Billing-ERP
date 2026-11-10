@@ -1,38 +1,27 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   X,
   Printer,
-  Download,
-  Save,
-  Plus,
-  Trash2,
-  Building2,
-  User,
-  Phone,
-  Mail,
-  MapPin,
-  Calendar,
-  DollarSign,
   FileText,
   CheckCircle2,
   AlertCircle,
-  Eye,
-  Percent,
-  Tag,
-  Sparkles,
-  RotateCcw,
-  Receipt,
   Search,
-  Warehouse as WarehouseIcon,
+  Plus,
+  Trash2,
+  Calendar,
+  Save,
   Check,
-  ChevronDown
+  User,
+  Phone,
+  Clock,
+  AlertTriangle
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
-import { useAuth } from '../../context/AuthContext';
 import { customerService } from '../../services/customerService';
 import { supabase } from '../../lib/supabase';
 import { Customer, Product } from '../../types';
-import { formatCurrency, formatNumber, formatDate, numberToWordsIndian } from '../../utils/formatters';
+import { formatCurrency, formatNumber, formatDate } from '../../utils/formatters';
 import { sortProductsAZ } from '../../utils/sortUtils';
 
 export interface BulkOrderLineItem {
@@ -44,13 +33,12 @@ export interface BulkOrderLineItem {
   quantity: number;
   unit: string;
   originalUnitPrice: number;
-  discountType: 'fixed' | 'percentage';
-  discountValue: number;
-  discountPerUnit: number;
-  discountedUnitPrice: number;
-  taxRate: number;
-  taxAmt: number;
-  totalAmount: number;
+  discountPercent: number; // Discount (%)
+  discountAmount: number;  // Discount Amount = Original Unit Price * Discount (%) / 100
+  finalUnitPrice: number;  // Final Unit Price = Original Unit Price - Discount Amount
+  totalAmount: number;     // Total Amount = Quantity * Final Unit Price
+  taxRate: number;         // GST %
+  taxAmt: number;          // GST Amount = Total Amount * Tax Rate / 100
 }
 
 export interface BulkOrderBillModalProps {
@@ -64,125 +52,117 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
   onClose,
   onSaved
 }) => {
+  const navigate = useNavigate();
   const { company, products: contextProducts, warehouses, refreshData } = useERP();
-  const { profile } = useAuth();
 
-  // Mode: 'form' | 'preview'
-  const [activeTab, setActiveTab] = useState<'form' | 'preview'>('form');
-  const docType = 'quotation';
-
-  // Customer State
-  const [customersList, setCustomersList] = useState<Customer[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-  const [customerName, setCustomerName] = useState<string>('');
-  const [customerPhone, setCustomerPhone] = useState<string>('');
-  const [customerEmail, setCustomerEmail] = useState<string>('');
-  const [customerAddress, setCustomerAddress] = useState<string>('');
-  const [customerGstin, setCustomerGstin] = useState<string>('');
-  const [orderDate, setOrderDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [deliveryDate, setDeliveryDate] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().split('T')[0];
-  });
-  const [warehouseId, setWarehouseId] = useState<string>('');
-
-  // Bill & Order Metadata
+  // 1. Quotation Details: Keep only Quotation Number, Quotation Date, Valid Until
   const [billNumber, setBillNumber] = useState<string>(() => {
     const random = Math.floor(1000 + Math.random() * 9000);
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     return `QT-${dateStr}-${random}`;
   });
-  const [additionalCharges, setAdditionalCharges] = useState<number>(0);
-  const [additionalChargesNote, setAdditionalChargesNote] = useState<string>('Delivery Charges');
-  const [advancePayment, setAdvancePayment] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<string>('Bank Transfer');
-  const [termsAndConditions, setTermsAndConditions] = useState<string>(() => {
-    return company?.termsAndConditions || '1. 100% advance or agreed credit terms apply for bulk pricing.\n2. Goods once sold are backed by standard manufacturer warranty.\n3. Delivery timelines are subject to warehouse dispatch clearance.';
+  const [orderDate, setOrderDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [validUntil, setValidUntil] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 15);
+    return d.toISOString().split('T')[0];
   });
-  const [notes, setNotes] = useState<string>('Special quotation proposal rates negotiated and approved.');
 
-  // Line items state
+  // 2. Customer Details: Keep only Customer Name and Phone Number
+  const [customersList, setCustomersList] = useState<Customer[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>('');
+  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState<boolean>(false);
+
+  // 3. Product Details: Table items
   const [lineItems, setLineItems] = useState<BulkOrderLineItem[]>([]);
+  const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
+
+  // Feedback states
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
 
   // Products from catalog
   const catalogProducts = useMemo(() => {
     return sortProductsAZ(contextProducts || []);
   }, [contextProducts]);
 
-  // Load existing customers on modal open
+  // Check Expiry: Mark quotation as Expired after the validity date
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const isExpired = useMemo(() => {
+    if (!validUntil) return false;
+    return todayStr > validUntil;
+  }, [validUntil, todayStr]);
+
+  // Load customers & reset on modal open
   useEffect(() => {
     if (isOpen) {
       loadCustomers();
-      if (warehouses && warehouses.length > 0 && !warehouseId) {
-        setWarehouseId(warehouses[0].id);
-      }
-      // Initialize with at least 1 empty row if items are empty
       if (lineItems.length === 0) {
         addLineItem();
       }
       setSaveSuccess(null);
       setErrorMessage(null);
     }
-  }, [isOpen, warehouses]);
+  }, [isOpen]);
 
   const loadCustomers = async () => {
     try {
       const data = await customerService.getCustomers({ limit: 100 }, company?.id);
       setCustomersList(data || []);
     } catch (err) {
-      console.warn('Could not load customers for bulk order modal:', err);
+      console.warn('Could not load customers for quotation modal:', err);
     }
   };
 
-  // Handle Customer Selection
-  const handleSelectCustomer = (cId: string) => {
-    setSelectedCustomerId(cId);
-    if (!cId) return;
-    const found = customersList.find(c => c.id === cId);
-    if (found) {
-      setCustomerName(found.name || '');
-      setCustomerPhone(found.phone || '');
-      setCustomerEmail(found.email || '');
-      setCustomerAddress(found.address || '');
-      setCustomerGstin(found.gstin || '');
-    }
+  // Customer selection helper
+  const handleSelectCustomer = (cust: Customer) => {
+    setSelectedCustomerId(cust.id);
+    setCustomerName(cust.name || '');
+    setCustomerPhone(cust.phone || '');
+    setCustomerSearchQuery('');
+    setIsCustomerDropdownOpen(false);
   };
 
-  // Add Product Line Item
+  const filteredCustomers = useMemo(() => {
+    const q = (customerSearchQuery || customerName || '').trim().toLowerCase();
+    if (!q) return customersList.slice(0, 6);
+    return customersList.filter(
+      c => (c.name && c.name.toLowerCase().includes(q)) || (c.phone && c.phone.includes(q))
+    ).slice(0, 6);
+  }, [customersList, customerSearchQuery, customerName]);
+
+  // 3. Add Product Line Item
   const addLineItem = (prod?: Product) => {
     const id = `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
     if (prod) {
       const origPrice = Number(prod.sellingPrice || prod.retailPrice || prod.costPrice || 0);
-      const taxRate = Number(prod.taxRate || 18);
-      const defaultQty = 50; // standard bulk order starter
-      const discountType = 'fixed';
-      const discountVal = Math.round(origPrice * 0.05); // 5% default bulk discount
-      const discountPerUnit = Math.min(origPrice, Math.max(0, discountVal));
-      const discountedUnit = Math.max(0, origPrice - discountPerUnit);
-      const totalAmt = defaultQty * discountedUnit;
+      const taxRate = Number(prod.taxRate ?? 18);
+      const qty = 1;
+      const discPct = 0;
+      const discAmt = 0;
+      const finalUnit = origPrice;
+      const totalAmt = qty * finalUnit;
       const taxAmt = (totalAmt * taxRate) / 100;
 
       const newItem: BulkOrderLineItem = {
         id,
         productId: prod.id,
         productName: prod.name,
-        sku: prod.sku || prod.code || 'SKU-GEN',
+        sku: prod.sku || prod.code || '',
         availableStock: Number(prod.currentStock || 0),
-        quantity: defaultQty,
+        quantity: qty,
         unit: prod.primaryUnit || 'Piece',
         originalUnitPrice: origPrice,
-        discountType,
-        discountValue: discountVal,
-        discountPerUnit,
-        discountedUnitPrice: discountedUnit,
+        discountPercent: discPct,
+        discountAmount: discAmt,
+        finalUnitPrice: finalUnit,
+        totalAmount: totalAmt,
         taxRate,
-        taxAmt,
-        totalAmount: totalAmt
+        taxAmt
       };
       setLineItems(prev => [...prev, newItem]);
     } else {
@@ -192,61 +172,61 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
         productName: '',
         sku: '',
         availableStock: 0,
-        quantity: 100,
+        quantity: 1,
         unit: 'Piece',
         originalUnitPrice: 0,
-        discountType: 'fixed',
-        discountValue: 0,
-        discountPerUnit: 0,
-        discountedUnitPrice: 0,
+        discountPercent: 0,
+        discountAmount: 0,
+        finalUnitPrice: 0,
+        totalAmount: 0,
         taxRate: 18,
-        taxAmt: 0,
-        totalAmount: 0
+        taxAmt: 0
       };
       setLineItems(prev => [...prev, newItem]);
     }
   };
 
-  // Update Line Item Field
+  // 4. Update Line Item Field with Automatic Calculations
   const updateLineItem = (id: string, updates: Partial<BulkOrderLineItem>) => {
     setLineItems(prev =>
       prev.map(item => {
         if (item.id !== id) return item;
         const merged = { ...item, ...updates };
 
-        // Recalculate discounts and totals
-        const orig = Math.max(0, Number(merged.originalUnitPrice || 0));
+        const origPrice = Math.max(0, Number(merged.originalUnitPrice || 0));
         const qty = Math.max(1, Number(merged.quantity || 1));
-        const discVal = Math.max(0, Number(merged.discountValue || 0));
+        const discPct = Math.min(100, Math.max(0, Number(merged.discountPercent || 0)));
         const taxRate = Math.max(0, Number(merged.taxRate ?? 18));
 
-        let discPerUnit = 0;
-        if (merged.discountType === 'percentage') {
-          discPerUnit = (orig * discVal) / 100;
-        } else {
-          discPerUnit = discVal;
-        }
-        // Cap discount so unit price cannot be negative
-        discPerUnit = Math.min(orig, Math.max(0, discPerUnit));
-        const discountedUnit = Math.max(0, orig - discPerUnit);
-        const lineTotal = qty * discountedUnit;
-        const taxAmt = (lineTotal * taxRate) / 100;
+        // Required Automatic Calculations:
+        // 1. Discount Amount = Original Unit Price * Discount Percentage
+        const discountAmount = Math.round(((origPrice * discPct) / 100) * 100) / 100;
+
+        // 2. Final Unit Price = Original Unit Price - Discount Amount
+        const finalUnitPrice = Math.max(0, Math.round((origPrice - discountAmount) * 100) / 100);
+
+        // 3. Final Total = Quantity * Final Unit Price
+        const totalAmount = Math.round((qty * finalUnitPrice) * 100) / 100;
+
+        // 4. GST Amount (if applicable)
+        const taxAmt = Math.round(((totalAmount * taxRate) / 100) * 100) / 100;
 
         return {
           ...merged,
-          originalUnitPrice: orig,
+          originalUnitPrice: origPrice,
           quantity: qty,
-          discountValue: discVal,
-          discountPerUnit: Math.round(discPerUnit * 100) / 100,
-          discountedUnitPrice: Math.round(discountedUnit * 100) / 100,
-          totalAmount: Math.round(lineTotal * 100) / 100,
-          taxAmt: Math.round(taxAmt * 100) / 100
+          discountPercent: discPct,
+          discountAmount,
+          finalUnitPrice,
+          totalAmount,
+          taxRate,
+          taxAmt
         };
       })
     );
   };
 
-  // Search and Filter Matching Products for Searchable Input
+  // Matching Products from Master for Autocomplete
   const getMatchingProducts = (currentText: string) => {
     const query = (currentText || '').trim().toLowerCase();
     if (!query) {
@@ -261,7 +241,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
       .slice(0, 8);
   };
 
-  // Direct Product Selection from Master / Stock Suggestions
+  // Select Product from Master
   const handleProductSelectDirect = (id: string, prod: any) => {
     const origPrice = Number(prod.sellingPrice || prod.retailPrice || prod.costPrice || 0);
     const taxRate = Number(prod.taxRate ?? 18);
@@ -270,7 +250,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     updateLineItem(id, {
       productId: prod.id,
       productName: prod.name,
-      sku: prod.sku || prod.code || 'SKU-GEN',
+      sku: prod.sku || prod.code || '',
       availableStock: stock,
       unit: prod.primaryUnit || 'Piece',
       originalUnitPrice: origPrice,
@@ -279,7 +259,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     setActiveSearchRowId(null);
   };
 
-  // Manual or Typing Product Name
+  // Typing Product Name
   const handleProductNameChange = (id: string, text: string) => {
     setActiveSearchRowId(id);
     const exactMatch = catalogProducts.find(
@@ -287,19 +267,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     );
 
     if (exactMatch) {
-      const origPrice = Number(exactMatch.sellingPrice || exactMatch.retailPrice || exactMatch.costPrice || 0);
-      const taxRate = Number(exactMatch.taxRate ?? 18);
-      const stock = Number(exactMatch.currentStock || 0);
-
-      updateLineItem(id, {
-        productId: exactMatch.id,
-        productName: text,
-        sku: exactMatch.sku || exactMatch.code || 'SKU-GEN',
-        availableStock: stock,
-        unit: exactMatch.primaryUnit || 'Piece',
-        originalUnitPrice: origPrice,
-        taxRate: taxRate
-      });
+      handleProductSelectDirect(id, exactMatch);
     } else {
       updateLineItem(id, {
         productName: text,
@@ -308,7 +276,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     }
   };
 
-  // Clear Selected Product
+  // Clear or Remove Line Item
   const clearProduct = (id: string) => {
     updateLineItem(id, {
       productId: '',
@@ -316,11 +284,13 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
       sku: '',
       availableStock: 0,
       originalUnitPrice: 0,
-      discountValue: 0
+      discountPercent: 0,
+      discountAmount: 0,
+      finalUnitPrice: 0,
+      totalAmount: 0
     });
   };
 
-  // Remove Line Item
   const removeLineItem = (id: string) => {
     if (lineItems.length <= 1) {
       clearProduct(id);
@@ -329,55 +299,51 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     setLineItems(prev => prev.filter(i => i.id !== id));
   };
 
-  // Live Summary Calculations
+  // 4. Live Automatic Summary Calculations
   const summary = useMemo(() => {
-    let grossSubtotal = 0;
-    let totalBulkDiscount = 0;
-    let netSubtotal = 0;
-    let totalTax = 0;
+    let subtotal = 0;      // Original Total = sum(Quantity * Original Unit Price)
+    let totalDiscount = 0; // Total Discount = sum(Quantity * Discount Amount)
+    let gstTotal = 0;      // GST (if applicable) = sum(taxAmt)
+    let grandTotal = 0;    // Grand Total = Subtotal - Total Discount + GST
     let totalQty = 0;
 
     lineItems.forEach(item => {
       const origLine = item.quantity * item.originalUnitPrice;
-      const discLine = item.quantity * item.discountPerUnit;
-      const netLine = item.totalAmount;
+      const discLine = item.quantity * item.discountAmount;
       const taxLine = item.taxAmt;
 
-      grossSubtotal += origLine;
-      totalBulkDiscount += discLine;
-      netSubtotal += netLine;
-      totalTax += taxLine;
+      subtotal += origLine;
+      totalDiscount += discLine;
+      gstTotal += taxLine;
       totalQty += item.quantity;
     });
 
-    const addCharges = Math.max(0, Number(additionalCharges || 0));
-    const grandTotal = Math.round((netSubtotal + totalTax + addCharges) * 100) / 100;
-    const advance = Math.min(grandTotal, Math.max(0, Number(advancePayment || 0)));
-    const balanceDue = Math.max(0, Math.round((grandTotal - advance) * 100) / 100);
-
-    const effectiveDiscountPercent = grossSubtotal > 0 ? (totalBulkDiscount / grossSubtotal) * 100 : 0;
+    subtotal = Math.round(subtotal * 100) / 100;
+    totalDiscount = Math.round(totalDiscount * 100) / 100;
+    gstTotal = Math.round(gstTotal * 100) / 100;
+    grandTotal = Math.round((subtotal - totalDiscount + gstTotal) * 100) / 100;
 
     return {
-      grossSubtotal: Math.round(grossSubtotal * 100) / 100,
-      totalBulkDiscount: Math.round(totalBulkDiscount * 100) / 100,
-      netSubtotal: Math.round(netSubtotal * 100) / 100,
-      totalTax: Math.round(totalTax * 100) / 100,
-      additionalCharges: addCharges,
+      subtotal,
+      totalDiscount,
+      gstTotal,
       grandTotal,
-      advancePayment: advance,
-      balanceDue,
-      totalQty,
-      effectiveDiscountPercent: Math.round(effectiveDiscountPercent * 10) / 10
+      totalQty
     };
-  }, [lineItems, additionalCharges, advancePayment]);
+  }, [lineItems]);
 
-  // Handle Save (Draft or Bulk Order)
+  // 5 & 6. Handle Save (Draft or Quotation)
   const handleSave = async (isDraft: boolean) => {
     setErrorMessage(null);
 
     // Validation
+    if (!validUntil) {
+      setErrorMessage('Please specify the mandatory "Valid Until" date.');
+      return;
+    }
+
     if (!customerName.trim()) {
-      setErrorMessage('Please enter or select a customer name.');
+      setErrorMessage('Please enter customer name.');
       return;
     }
 
@@ -390,39 +356,28 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     setIsSaving(true);
     try {
       const targetCompanyId = company?.id || '00000000-0000-0000-0000-000000000001';
-      const orderStatus = isDraft ? 'Draft' : 'Ordered';
-      const actualDocType = isDraft ? 'quotation' : (docType === 'quotation' ? 'quotation' : 'bulk_order');
+      // Mark as Expired after expiry date
+      const orderStatus = isExpired ? 'Expired' : isDraft ? 'Draft' : 'Quotation';
+      const actualDocType = 'quotation';
 
-      // Prepare rich JSON metadata
-      const bulkMeta = {
-        isBulkOrder: true,
+      // Rich JSON Metadata
+      const quotationMeta = {
         docType: actualDocType,
         orderStatus,
+        validUntil,
+        isExpired,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
-        customerEmail: customerEmail.trim(),
-        customerAddress: customerAddress.trim(),
-        customerGstin: customerGstin.trim(),
-        warehouseId: warehouseId || null,
-        warehouseName: warehouses.find(w => w.id === warehouseId)?.name || 'Central Godown',
-        grossSubtotal: summary.grossSubtotal,
-        totalBulkDiscount: summary.totalBulkDiscount,
-        effectiveDiscountPercent: summary.effectiveDiscountPercent,
-        netSubtotal: summary.netSubtotal,
-        additionalCharges: summary.additionalCharges,
-        additionalChargesNote,
-        taxTotal: summary.totalTax,
+        subtotal: summary.subtotal,
+        totalDiscount: summary.totalDiscount,
+        gstTotal: summary.gstTotal,
         grandTotal: summary.grandTotal,
-        advancePayment: summary.advancePayment,
-        balanceDue: summary.balanceDue,
-        paymentMethod,
-        termsAndConditions,
-        specialNotes: notes
+        validityNotice: 'This quotation is valid until the specified date. Prices may change after the validity period.'
       };
 
       const metaPrefix = '<!-- UB_BULK_ORDER_META:';
       const metaSuffix = ' -->';
-      const combinedNotes = `${notes.trim()}\n${metaPrefix}${JSON.stringify(bulkMeta)}${metaSuffix}`;
+      const combinedNotes = `Quotation valid until ${validUntil}. Prices may change after validity period.\n${metaPrefix}${JSON.stringify(quotationMeta)}${metaSuffix}`;
 
       // Insert into purchases table
       const purchasePayload = {
@@ -430,18 +385,16 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
         invoice_number: billNumber,
         doc_type: actualDocType,
         date: orderDate,
-        due_date: deliveryDate,
+        due_date: validUntil,
         supplier_id: null,
         supplier_name: customerName.trim(),
-        supplier_gstin: customerGstin.trim() || null,
-        warehouse_id: warehouseId && warehouseId.length === 36 ? warehouseId : null,
-        subtotal: summary.netSubtotal,
-        tax_total: summary.totalTax,
-        freight_charges: summary.additionalCharges,
+        subtotal: Math.max(0, summary.subtotal - summary.totalDiscount),
+        tax_total: summary.gstTotal,
+        freight_charges: 0,
         other_charges: 0,
         grand_total: summary.grandTotal,
-        paid_amount: summary.advancePayment,
-        payment_status: summary.balanceDue === 0 && summary.grandTotal > 0 ? 'Paid' : summary.advancePayment > 0 ? 'Partial' : 'Unpaid',
+        paid_amount: 0,
+        payment_status: isExpired ? 'Expired' : isDraft ? 'Draft' : 'Unpaid',
         notes: combinedNotes
       };
 
@@ -452,7 +405,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
         .single();
 
       if (purchaseError || !purchaseData) {
-        throw new Error(purchaseError?.message || 'Failed to save order to database.');
+        throw new Error(purchaseError?.message || 'Failed to save quotation.');
       }
 
       // Insert line items into purchase_items table
@@ -462,8 +415,8 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
         product_name: item.productName.trim(),
         qty: item.quantity,
         unit: item.unit || 'Piece',
-        rate: item.discountedUnitPrice, // negotiated discounted unit rate
-        discount: Math.round(item.quantity * item.discountPerUnit * 100) / 100, // total bulk discount
+        rate: item.finalUnitPrice,
+        discount: Math.round(item.quantity * item.discountAmount * 100) / 100,
         tax_rate: item.taxRate,
         tax_amt: item.taxAmt,
         total: item.totalAmount
@@ -477,27 +430,24 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
         console.warn('Items insert warning:', itemsError.message);
       }
 
-      // If customer is not existing and user entered info, auto-save customer for convenience
+      // Auto-save new customer for fast reuse
       if (!selectedCustomerId && customerName.trim()) {
         try {
           await supabase.from('customers').insert({
             company_id: targetCompanyId,
             name: customerName.trim(),
             phone: customerPhone.trim() || null,
-            email: customerEmail.trim() || null,
-            address: customerAddress.trim() || null,
-            gstin: customerGstin.trim() || null,
-            customer_type: 'Wholesale'
+            customer_type: 'Retail'
           });
-        } catch (custErr) {
-          // non-blocking
-        }
+        } catch {}
       }
 
       setSaveSuccess(
         isDraft
           ? `Quotation Draft #${billNumber} saved successfully!`
-          : `Quotation #${billNumber} saved successfully and added to Active Order Tracking!`
+          : isExpired
+          ? `Quotation #${billNumber} saved (Marked as Expired).`
+          : `Quotation #${billNumber} saved successfully!`
       );
 
       if (refreshData) {
@@ -517,12 +467,33 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
     }
   };
 
-  // Print Bill / Generate PDF Handler
+  // Print Quotation Handler: prints using existing format, then automatically redirects to main Dashboard after print completes
   const handlePrint = () => {
-    setActiveTab('preview');
+    let redirected = false;
+
+    const completePrintAndRedirect = () => {
+      if (redirected) return;
+      redirected = true;
+      window.removeEventListener('afterprint', completePrintAndRedirect);
+      onClose();
+      navigate('/');
+    };
+
+    window.addEventListener('afterprint', completePrintAndRedirect, { once: true });
+
+    // Open print dialog
+    window.print();
+
+    // Fallback: window.print() is blocking in desktop browsers, so setTimeout executes after dialog closes
     setTimeout(() => {
-      window.print();
-    }, 250);
+      completePrintAndRedirect();
+    }, 150);
+  };
+
+  // Cancel Handler: close modal and return to main Dashboard without saving or printing
+  const handleCancel = () => {
+    onClose();
+    navigate('/');
   };
 
   if (!isOpen) return null;
@@ -530,7 +501,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static print:inset-auto">
       {/* Modal Container */}
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-6xl max-h-[96vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:border-none print:shadow-none print:max-w-none print:max-h-none print:w-full">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:border-none print:shadow-none print:max-w-none print:max-h-none print:w-full">
         
         {/* Top Header - Hidden in Print */}
         <div className="p-4 sm:px-6 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800 print:hidden">
@@ -541,50 +512,29 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                  Quotation System
+                  Quotation Form
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                  Quotation
-                </span>
+                {isExpired ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-400/30 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Expired
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                    Active
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400">
-                Create commercial quotations with volume pricing, negotiated discounts, tax calculations, and formal proposal exports.
+                Quick quotation generator with automatic pricing, discounts, and validity tracking.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Form vs Preview Tab */}
-            <div className="flex bg-slate-800/80 p-0.5 rounded-xl border border-slate-700/60">
-              <button
-                type="button"
-                onClick={() => setActiveTab('form')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  activeTab === 'form'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Quotation Editor
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('preview')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeTab === 'preview'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Quotation Preview</span>
-              </button>
-            </div>
-
             <button
               type="button"
-              onClick={onClose}
-              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer ml-1"
+              onClick={handleCancel}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
               title="Close"
             >
               <X className="w-5 h-5" />
@@ -607,165 +557,181 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
         )}
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 print:p-0 print:overflow-visible">
-          {activeTab === 'form' ? (
-            <>
-              {/* Top Configuration Bar: Quotation Number, Date, Warehouse */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200/90 text-xs">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Quotation Number
-                  </label>
-                  <input
-                    type="text"
-                    value={billNumber}
-                    onChange={e => setBillNumber(e.target.value)}
-                    className="w-full h-8.5 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 print:p-0 print:overflow-visible">
+          {/* Main Quotation Form - Hidden in Print */}
+          <div className="space-y-5 print:hidden">
+            {/* 1. Quotation Details: Keep ONLY Quotation Number, Quotation Date, Valid Until */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                      1. Quotation Details
+                    </h3>
+                  </div>
+                  {isExpired && (
+                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-rose-600" /> Quotation Expired
+                    </span>
+                  )}
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Quotation Date
-                  </label>
-                  <input
-                    type="date"
-                    value={orderDate}
-                    onChange={e => setOrderDate(e.target.value)}
-                    className="w-full h-8.5 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Quotation Number
+                    </label>
+                    <input
+                      type="text"
+                      value={billNumber}
+                      onChange={e => setBillNumber(e.target.value)}
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Fulfillment Warehouse
-                  </label>
-                  <select
-                    value={warehouseId}
-                    onChange={e => setWarehouseId(e.target.value)}
-                    className="w-full h-8.5 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    {warehouses.map(w => (
-                      <option key={w.id} value={w.id}>
-                        {w.name} {w.code ? `(${w.code})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Quotation Date
+                    </label>
+                    <input
+                      type="date"
+                      value={orderDate}
+                      onChange={e => setOrderDate(e.target.value)}
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Valid Until <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={validUntil}
+                      onChange={e => setValidUntil(e.target.value)}
+                      required
+                      className={`w-full h-9 px-3 rounded-lg border font-mono focus:outline-none focus:ring-2 ${
+                        isExpired
+                          ? 'border-rose-400 bg-rose-50/50 text-rose-900 focus:ring-rose-500/20 focus:border-rose-500'
+                          : 'border-slate-200 bg-white text-slate-900 focus:ring-blue-500/20 focus:border-blue-500'
+                      }`}
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Section 1: Customer Information */}
+              {/* 2. Customer Details: Keep ONLY Customer Name and Phone Number */}
               <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-3">
-                <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                   <User className="w-4 h-4 text-blue-600" />
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                    Customer Information & Procurement Details
+                    2. Customer Details
                   </h3>
                 </div>
 
-                <div className="space-y-3 text-xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Customer Name <span className="text-rose-500">*</span>
-                      </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                  {/* Customer Name */}
+                  <div className="relative">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Customer Name <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
                       <input
                         type="text"
-                        placeholder="e.g. Apex Infrastructures Ltd"
+                        placeholder="Search or enter customer name..."
                         value={customerName}
-                        onChange={e => setCustomerName(e.target.value)}
-                        className="w-full h-8.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
+                        onChange={e => {
+                          setCustomerName(e.target.value);
+                          setCustomerSearchQuery(e.target.value);
+                          setIsCustomerDropdownOpen(true);
+                          setSelectedCustomerId('');
+                        }}
+                        onFocus={() => setIsCustomerDropdownOpen(true)}
+                        onBlur={() => setTimeout(() => setIsCustomerDropdownOpen(false), 250)}
+                        className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         required
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Phone Number <span className="text-rose-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                        <input
-                          type="text"
-                          placeholder="+91 98765 43210"
-                          value={customerPhone}
-                          onChange={e => setCustomerPhone(e.target.value)}
-                          className="w-full h-8.5 pl-8 pr-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono"
-                        />
+                    {/* Customer Autocomplete Dropdown */}
+                    {isCustomerDropdownOpen && filteredCustomers.length > 0 && (
+                      <div className="absolute top-full left-0 z-40 mt-1 w-full bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden py-1 max-h-48 overflow-y-auto">
+                        <div className="px-3 py-1 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Existing Customers
+                        </div>
+                        {filteredCustomers.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              handleSelectCustomer(c);
+                            }}
+                            className="w-full px-3 py-2 text-left hover:bg-blue-50 transition-colors flex items-center justify-between text-xs cursor-pointer border-b border-slate-50 last:border-0"
+                          >
+                            <span className="font-semibold text-slate-800">{c.name}</span>
+                            {c.phone && (
+                              <span className="text-slate-500 font-mono text-[11px]">{c.phone}</span>
+                            )}
+                          </button>
+                        ))}
                       </div>
-                    </div>
+                    )}
                   </div>
 
+                  {/* Phone Number */}
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Billing / Delivery Address
+                      Phone Number
                     </label>
                     <div className="relative">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
                       <input
                         type="text"
-                        placeholder="Plot No. 45, MIDC Industrial Estate, Mumbai, MH"
-                        value={customerAddress}
-                        onChange={e => setCustomerAddress(e.target.value)}
-                        className="w-full h-8.5 pl-8 pr-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        placeholder="+91 98765 43210"
+                        value={customerPhone}
+                        onChange={e => setCustomerPhone(e.target.value)}
+                        className="w-full h-9 pl-8 pr-3 rounded-lg border border-slate-200 bg-white text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                       />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Section 2: Products & Bulk Discount Line Items */}
+              {/* 3. Product Details Table */}
               <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                   <div className="flex items-center gap-2">
-                    <Tag className="w-4 h-4 text-blue-600" />
-                    <div>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                        Product Selection & Discount Pricing
-                      </h3>
-                      <p className="text-[11px] text-slate-500">
-                        Select products from master, specify order volumes, and apply negotiated fixed or percentage discounts.
-                      </p>
-                    </div>
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                      3. Product Details
+                    </h3>
                   </div>
 
                   <button
                     type="button"
                     onClick={() => addLineItem()}
-                    className="h-8 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
+                    className="h-8 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Add Product Item</span>
+                    <span>Add Product</span>
                   </button>
                 </div>
 
-                {/* Example Explainer Banner */}
-                <div className="p-2.5 rounded-lg bg-blue-50/70 border border-blue-200/70 text-[11px] text-blue-900 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>
-                      <strong>Bulk Discount Formula:</strong> Discounted Unit Price = Original Unit Price − Bulk Discount.
-                      (e.g., ₹400 − ₹20 = ₹380/unit × 100 qty = ₹38,000 total). Negative prices are prevented automatically.
-                    </span>
-                  </div>
-                  <span className="font-mono font-bold text-blue-700 shrink-0">
-                    {lineItems.length} Product{lineItems.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
-
-                {/* Products Table */}
-                <div className="border border-slate-200 rounded-xl overflow-x-auto min-h-[220px]">
-                  <table className="w-full text-left text-xs min-w-[780px]">
+                {/* Table */}
+                <div className="border border-slate-200 rounded-xl overflow-x-auto min-h-[180px]">
+                  <table className="w-full text-left text-xs min-w-[760px]">
                     <thead className="bg-slate-100 text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                       <tr>
-                        <th className="py-2.5 px-3 w-10 text-center font-bold">#</th>
-                        <th className="py-2.5 px-3 min-w-[260px] font-bold">Product Name</th>
-                        <th className="py-2.5 px-2 text-center w-24 font-bold">Quantity</th>
+                        <th className="py-2.5 px-3 w-8 text-center font-bold">#</th>
+                        <th className="py-2.5 px-3 min-w-[220px] font-bold">Product Name</th>
+                        <th className="py-2.5 px-2 text-center w-20 font-bold">Quantity</th>
                         <th className="py-2.5 px-2 text-center w-20 font-bold">Unit</th>
-                        <th className="py-2.5 px-2 text-right w-28 font-bold">Original Price</th>
-                        <th className="py-2.5 px-2 text-center w-40 font-bold">Bulk Discount</th>
-                        <th className="py-2.5 px-2 text-right w-28 font-bold">Net Rate</th>
-                        <th className="py-2.5 px-3 text-right w-28 font-bold">Total</th>
+                        <th className="py-2.5 px-2 text-right w-28 font-bold">Original Unit Price</th>
+                        <th className="py-2.5 px-2 text-center w-24 font-bold">Discount (%)</th>
+                        <th className="py-2.5 px-2 text-right w-28 font-bold">Discount Amount</th>
+                        <th className="py-2.5 px-2 text-right w-28 font-bold">Final Unit Price</th>
+                        <th className="py-2.5 px-3 text-right w-28 font-bold">Total Amount</th>
                         <th className="py-2.5 px-2 text-center w-12 font-bold">Action</th>
                       </tr>
                     </thead>
@@ -775,13 +741,13 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                         const isSearchOpen = activeSearchRowId === item.id;
 
                         return (
-                          <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                            {/* 1. # */}
+                          <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                            {/* # */}
                             <td className="py-2.5 px-3 text-center font-mono text-slate-400 font-bold">
                               {idx + 1}
                             </td>
 
-                            {/* 2. Product Name (Single Combined Searchable & Manual Field) */}
+                            {/* 1. Product Name (Searchable from Product Master) */}
                             <td className="py-2.5 px-3 relative">
                               <div className="relative">
                                 <div className="relative flex items-center">
@@ -792,7 +758,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                                     onChange={e => handleProductNameChange(item.id, e.target.value)}
                                     onFocus={() => setActiveSearchRowId(item.id)}
                                     onBlur={() => setTimeout(() => setActiveSearchRowId(null), 250)}
-                                    placeholder="Search product master or type custom name..."
+                                    placeholder="Select from Product Master or type..."
                                     className="w-full h-8 pl-8 pr-7 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                   />
                                   {item.productName && (
@@ -807,12 +773,12 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                                   )}
                                 </div>
 
-                                {/* Autocomplete Suggestion Dropdown */}
+                                {/* Autocomplete Dropdown */}
                                 {isSearchOpen && (
-                                  <div className="absolute top-full left-0 z-50 mt-1 w-full min-w-[320px] max-w-[420px] bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden py-1 max-h-56 overflow-y-auto">
-                                    <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
-                                      <span>Stock Catalog Matches</span>
-                                      <span>{matchingProds.length} available</span>
+                                  <div className="absolute top-full left-0 z-50 mt-1 w-full min-w-[300px] max-w-[400px] bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden py-1 max-h-52 overflow-y-auto">
+                                    <div className="px-3 py-1 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
+                                      <span>Product Master Catalog</span>
+                                      <span>{matchingProds.length} matches</span>
                                     </div>
                                     {matchingProds.length > 0 ? (
                                       matchingProds.map(p => (
@@ -823,21 +789,16 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                                             e.preventDefault();
                                             handleProductSelectDirect(item.id, p);
                                           }}
-                                          className="w-full px-3 py-2 text-left hover:bg-blue-50/80 transition-colors border-b border-slate-50 last:border-0 flex items-center justify-between gap-2 group cursor-pointer"
+                                          className="w-full px-3 py-2 text-left hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0 flex items-center justify-between gap-2 group cursor-pointer"
                                         >
                                           <div className="min-w-0 flex-1">
                                             <div className="font-semibold text-xs text-slate-900 group-hover:text-blue-700 truncate">
                                               {p.name}
                                             </div>
                                             <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
-                                              {p.sku && (
-                                                <span className="font-mono bg-slate-100 px-1 rounded text-slate-600">
-                                                  {p.sku}
-                                                </span>
-                                              )}
-                                              {p.primaryUnit && <span>{p.primaryUnit}</span>}
+                                              {p.primaryUnit && <span>Unit: {p.primaryUnit}</span>}
                                               {p.currentStock !== undefined && (
-                                                <span className={`font-medium ${p.currentStock > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                <span className={p.currentStock > 0 ? 'text-emerald-600' : 'text-slate-400'}>
                                                   Stock: {p.currentStock}
                                                 </span>
                                               )}
@@ -847,61 +808,42 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                                             <span className="font-mono font-bold text-xs text-slate-900 block">
                                               ₹{formatNumber(p.sellingPrice || p.retailPrice || p.costPrice || 0)}
                                             </span>
-                                            <span className="text-[10px] text-slate-400 font-mono">
-                                              GST: {p.taxRate || 18}%
-                                            </span>
                                           </div>
                                         </button>
                                       ))
                                     ) : (
                                       <div className="p-3 text-center text-xs text-slate-500">
-                                        No stock product matching &ldquo;{item.productName}&rdquo;.
-                                        <div className="text-[10px] text-slate-400 mt-0.5">
-                                          Manual entry: you can specify unit and price directly.
-                                        </div>
+                                        No master product found. You can enter unit and price manually.
                                       </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Stock Item Badge */}
-                                {item.productId && (
-                                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-1 px-0.5">
-                                    <span className="inline-flex items-center gap-0.5 text-blue-600 font-medium">
-                                      <Check className="w-2.5 h-2.5" /> Master Linked
-                                    </span>
-                                    {item.sku && <span>SKU: {item.sku}</span>}
-                                    {item.availableStock !== undefined && item.availableStock > 0 && (
-                                      <span className="text-emerald-600">Stock: {item.availableStock}</span>
                                     )}
                                   </div>
                                 )}
                               </div>
                             </td>
 
-                            {/* 3. Quantity */}
+                            {/* 2. Quantity */}
                             <td className="py-2.5 px-2 text-center">
                               <input
                                 type="number"
                                 min="1"
                                 value={item.quantity}
                                 onChange={e => updateLineItem(item.id, { quantity: Number(e.target.value) })}
-                                className="w-20 h-8 px-2 text-center font-mono font-bold text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                className="w-18 h-8 px-2 text-center font-mono font-bold text-xs rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </td>
 
-                            {/* 4. Unit */}
+                            {/* 3. Unit */}
                             <td className="py-2.5 px-2 text-center">
                               <input
                                 type="text"
                                 value={item.unit}
                                 onChange={e => updateLineItem(item.id, { unit: e.target.value })}
-                                className="w-16 h-8 px-1 text-center font-medium text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="Pcs"
+                                placeholder="Piece"
+                                className="w-16 h-8 px-1 text-center font-medium text-xs rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </td>
 
-                            {/* 5. Original Price */}
+                            {/* 4. Original Unit Price (Auto-fetched from Product Master) */}
                             <td className="py-2.5 px-2 text-right">
                               <input
                                 type="number"
@@ -909,63 +851,53 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                                 step="0.01"
                                 value={item.originalUnitPrice || ''}
                                 onChange={e => updateLineItem(item.id, { originalUnitPrice: Number(e.target.value) })}
-                                className="w-24 h-8 px-2 text-right font-mono font-semibold text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="0"
+                                placeholder="0.00"
+                                className="w-24 h-8 px-2 text-right font-mono font-semibold text-xs rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </td>
 
-                            {/* 6. Bulk Discount (Clean Dropdown + Value, No Automatic Buttons) */}
-                            <td className="py-2.5 px-2">
-                              <div className="flex items-center gap-1 justify-center">
-                                <select
-                                  value={item.discountType}
-                                  onChange={e => updateLineItem(item.id, { discountType: e.target.value as any })}
-                                  className="h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                                >
-                                  <option value="percentage">% / unit</option>
-                                  <option value="fixed">₹ / unit</option>
-                                </select>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step={item.discountType === 'percentage' ? '0.1' : '1'}
-                                  value={item.discountValue || ''}
-                                  onChange={e => updateLineItem(item.id, { discountValue: Number(e.target.value) })}
-                                  className="w-16 h-8 px-2 text-right font-mono font-bold text-xs rounded-lg border border-slate-200 text-blue-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="0"
-                                />
-                              </div>
+                            {/* 5. Discount (%) */}
+                            <td className="py-2.5 px-2 text-center">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.1"
+                                value={item.discountPercent || ''}
+                                onChange={e => updateLineItem(item.id, { discountPercent: Number(e.target.value) })}
+                                placeholder="0"
+                                className="w-18 h-8 px-2 text-center font-mono font-bold text-xs rounded-lg border border-slate-200 text-blue-700 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              />
                             </td>
 
-                            {/* 7. Net Rate */}
+                            {/* 6. Discount Amount (Auto-calculated: Original Unit Price * Discount %) */}
+                            <td className="py-2.5 px-2 text-right">
+                              <span className="font-mono font-semibold text-emerald-600 block text-xs">
+                                ₹{formatNumber(item.discountAmount)}
+                              </span>
+                            </td>
+
+                            {/* 7. Final Unit Price (Auto-calculated: Original Unit Price - Discount Amount) */}
                             <td className="py-2.5 px-2 text-right">
                               <span className="font-mono font-bold text-slate-900 block text-xs">
-                                ₹{formatNumber(item.discountedUnitPrice)}
+                                ₹{formatNumber(item.finalUnitPrice)}
                               </span>
-                              {item.discountPerUnit > 0 && (
-                                <span className="text-[10px] text-emerald-600 font-mono block">
-                                  -₹{formatNumber(item.discountPerUnit)} off
-                                </span>
-                              )}
                             </td>
 
-                            {/* 8. Total */}
+                            {/* 8. Total Amount (Auto-calculated: Quantity * Final Unit Price) */}
                             <td className="py-2.5 px-3 text-right">
                               <span className="font-mono font-bold text-blue-600 block text-xs">
                                 ₹{formatNumber(item.totalAmount)}
                               </span>
-                              <span className="text-[10px] text-slate-400 font-mono block">
-                                Tax: {item.taxRate}%
-                              </span>
                             </td>
 
-                            {/* 9. Action */}
+                            {/* 9. Action (Remove Product) */}
                             <td className="py-2.5 px-2 text-center">
                               <button
                                 type="button"
                                 onClick={() => removeLineItem(item.id)}
                                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                title="Remove item"
+                                title="Remove Product"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -978,152 +910,80 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                 </div>
               </div>
 
-              {/* Section 3: Summary, Delivery Charges & Payment Details */}
+              {/* 4 & 5. Automatic Calculations Display & Quotation Validity */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Terms & Conditions, Notes & Advance Payment */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-3 text-xs">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      Terms & Conditions
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={termsAndConditions}
-                      onChange={e => setTermsAndConditions(e.target.value)}
-                      placeholder="Enter payment and delivery conditions."
-                      className="w-full p-2.5 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400"
-                    />
+                {/* 5. Quotation Validity Notice */}
+                <div className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
+                  isExpired
+                    ? 'bg-rose-50/70 border-rose-200 text-rose-900'
+                    : 'bg-amber-50/70 border-amber-200 text-amber-900'
+                }`}>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Clock className={`w-4 h-4 shrink-0 ${isExpired ? 'text-rose-600' : 'text-amber-600'}`} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider">
+                        {isExpired ? 'Quotation Expired' : 'Quotation Validity Notice'}
+                      </h4>
+                    </div>
+                    <p className="text-xs leading-relaxed font-medium">
+                      &ldquo;This quotation is valid until the specified date. Prices may change after the validity period.&rdquo;
+                    </p>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      Notes
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={notes}
-                      onChange={e => setNotes(e.target.value)}
-                      placeholder="Enter any special instructions."
-                      className="w-full p-2.5 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Payment Method
-                      </label>
-                      <select
-                        value={paymentMethod}
-                        onChange={e => setPaymentMethod(e.target.value)}
-                        className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs font-medium focus:ring-2 focus:ring-blue-500/20"
-                      >
-                        <option value="Bank Transfer">Bank Transfer / NEFT</option>
-                        <option value="Cheque">Cheque</option>
-                        <option value="UPI">UPI</option>
-                        <option value="Cash">Cash</option>
-                        <option value="Credit / Later">Credit / 30 Days</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Advance Amount
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={advancePayment}
-                        onChange={e => setAdvancePayment(Number(e.target.value))}
-                        className="w-full h-8 px-2.5 text-right font-mono font-bold text-xs rounded-lg border border-slate-200 text-emerald-700 focus:ring-2 focus:ring-blue-500/20"
-                        placeholder="0"
-                      />
-                    </div>
+                  <div className="pt-2 border-t border-amber-200/60 text-xs font-mono flex items-center justify-between">
+                    <span className="text-slate-600">Validity Expiry Date:</span>
+                    <span className={`font-bold ${isExpired ? 'text-rose-700' : 'text-amber-800'}`}>
+                      {validUntil ? formatDate(validUntil) : 'Not specified'} {isExpired ? '(EXPIRED)' : ''}
+                    </span>
                   </div>
                 </div>
 
-                {/* Quotation Summary */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 shadow-2xs space-y-2.5 text-xs flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-800 border-b border-slate-200 pb-2 flex items-center justify-between">
-                      <span className="font-bold">Quotation Summary</span>
-                      <span className="text-[11px] text-slate-500 font-mono font-normal">
-                        Total Products: {summary.totalQty}
+                {/* 4. Live Automatic Summary */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/80 shadow-2xs space-y-2.5 text-xs">
+                  <h3 className="text-xs font-bold text-slate-800 border-b border-slate-200 pb-2 flex items-center justify-between">
+                    <span>Summary</span>
+                    <span className="text-[11px] text-slate-500 font-mono font-normal">
+                      Items: {lineItems.filter(i => i.productName.trim()).length} ({summary.totalQty} total qty)
+                    </span>
+                  </h3>
+
+                  <div className="space-y-2 pt-1 text-slate-700 font-medium">
+                    {/* Subtotal (Quantity * Original Unit Price) */}
+                    <div className="flex justify-between items-center">
+                      <span>Subtotal:</span>
+                      <span className="font-mono text-slate-900 font-semibold">
+                        ₹{formatNumber(summary.subtotal)}
                       </span>
-                    </h3>
+                    </div>
 
-                    <div className="space-y-2 pt-2 text-slate-700 font-medium">
-                      {/* Original Amount */}
-                      <div className="flex justify-between items-center">
-                        <span>Original Amount:</span>
-                        <span className="font-mono text-slate-900">₹{formatNumber(summary.grossSubtotal)}</span>
-                      </div>
+                    {/* Total Discount */}
+                    <div className="flex justify-between items-center text-emerald-600 font-semibold">
+                      <span>Total Discount:</span>
+                      <span className="font-mono">- ₹{formatNumber(summary.totalDiscount)}</span>
+                    </div>
 
-                      {/* Discount */}
-                      <div className="flex justify-between items-center text-emerald-600 font-semibold">
-                        <span className="flex items-center gap-1">
-                          <Tag className="w-3.5 h-3.5" />
-                          <span>Discount{summary.effectiveDiscountPercent > 0 ? ` (${summary.effectiveDiscountPercent}%)` : ''}:</span>
-                        </span>
-                        <span className="font-mono">- ₹{formatNumber(summary.totalBulkDiscount)}</span>
-                      </div>
+                    {/* GST (if applicable) */}
+                    <div className="flex justify-between items-center">
+                      <span>GST (if applicable):</span>
+                      <span className="font-mono text-slate-800">+ ₹{formatNumber(summary.gstTotal)}</span>
+                    </div>
 
-                      {/* Amount After Discount */}
-                      <div className="flex justify-between items-center text-slate-900 font-semibold pt-1 border-t border-slate-200/80">
-                        <span>Amount After Discount:</span>
-                        <span className="font-mono">₹{formatNumber(summary.netSubtotal)}</span>
-                      </div>
-
-                      {/* Delivery Charges */}
-                      <div className="flex justify-between items-center">
-                        <span>Delivery Charges:</span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-slate-400 font-mono">+ ₹</span>
-                          <input
-                            type="number"
-                            min="0"
-                            value={additionalCharges}
-                            onChange={e => setAdditionalCharges(Number(e.target.value))}
-                            className="w-20 h-7 px-2 text-right font-mono text-xs rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20"
-                            placeholder="0"
-                          />
-                        </div>
-                      </div>
-
-                      {/* GST */}
-                      <div className="flex justify-between items-center">
-                        <span>GST:</span>
-                        <span className="font-mono text-slate-800">+ ₹{formatNumber(summary.totalTax)}</span>
-                      </div>
-
-                      {/* Final Amount */}
-                      <div className="flex justify-between items-center p-3 rounded-xl bg-blue-600 text-white font-bold text-sm shadow-xs my-2">
-                        <span className="tracking-tight uppercase text-xs font-bold text-blue-100">Final Amount:</span>
-                        <span className="font-mono text-base font-bold">₹{formatNumber(summary.grandTotal)}</span>
-                      </div>
-
-                      {/* Advance Paid & Balance to Pay */}
-                      <div className="pt-2 border-t border-slate-200 space-y-1.5">
-                        <div className="flex justify-between items-center text-emerald-600 font-semibold">
-                          <span>Advance Paid:</span>
-                          <span className="font-mono">₹{formatNumber(summary.advancePayment)}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-slate-900 font-bold text-xs pt-1 border-t border-slate-200/60">
-                          <span>Balance to Pay:</span>
-                          <span className={`font-mono text-sm ${summary.balanceDue > 0 ? 'text-rose-600 font-bold' : 'text-slate-700'}`}>
-                            ₹{formatNumber(summary.balanceDue)}
-                          </span>
-                        </div>
-                      </div>
+                    {/* Grand Total */}
+                    <div className="flex justify-between items-center p-3 rounded-xl bg-blue-600 text-white font-bold text-sm shadow-xs mt-2">
+                      <span className="tracking-tight uppercase text-xs font-bold text-blue-100">
+                        Grand Total:
+                      </span>
+                      <span className="font-mono text-base font-bold">
+                        ₹{formatNumber(summary.grandTotal)}
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
-            </>
-          ) : (
-            /* Tab 2: Professional Printable Bill Layout */
-            <div id="printable-bulk-bill" className="bg-white p-6 sm:p-8 rounded-xl border border-slate-200 max-w-4xl mx-auto text-slate-900 space-y-6 print:border-none print:p-0 print:m-0 print:max-w-none">
+            </div>
+
+            {/* Printable Quotation Document - Visible ONLY in Print */}
+            <div id="printable-bulk-bill" className="hidden print:block bg-white p-6 sm:p-8 rounded-xl border border-slate-200 max-w-4xl mx-auto text-slate-900 space-y-6 print:border-none print:p-0 print:m-0 print:max-w-none">
               
               {/* Document Header */}
               <div className="flex justify-between items-start border-b border-slate-200 pb-6">
@@ -1135,7 +995,7 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                     {company?.address || 'Industrial Area Phase 2, Mumbai, MH - 400001'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    Phone: {company?.phone || '+91 98765 00000'} | Email: {company?.email || 'sales@universalbilling.com'}
+                    Phone: {company?.phone || '+91 98765 00000'} | Email: {company?.email || 'info@universalbilling.com'}
                   </p>
                   {company?.gstin && (
                     <p className="text-xs font-mono font-bold text-slate-700 mt-0.5">
@@ -1145,46 +1005,40 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                 </div>
 
                 <div className="text-right">
-                  <span className="inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider bg-blue-100 text-blue-800 border border-blue-200 mb-2">
-                    COMMERCIAL QUOTATION
+                  <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider border mb-2 ${
+                    isExpired
+                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                      : 'bg-blue-100 text-blue-800 border-blue-200'
+                  }`}>
+                    {isExpired ? 'QUOTATION (EXPIRED)' : 'COMMERCIAL QUOTATION'}
                   </span>
                   <div className="text-xs space-y-0.5 font-mono">
                     <p className="font-bold text-slate-900 text-sm">
                       {billNumber}
                     </p>
                     <p className="text-slate-500">Date: {formatDate(orderDate)}</p>
+                    <p className={`font-semibold ${isExpired ? 'text-rose-600' : 'text-slate-700'}`}>
+                      Valid Until: {formatDate(validUntil)}
+                    </p>
                   </div>
                 </div>
               </div>
 
-              {/* Customer & Delivery Parties */}
-              <div className="grid grid-cols-2 gap-6 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                    Billed To / Customer Details
-                  </span>
-                  <p className="font-bold text-slate-900 text-sm">{customerName || 'Valued Customer'}</p>
-                  {customerPhone && <p className="text-slate-600 mt-0.5">Phone: {customerPhone}</p>}
-                  {customerAddress && <p className="text-slate-600 mt-0.5">{customerAddress}</p>}
-                </div>
+              {/* Customer Details */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Customer Details
+                </span>
+                <p className="font-bold text-slate-900 text-sm">{customerName || 'Valued Customer'}</p>
+                {customerPhone && <p className="text-slate-600 mt-0.5 font-mono">Phone: {customerPhone}</p>}
+              </div>
 
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                    Fulfillment & Shipping Logistics
-                  </span>
-                  <p className="font-bold text-slate-800">
-                    Warehouse: {warehouses.find(w => w.id === warehouseId)?.name || 'Central Godown'}
-                  </p>
-                  <p className="text-slate-600 mt-0.5">
-                    Dispatch Terms: Standard Surface Freight
-                  </p>
-                  <p className="text-slate-600">
-                    Payment Method: {paymentMethod}
-                  </p>
-                  <p className="font-medium text-blue-700 mt-1">
-                    Status: Commercial Quotation / Proposal
-                  </p>
-                </div>
+              {/* Validity Notice Box */}
+              <div className="p-3 rounded-lg bg-amber-50/80 border border-amber-200 text-amber-900 text-xs">
+                <p className="font-semibold">Notice:</p>
+                <p className="text-[11px] mt-0.5">
+                  &ldquo;This quotation is valid until the specified date. Prices may change after the validity period.&rdquo;
+                </p>
               </div>
 
               {/* Itemized Table */}
@@ -1193,12 +1047,14 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                   <thead className="bg-slate-100 text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                     <tr>
                       <th className="py-2.5 px-3 w-8 text-center">#</th>
-                      <th className="py-2.5 px-3">Product Description</th>
+                      <th className="py-2.5 px-3">Product Name</th>
                       <th className="py-2.5 px-2 text-center">Qty</th>
-                      <th className="py-2.5 px-2 text-right">Orig. Rate</th>
-                      <th className="py-2.5 px-2 text-right">Discount</th>
-                      <th className="py-2.5 px-2 text-right">Net Rate</th>
-                      <th className="py-2.5 px-3 text-right">Total (₹)</th>
+                      <th className="py-2.5 px-2 text-center">Unit</th>
+                      <th className="py-2.5 px-2 text-right">Original Price</th>
+                      <th className="py-2.5 px-2 text-center">Discount (%)</th>
+                      <th className="py-2.5 px-2 text-right">Discount Amt</th>
+                      <th className="py-2.5 px-2 text-right">Final Unit Price</th>
+                      <th className="py-2.5 px-3 text-right">Total Amount (₹)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1213,16 +1069,22 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                             {item.productName}
                           </td>
                           <td className="py-2 px-2 text-center font-mono font-bold">
-                            {item.quantity} {item.unit}
+                            {item.quantity}
                           </td>
-                          <td className="py-2 px-2 text-right font-mono text-slate-500">
+                          <td className="py-2 px-2 text-center font-medium">
+                            {item.unit}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono text-slate-600">
                             ₹{formatNumber(item.originalUnitPrice)}
                           </td>
+                          <td className="py-2 px-2 text-center font-mono text-blue-700">
+                            {item.discountPercent > 0 ? `${item.discountPercent}%` : '0%'}
+                          </td>
                           <td className="py-2 px-2 text-right font-mono text-emerald-600 font-semibold">
-                            {item.discountPerUnit > 0 ? `-₹${formatNumber(item.discountPerUnit)}` : '—'}
+                            {item.discountAmount > 0 ? `-₹${formatNumber(item.discountAmount)}` : '₹0'}
                           </td>
                           <td className="py-2 px-2 text-right font-mono font-bold text-slate-900">
-                            ₹{formatNumber(item.discountedUnitPrice)}
+                            ₹{formatNumber(item.finalUnitPrice)}
                           </td>
                           <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
                             ₹{formatNumber(item.totalAmount)}
@@ -1233,30 +1095,10 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
                 </table>
               </div>
 
-              {/* Financial Summary & Signatures */}
+              {/* Financial Summary */}
               <div className="grid grid-cols-2 gap-6 pt-2">
                 <div className="text-xs space-y-3">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                      Terms & Conditions
-                    </span>
-                    <p className="text-slate-600 whitespace-pre-line text-[11px] leading-relaxed">
-                      {termsAndConditions}
-                    </p>
-                  </div>
-
-                  {notes && (
-                    <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                        Notes
-                      </span>
-                      <p className="text-slate-600 text-[11px]">
-                        {notes}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="pt-8">
+                  <div className="pt-12">
                     <div className="w-44 border-b border-slate-300 mb-1"></div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                       Authorized Signatory
@@ -1266,39 +1108,21 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
 
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-2">
                   <div className="flex justify-between text-slate-600">
-                    <span>Original Amount:</span>
-                    <span className="font-mono">₹{formatNumber(summary.grossSubtotal)}</span>
+                    <span>Subtotal:</span>
+                    <span className="font-mono">₹{formatNumber(summary.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-emerald-600 font-semibold">
-                    <span>Discount:</span>
-                    <span className="font-mono">- ₹{formatNumber(summary.totalBulkDiscount)}</span>
+                    <span>Total Discount:</span>
+                    <span className="font-mono">- ₹{formatNumber(summary.totalDiscount)}</span>
                   </div>
-                  <div className="flex justify-between text-slate-900 font-bold pt-1 border-t border-slate-200">
-                    <span>Amount After Discount:</span>
-                    <span className="font-mono">₹{formatNumber(summary.netSubtotal)}</span>
-                  </div>
-                  {summary.additionalCharges > 0 && (
-                    <div className="flex justify-between text-slate-600">
-                      <span>Delivery Charges:</span>
-                      <span className="font-mono">+ ₹{formatNumber(summary.additionalCharges)}</span>
-                    </div>
-                  )}
                   <div className="flex justify-between text-slate-600">
-                    <span>GST:</span>
-                    <span className="font-mono">+ ₹{formatNumber(summary.totalTax)}</span>
+                    <span>GST (if applicable):</span>
+                    <span className="font-mono">+ ₹{formatNumber(summary.gstTotal)}</span>
                   </div>
-                  <div className="flex justify-between items-center text-sm font-bold text-slate-900 p-2.5 rounded-lg bg-white border border-slate-200 shadow-2xs">
-                    <span>Final Amount:</span>
-                    <span className="font-mono text-base text-blue-700 font-bold">₹{formatNumber(summary.grandTotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-emerald-600 font-semibold pt-1">
-                    <span>Advance Paid:</span>
-                    <span className="font-mono">₹{formatNumber(summary.advancePayment)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-900 font-bold border-t border-slate-200 pt-1">
-                    <span>Balance to Pay:</span>
-                    <span className={`font-mono ${summary.balanceDue > 0 ? 'text-rose-600' : 'text-slate-700'}`}>
-                      ₹{formatNumber(summary.balanceDue)}
+                  <div className="flex justify-between items-center text-sm font-bold text-slate-900 p-2.5 rounded-lg bg-white border border-slate-200 shadow-2xs mt-1">
+                    <span>Grand Total:</span>
+                    <span className="font-mono text-base text-blue-700 font-bold">
+                      ₹{formatNumber(summary.grandTotal)}
                     </span>
                   </div>
                 </div>
@@ -1306,59 +1130,31 @@ export const BulkOrderBillModal: React.FC<BulkOrderBillModalProps> = ({
 
               {/* Thank You Note */}
               <div className="text-center pt-4 border-t border-slate-100 text-xs text-slate-400">
-                Thank you for your business. For any queries regarding this quotation, please reach out to our procurement desk.
+                Thank you for your business. For questions regarding this quotation, please contact us.
               </div>
             </div>
-          )}
         </div>
 
-        {/* Action Buttons Bar - Hidden in Print */}
+        {/* Bottom Actions: Keep ONLY Print Quotation and Cancel */}
         <div className="p-4 sm:px-6 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0 print:hidden">
-          <div className="flex items-center gap-2">
+          <div>
             <button
               type="button"
               onClick={handlePrint}
-              className="h-9 px-3.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              className="h-9 px-4 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               <span>Print Quotation</span>
-            </button>
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="h-9 px-3.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-            >
-              <Download className="w-3.5 h-3.5 text-blue-600" />
-              <span>Generate PDF</span>
             </button>
           </div>
 
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={onClose}
-              disabled={isSaving}
-              className="h-9 px-4 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+              onClick={handleCancel}
+              className="h-9 px-4 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
             >
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSave(true)}
-              disabled={isSaving}
-              className="h-9 px-4 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Save as Draft</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSave(false)}
-              disabled={isSaving}
-              className="h-9 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{isSaving ? 'Saving Quotation...' : 'Save Quotation'}</span>
             </button>
           </div>
         </div>

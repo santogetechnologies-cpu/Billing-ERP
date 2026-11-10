@@ -53,14 +53,14 @@ async function runTests() {
   );
   console.log('✔ ProductListPage.tsx navigates to Initial Stock for new products.');
 
-  // 4. Header.tsx: "+ New" quick create dropdown
-  console.log('\n--- Test 4: Header.tsx Quick Create Dropdown ---');
+  // 4. Header.tsx: "+ New" quick create button removed from header
+  console.log('\n--- Test 4: Header.tsx Quick Create Dropdown Removed ---');
   const headerContent = fs.readFileSync(path.resolve('src/components/layout/Header.tsx'), 'utf-8');
   assert(
-    headerContent.includes("navigate('/products/initial-stock')"),
-    'Header Quick Create "+ New" -> "New Product" must navigate to /products/initial-stock'
+    !headerContent.includes('showQuickCreateMenu') && !headerContent.includes('quickCreateRef'),
+    'Header Quick Create "+ New" button has been removed from the top navigation bar'
   );
-  console.log('✔ Header.tsx navigates to /products/initial-stock.');
+  console.log('✔ Header.tsx cleanly removed "+ New" button.');
 
   // 5. DashboardPage.tsx: Action Bar "Add Product" button
   console.log('\n--- Test 5: DashboardPage.tsx Action Bar ---');

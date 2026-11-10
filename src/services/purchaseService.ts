@@ -1909,6 +1909,18 @@ export const purchaseService = {
   // Delete purchase invoice with company scope
   async deletePurchaseInvoice(id: string, companyId?: string): Promise<void> {
     const finalCompanyId = companyId || '00000000-0000-0000-0000-000000000001';
+    // 1. Delete linked line items first to prevent foreign key errors
+    try {
+      await supabase.from('purchase_items').delete().eq('purchase_id', id);
+    } catch (err) {
+      console.warn('Note: Could not delete linked purchase items:', err);
+    }
+
+    // 2. Delete linked bills if any
+    try {
+      await supabase.from('purchases').delete().eq('purchase_order_id', id).eq('company_id', finalCompanyId);
+    } catch {}
+
     const { error } = await supabase
       .from('purchases')
       .delete()

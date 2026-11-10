@@ -190,14 +190,71 @@ aside *::-webkit-scrollbar:horizontal,
     print-color-adjust: exact !important;
   }
 
+  /* Suppress all scrollbars in print output */
+  ::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  * {
+    scrollbar-width: none !important;
+  }
+
   /* Hide screen-only chrome globally in print */
   aside,
   header,
   nav,
   .no-print,
   .glass-header,
-  .glass-sidebar {
+  .glass-sidebar,
+  .glass-dropdown,
+  button:has(.lucide-plus),
+  button:has(svg.lucide-plus),
+  [data-print-hidden="true"] {
     display: none !important;
+  }
+
+  /* Clean Table Printing: Remove scroll clipping, shadow, and background effects */
+  .glass-panel,
+  .data-table-container,
+  div:has(> table),
+  div:has(> div > table) {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+  }
+
+  /* Allow table to span 100% width and fit printable paper without clipping */
+  table {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
+  }
+
+  table thead {
+    display: table-header-group !important;
+    position: static !important;
+  }
+
+  table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  table th,
+  table td {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    overflow: visible !important;
   }
 
   .print-only {

@@ -91,15 +91,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const heldBillsCount = heldInvoices?.length || 0;
   const pendingOrdersCount = inboundOrders?.filter(o => o.status === 'Pending Confirmation' || o.status === 'Confirmed')?.length || 0;
-  const historyOrdersCount = React.useMemo(() => {
-    const all = (purchaseInvoices || []).filter(
-      i =>
-        (i.docType as string) === 'purchase_order' ||
-        (i.docType as string) === 'bulk_order'
-    );
-    const po = (purchaseInvoices || []).filter(i => (i.docType as string) === 'purchase_order');
-    return all.length || po.length;
-  }, [purchaseInvoices]);
 
   // Complete Navigation Items grouped into 4 distinct functional sections
   const allNavItems: UniversalNavItem[] = [
@@ -165,15 +156,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       name: 'Purchases & PO',
       path: '/purchases',
       icon: ShoppingBag,
-      section: 'Inventory & Stock'
-    },
-    {
-      id: 'history',
-      name: 'History',
-      path: '/purchases/history',
-      icon: History,
-      badge: historyOrdersCount > 0 ? historyOrdersCount : undefined,
-      badgeColor: 'brand',
       section: 'Inventory & Stock'
     },
     {
@@ -282,22 +264,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (item.id === 'purchases') {
-      if (
-        cur === '/purchases/history' ||
-        cur.startsWith('/purchases/history/') ||
-        (cur === '/purchases' && location.search.includes('tab=history'))
-      ) {
-        return false;
-      }
-      return cur === '/purchases' || cur.startsWith('/purchases/');
-    }
-
-    if (item.id === 'history' || item.id === 'purchase_history') {
-      return (
-        cur === '/purchases/history' ||
-        cur.startsWith('/purchases/history/') ||
-        (cur === '/purchases' && location.search.includes('tab=history'))
-      );
+      return cur === '/purchases' || cur.startsWith('/purchases');
     }
 
     if (item.id === 'warehouses' || item.id === 'warehouse') {

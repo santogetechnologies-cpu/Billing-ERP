@@ -12,7 +12,7 @@ interface PurchaseOrdersTabProps {
 }
 
 export const PurchaseOrdersTab: React.FC<PurchaseOrdersTabProps> = ({ onNewPO }) => {
-  const { purchaseInvoices, receiveAndSavePurchaseOrder } = useERP();
+  const { purchaseInvoices, receiveAndSavePurchaseOrder, deletePurchaseInvoice } = useERP();
   const [search, setSearch] = useState('');
 
   // Modals state
@@ -167,6 +167,10 @@ export const PurchaseOrdersTab: React.FC<PurchaseOrdersTabProps> = ({ onNewPO })
         onReceiveAndSave={async (data) => {
           if (!updatingPO) return;
           await receiveAndSavePurchaseOrder(updatingPO.id, data);
+        }}
+        onDelete={async (poId) => {
+          await deletePurchaseInvoice(poId);
+          setUpdatingPO(null);
         }}
       />
     </div>

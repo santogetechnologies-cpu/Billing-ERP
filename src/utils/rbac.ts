@@ -880,8 +880,6 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
   'Purchase Manager': [
     'Dashboard',
     'Purchases',
-    'History',
-    'Purchase History',
     'Customers',
     'Customer Details',
     'Suppliers',
@@ -924,8 +922,15 @@ export function canRoleAccessNavItem(
 
   const id = (navItemId || navItemName).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  // Settings removed from sidebar navigation across all logins/roles
-  if (id === 'settings' || navItemName === 'Settings') {
+  // Settings and History removed from sidebar navigation across all logins/roles
+  if (
+    id === 'settings' ||
+    navItemName === 'Settings' ||
+    id === 'history' ||
+    id === 'purchasehistory' ||
+    navItemName === 'History' ||
+    navItemName === 'Purchase History'
+  ) {
     return false;
   }
 
@@ -977,7 +982,7 @@ export function canRoleAccessNavItem(
   }
 
   if (id === 'history' || id === 'purchasehistory') {
-    return normalizedRole === 'Purchase Manager';
+    return false;
   }
 
   if (id === 'barcode' || id === 'barcodes' || id === 'barcodeslabels' || id === 'labelsbarcodes') {

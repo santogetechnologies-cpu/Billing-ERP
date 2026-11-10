@@ -30,16 +30,15 @@ const pmDashboardCode = fs.readFileSync(pmDashboardPath, 'utf-8');
 // -----------------------------------------------------------------------------
 console.log('--- 1. Button Labels & Icons ---');
 
-runTest('New Order button renamed from "New Purchase Order" with Plus icon', () => {
-  assert(pmDashboardCode.includes('<span>New Order</span>'), 'Button text must be "New Order"');
-  assert(!pmDashboardCode.includes('<span>New Purchase Order</span>'), 'Old label "New Purchase Order" must be replaced');
-  assert(pmDashboardCode.includes('navigate(\'/purchases/new?docType=purchase_order\')'), 'Must navigate to purchase order form');
+runTest('Quotation button exists with FileText icon and bulk-order link', () => {
+  assert(pmDashboardCode.includes('<span>Quotation</span>'), 'Button text must be "Quotation"');
+  assert(pmDashboardCode.includes('navigate(\'/purchases/orders?new=bulk-order\')'), 'Must navigate to quotation/bulk-order form');
 });
 
-runTest('New Bill button renamed from "New Purchase Bill" with FileText icon', () => {
-  assert(pmDashboardCode.includes('<span>New Bill</span>'), 'Button text must be "New Bill"');
-  assert(!pmDashboardCode.includes('<span>New Purchase Bill</span>'), 'Old label "New Purchase Bill" must be replaced');
-  assert(pmDashboardCode.includes('navigate(\'/purchases/new\')'), 'Must navigate to purchase bill form');
+runTest('Profile button is removed from header toolbar', () => {
+  const toolbarSectionMatch = pmDashboardCode.match(/Action Controls Toolbar[\s\S]*?Error Alert/);
+  const toolbarSection = toolbarSectionMatch ? toolbarSectionMatch[0] : '';
+  assert(!toolbarSection.includes('title="View Profile"'), 'Profile button must not be present in toolbar');
 });
 
 // -----------------------------------------------------------------------------
@@ -52,24 +51,20 @@ runTest('Header contains left-aligned title & welcome message', () => {
   assert(pmDashboardCode.includes('Welcome back, <span className="font-semibold text-slate-700">{displayName}</span>!'), 'Welcome message must be present');
 });
 
-runTest('Header toolbar aligns Refresh, Profile, New Order, and New Bill buttons in row', () => {
+runTest('Header toolbar aligns Refresh and Quotation buttons in row', () => {
   assert(
-    pmDashboardCode.includes('flex items-center gap-2 sm:gap-2.5 flex-wrap sm:flex-nowrap shrink-0'),
-    'Toolbar must use flex-nowrap on desktop and flex-wrap on smaller screens'
+    pmDashboardCode.includes('flex items-center gap-2 sm:gap-2.5 shrink-0 self-start sm:self-auto'),
+    'Toolbar must align items in flex row'
   );
 });
 
 runTest('All action buttons have consistent height (h-9) and vertical centering', () => {
   // Check height classes
   const refreshMatch = pmDashboardCode.match(/className="[^"]*h-9 w-9[^"]*"/);
-  const profileMatch = pmDashboardCode.match(/className="[^"]*h-9[^"]*pl-2 pr-3[^"]*"/);
-  const newOrderMatch = pmDashboardCode.match(/className="[^"]*h-9 px-3.5[^"]*bg-indigo-50[^"]*"/);
-  const newBillMatch = pmDashboardCode.match(/className="[^"]*h-9 px-3.5[^"]*bg-blue-600[^"]*"/);
+  const quotationMatch = pmDashboardCode.match(/className="[^"]*h-9 px-3.5[^"]*bg-blue-600[^"]*"/);
 
   assert(refreshMatch, 'Refresh button must have h-9 height');
-  assert(profileMatch, 'Profile button must have h-9 height');
-  assert(newOrderMatch, 'New Order button must have h-9 height');
-  assert(newBillMatch, 'New Bill button must have h-9 height');
+  assert(quotationMatch, 'Quotation button must have h-9 height');
 });
 
 runTest('All action buttons share consistent rounded-xl border radius & text-xs font', () => {

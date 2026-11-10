@@ -1057,21 +1057,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
           </button>
 
-          {/* User Profile Menu Button */}
-          <button
-            type="button"
-            onClick={() => setIsProfileModalOpen(true)}
-            className="h-9 inline-flex items-center justify-center gap-2 pl-2 pr-3 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 transition-all cursor-pointer shadow-2xs shrink-0"
-            title="View Profile"
-          >
-            <div className="w-5 h-5 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-              {(displayName || 'P')[0].toUpperCase()}
-            </div>
-            <span className="text-xs font-semibold text-slate-800 truncate max-w-[120px]">
-              {displayName}
-            </span>
-          </button>
-
           <button
             type="button"
             onClick={() => navigate('/purchases/orders?new=bulk-order')}
@@ -1079,7 +1064,7 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             title="Create Commercial Quotation"
           >
             <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span>New Bill</span>
+            <span>Quotation</span>
           </button>
         </div>
       </div>

@@ -6,10 +6,13 @@ import {
   Check,
   Info,
   PackageCheck,
-  CheckCircle2
+  CheckCircle2,
+  Trash2
 } from 'lucide-react';
 import { PurchaseInvoice } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import { useERP } from '../../context/ERPContext';
+import { purchaseService } from '../../services/purchaseService';
 
 interface UpdatePOModalProps {
   isOpen: boolean;
@@ -36,6 +39,7 @@ interface UpdatePOModalProps {
     grandTotal: number;
     notes?: string;
   }) => Promise<void>;
+  onDelete?: (poId: string) => Promise<void>;
 }
 
 interface EditablePOItem {
@@ -54,14 +58,42 @@ export const UpdatePOModal: React.FC<UpdatePOModalProps> = ({
   isOpen,
   onClose,
   po,
-  onReceiveAndSave
+  onReceiveAndSave,
+  onDelete
 }) => {
+  const { deletePurchaseInvoice } = useERP();
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState('');
   const [additionalCharges, setAdditionalCharges] = useState('');
   const [items, setItems] = useState<EditablePOItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  const handleDelete = async () => {
+    if (!po?.id) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Purchase Order #${po.invoiceNumber}? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    setErrorMsg(null);
+    try {
+      if (onDelete) {
+        await onDelete(po.id);
+      } else if (deletePurchaseInvoice) {
+        await deletePurchaseInvoice(po.id);
+      } else {
+        await purchaseService.deletePurchaseInvoice(po.id);
+      }
+      onClose();
+    } catch (err: any) {
+      console.error('Failed to delete purchase order:', err);
+      setErrorMsg(err.message || 'Failed to delete purchase order.');
+      setIsDeleting(false);
+    }
+  };
 
   const isFullyReceived = po?.poStatus === 'Received';
 
@@ -559,7 +591,7 @@ export const UpdatePOModal: React.FC<UpdatePOModalProps> = ({
               </div>
             </div>
 
-            {/* Form Action Buttons: [Cancel] [Received] ONLY */}
+            {/* Form Action Buttons: [Cancel] [Delete] [Received] */}
             <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
               <span className="text-[11px] text-slate-400">
                 Note: Confirming receipt saves billing details and updates inventory.
@@ -568,10 +600,24 @@ export const UpdatePOModal: React.FC<UpdatePOModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                  disabled={isSubmitting || isDeleting}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
+
+                {/* Delete Button - between Cancel and Received */}
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isDeleting || isSubmitting}
+                  className="px-4 py-2 text-xs font-bold text-rose-600 hover:text-white bg-rose-50 hover:bg-rose-600 dark:bg-rose-950/40 dark:hover:bg-rose-600 border border-rose-200 dark:border-rose-800/80 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95"
+                  title="Delete this Purchase Order"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
+                </button>
+
                 {isFullyReceived ? (
                   <button
                     type="button"
@@ -585,7 +631,7 @@ export const UpdatePOModal: React.FC<UpdatePOModalProps> = ({
                 ) : (
                   <button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isDeleting}
                     className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95"
                   >
                     {isSubmitting ? (

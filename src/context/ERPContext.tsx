@@ -193,6 +193,7 @@ export interface ERPContextType {
     notes?: string;
     account?: string;
   }) => Promise<{ payment: PaymentRecord; updatedPurchase: PurchaseInvoice }>;
+  deletePurchaseInvoice: (id: string) => Promise<void>;
 
   // Expenses
   expenses: Expense[];
@@ -1464,6 +1465,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     addAuditLog('Confirmed Goods Receipt and Saved Bill', 'Purchases', res.po.invoiceNumber, 'PO Received', `Status: ${res.po.poStatus}`);
     return res;
+  };
+
+  const deletePurchaseInvoice = async (id: string): Promise<void> => {
+    await purchaseService.deletePurchaseInvoice(id, company.id);
+    setPurchaseInvoices(prev => prev.filter(inv => inv.id !== id));
+    addAuditLog('Deleted Purchase Invoice/Order', 'Purchases', id, 'Active', 'Deleted');
   };
 
   // Purchase Returns / Debit Note
@@ -2958,6 +2965,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updatePurchaseOrderDetails,
     confirmPurchaseOrderReceived,
     receiveAndSavePurchaseOrder,
+    deletePurchaseInvoice,
     processPurchaseReturn,
     recordPurchasePayment,
     customerReturns,
@@ -3119,6 +3127,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updatePurchaseOrderDetails,
     confirmPurchaseOrderReceived,
     receiveAndSavePurchaseOrder,
+    deletePurchaseInvoice,
     processPurchaseReturn,
     recordPurchasePayment,
     customerReturns,
