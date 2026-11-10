@@ -10,7 +10,6 @@ import {
   BadgePercent,
   BookOpen,
   BarChart3,
-  Settings,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -225,8 +224,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     canRoleAccessNavItem(profile?.role, item.name, item.id)
   );
 
-  const canAccessSettings = canRoleAccessNavItem(profile?.role, 'Settings', 'settings');
-
   // Exact mutually-exclusive active matching logic
   const isItemActive = (item: UniversalNavItem): boolean => {
     const cur = location.pathname.replace(/\/+$/, '') || '/';
@@ -312,12 +309,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     return cur === tgt || cur.startsWith(`${tgt}/`);
   };
-
-  const isSettingsActive =
-    location.pathname.startsWith('/settings') ||
-    location.pathname.startsWith('/users') ||
-    location.pathname.startsWith('/audit-log') ||
-    location.pathname.startsWith('/taxes');
 
   // Group permitted items by section
   const sections = Array.from(new Set(permittedNavItems.map(i => i.section)));
@@ -521,28 +512,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </div>
 
-        {/* Pinned Bottom Area: Settings & User Profile */}
+        {/* Pinned Bottom Area: User Profile */}
         <div className="p-2 border-t border-slate-800/80 bg-slate-950/40 space-y-1 shrink-0">
-          {/* Pinned Settings Item */}
-          {canAccessSettings && (
-            <NavLink
-              to="/settings"
-              title={isCollapsed ? 'Settings' : undefined}
-              className={`group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                isSettingsActive
-                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-            >
-              <Settings
-                className={`w-4 h-4 shrink-0 ${
-                  isSettingsActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
-                }`}
-              />
-              {!isCollapsed && <span className="flex-1 truncate text-[11px]">Settings</span>}
-            </NavLink>
-          )}
-
           {/* User Account / Session */}
           <div
             className={`flex items-center gap-2 p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition-colors ${

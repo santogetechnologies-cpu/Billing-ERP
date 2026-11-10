@@ -841,8 +841,7 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Taxes & GST',
     'Users & Roles',
     'User Activity',
-    'Audit Log',
-    'Settings'
+    'Audit Log'
   ],
 
   Admin: [
@@ -862,23 +861,20 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Barcode',
     'Taxes & GST',
     'Users & Roles',
-    'Audit Log',
-    'Settings'
+    'Audit Log'
   ],
   Accountant: [
     'Dashboard',
     'Expenses',
     'Accounting',
     'Reports',
-    'Taxes & GST',
-    'Settings'
+    'Taxes & GST'
   ],
   Salesperson: [
     'Dashboard',
     'Sales',
     'Customers',
-    'Inventory',
-    'Settings'
+    'Inventory'
   ],
   'Purchase Manager': [
     'Dashboard',
@@ -894,23 +890,20 @@ export const ROLE_ALLOWED_NAV_MENUS: Record<UserRole, string[]> = {
     'Warehouse Details',
     'Expenses',
     'Barcodes & Labels',
-    'Barcode',
-    'Settings'
+    'Barcode'
   ],
   'Warehouse Manager': [
     'Dashboard',
     'Inventory',
     'Warehouse',
     'Warehouses / Godowns',
-    'Barcode',
-    'Settings'
+    'Barcode'
   ],
   Cashier: [
     'Dashboard',
     'Sales',
     'Customers',
-    'Payments',
-    'Settings'
+    'Payments'
   ]
 };
 
@@ -926,6 +919,13 @@ export function canRoleAccessNavItem(
   const normalizedRole = normalizeRole(role);
   if (!normalizedRole) return false;
 
+  const id = (navItemId || navItemName).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Settings removed from sidebar navigation across all logins/roles
+  if (id === 'settings' || navItemName === 'Settings') {
+    return false;
+  }
+
   // Owner and Admin have master access across all ERP modules
   if (normalizedRole === 'Owner' || normalizedRole === 'Admin') {
     return true;
@@ -934,8 +934,6 @@ export function canRoleAccessNavItem(
   if (navItemName === 'User Activity' && !canAccessUserActivity(normalizedRole)) {
     return false;
   }
-
-  const id = (navItemId || navItemName).toLowerCase().replace(/[^a-z0-9]/g, '');
 
   if (id === 'dashboard' || id === 'home') return true;
 
@@ -1011,8 +1009,8 @@ export function canRoleAccessNavItem(
     return normalizedRole === 'Accountant';
   }
 
-  if (id === 'settings') {
-    return normalizedRole === 'Accountant' || normalizedRole === 'Purchase Manager';
+  if (id === 'settings' || navItemName === 'Settings') {
+    return false;
   }
 
   const allowedMenus = ROLE_ALLOWED_NAV_MENUS[normalizedRole];
