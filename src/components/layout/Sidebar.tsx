@@ -17,7 +17,6 @@ import {
   LogOut,
   Building,
   Building2,
-  UserCheck,
   Truck,
   QrCode,
   Store,
@@ -73,16 +72,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Expandable submenus state
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
-    if (location.pathname.startsWith('/customers')) init['customers'] = true;
     if (location.pathname.startsWith('/suppliers')) init['suppliers'] = true;
     return init;
   });
 
   // Auto-expand menu when active path changes
   useEffect(() => {
-    if (location.pathname.startsWith('/customers')) {
-      setExpandedMenus(prev => ({ ...prev, customers: true }));
-    }
     if (location.pathname.startsWith('/suppliers')) {
       setExpandedMenus(prev => ({ ...prev, suppliers: true }));
     }
@@ -203,15 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       name: 'Customers',
       path: '/customers',
       icon: Users,
-      section: 'Finance & Staff',
-      children: [
-        {
-          id: 'customer-details',
-          name: 'Customer Details',
-          path: '/customers',
-          icon: UserCheck
-        }
-      ]
+      section: 'Finance & Staff'
     },
     {
       id: 'suppliers',
@@ -315,7 +302,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (item.id === 'customers') {
-      return cur === '/customers' || cur.startsWith('/customers/');
+      return cur === '/customers' || cur.startsWith('/customers/') || cur === '/customer-details';
     }
 
     if (item.id === 'suppliers') {

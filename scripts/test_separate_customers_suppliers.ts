@@ -49,11 +49,12 @@ async function runTests() {
   assert(sidebarCode.includes("id: 'suppliers'") && sidebarCode.includes("name: 'Suppliers'"), '1.2 Separate "Suppliers" menu exists');
   console.log('  ✓ PASS: 1.2 Both Customers and Suppliers exist as separate sidebar menus with dedicated icons');
 
-  // 1.3 Expandable navigation with sub-items
-  assert(sidebarCode.includes('Customer Details') && sidebarCode.includes('/customers'), '1.3 Customers menu has Customer Details child navigation');
+  // 1.3 Customers direct navigation & Suppliers sub-item navigation
+  assert(!sidebarCode.includes("id: 'customer-details'"), '1.3 Customers menu has no nested child submenu');
+  assert(sidebarCode.includes("path: '/customers'"), '1.3 Customers menu navigates directly to /customers');
   assert(sidebarCode.includes('Supplier Details') && sidebarCode.includes('/suppliers'), '1.3 Suppliers menu has Supplier Details child navigation');
   assert(sidebarCode.includes('expandedMenus') && sidebarCode.includes('toggleExpand'), '1.3 Sidebar supports expandable navigation with toggleExpand');
-  console.log('  ✓ PASS: 1.3 Expandable navigation with "Customer Details" and "Supplier Details" sub-items implemented');
+  console.log('  ✓ PASS: 1.3 Customers navigates directly to dedicated page without submenu; Suppliers navigation preserved');
 
   // --- 2. Purchase Manager Permissions & RBAC ---
   console.log('\n--- 2. Purchase Manager Permissions & RBAC ---');

@@ -526,6 +526,8 @@ export function App() {
 
               {/* Customers & Suppliers / Parties */}
               <Route path="parties" element={<Navigate to="/customers" replace />} />
+              <Route path="customer-details" element={<Navigate to="/customers" replace />} />
+              <Route path="customers/details" element={<Navigate to="/customers" replace />} />
               <Route
                 path="customers"
                 element={

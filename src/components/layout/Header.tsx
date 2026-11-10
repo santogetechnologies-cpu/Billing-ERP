@@ -80,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
     if (path.startsWith('/inventory/warehouses') || path.startsWith('/warehouses')) return 'Warehouse';
     if (path.startsWith('/inventory') || path.startsWith('/stock')) return 'Stock Management';
     if (path.startsWith('/products')) return 'Products';
-    if (path.startsWith('/customers') || path.startsWith('/suppliers') || path.startsWith('/parties')) return 'Parties Directory';
+    if (path.startsWith('/customers') || path.startsWith('/suppliers') || path.startsWith('/parties')) return 'Finance & Staffs';
     if (path.startsWith('/pricing')) return 'Pricing & Commission';
     if (path.startsWith('/accounting') || path.startsWith('/accounts')) return 'Accounts & Ledgers';
     if (path.startsWith('/reports')) return 'Reports & Analytics';

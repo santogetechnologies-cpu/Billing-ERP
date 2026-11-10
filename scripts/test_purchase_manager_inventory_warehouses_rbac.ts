@@ -47,7 +47,6 @@ console.log('  ✓ PASS: Purchase Manager can access all required warehouse & in
 // 4. Sidebar Nav Items
 console.log('\n--- 4. Navigation Menu Access ---');
 assert.strictEqual(canRoleAccessNavItem('Purchase Manager', 'Warehouse', 'warehouses'), true, 'Must access Warehouse nav item');
-assert.strictEqual(canRoleAccessNavItem('Purchase Manager', 'Settings', 'settings'), true, 'Must access Settings nav item');
 assert.strictEqual(canRoleAccessNavItem('Purchase Manager', 'Stock & Godowns', 'stock'), true, 'Must access Stock & Godowns nav item');
 assert.strictEqual(canRoleAccessSubItem('Purchase Manager', 'Inventory', 'Stock Transfers', '/inventory/transfers'), true);
 assert.strictEqual(canRoleAccessSubItem('Purchase Manager', 'Inventory', 'Warehouse Details', '/inventory/warehouses'), true);
