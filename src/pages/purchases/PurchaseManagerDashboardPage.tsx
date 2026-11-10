@@ -25,8 +25,7 @@ import {
   Search,
   FileText,
   History,
-  Boxes,
-  CreditCard
+  Boxes
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1126,16 +1125,6 @@ export const PurchaseManagerDashboardPage: React.FC = () => {
             </span>
           </button>
 
-          {/* New Bill Button */}
-          <button
-            type="button"
-            onClick={() => navigate('/payments')}
-            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
-            title="Manage Supplier & Customer Payments"
-          >
-            <CreditCard className="w-3.5 h-3.5 shrink-0" />
-            <span>Payments</span>
-          </button>
           <button
             type="button"
             onClick={() => navigate('/purchases/orders?new=bulk-order')}
