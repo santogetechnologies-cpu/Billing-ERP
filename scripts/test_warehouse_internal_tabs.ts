@@ -141,12 +141,13 @@ assert(
   adjustmentsContent.includes('Product Name') &&
   adjustmentsContent.includes('Current Stock') &&
   adjustmentsContent.includes('Adjusted Stock') &&
-  adjustmentsContent.includes('Difference (+/-)') &&
-  adjustmentsContent.includes('Adjustment Type') &&
+  adjustmentsContent.includes('<th className="py-3 px-3.5 text-center">Adjustment</th>') &&
+  !adjustmentsContent.includes('<th className="py-3 px-3.5 text-center">Difference (+/-)</th>') &&
+  !adjustmentsContent.includes('<th className="py-3 px-3.5 text-center">Adjustment Type</th>') &&
   adjustmentsContent.includes('Adjustment Reason') &&
   adjustmentsContent.includes('Adjustment Date') &&
   adjustmentsContent.includes('Actions'),
-  '15. Tab 3: Stock Adjustment table includes all 10 required columns'
+  '15. Tab 3: Stock Adjustment table merges Difference and Adjustment Type into single Adjustment column'
 );
 
 assert(

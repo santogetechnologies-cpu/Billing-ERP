@@ -528,8 +528,7 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
                 <th className="py-3 px-3.5">Product Name</th>
                 <th className="py-3 px-3.5 text-center">Current Stock</th>
                 <th className="py-3 px-3.5 text-center">Adjusted Stock</th>
-                <th className="py-3 px-3.5 text-center">Difference (+/-)</th>
-                <th className="py-3 px-3.5 text-center">Adjustment Type</th>
+                <th className="py-3 px-3.5 text-center">Adjustment</th>
                 <th className="py-3 px-3.5">Adjustment Reason</th>
                 <th className="py-3 px-3.5">Adjustment Date</th>
                 <th className="py-3 px-3.5 text-right">Actions</th>
@@ -538,7 +537,7 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
             <tbody className="divide-y divide-slate-100">
               {filteredAdjustments.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <SlidersHorizontal className="w-10 h-10 mx-auto text-slate-300 mb-2 stroke-1" />
                     <p className="font-medium text-slate-600">No stock adjustments found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -553,7 +552,6 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
                   const refKey = tx.referenceDoc || tx.id;
                   const meta = metaMap[refKey];
                   const isIncrease = tx.qty > 0;
-                  const diffText = isIncrease ? `+${tx.qty}` : `${tx.qty}`;
                   const reasonText = meta?.reason || tx.notes || 'Manual stock adjustment';
 
                   // Prioritize stored before/after stock from metadata, or compute from current stock
@@ -603,32 +601,24 @@ export const WarehouseStockAdjustmentsTab = React.forwardRef<
                         {Math.max(0, afterStock)} {tx.unit || 'Pcs'}
                       </td>
 
-                      {/* Difference (+/-) */}
-                      <td className="py-3 px-3.5 text-center font-bold font-mono">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-xs ${
-                            isIncrease
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 border border-rose-200'
-                          }`}
-                        >
-                          {diffText} {tx.unit || 'Pcs'}
-                        </span>
-                      </td>
-
-                      {/* Adjustment Type */}
-                      <td className="py-3 px-3.5 text-center">
-                        {isIncrease ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <TrendingUp className="w-3 h-3 text-emerald-600" />
-                            Increase
+                      {/* Adjustment (Type Badge + Quantity & Unit) */}
+                      <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                        <div className="inline-flex flex-col items-center justify-center gap-1">
+                          {isIncrease ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <TrendingUp className="w-3 h-3 text-emerald-600" />
+                              Increase
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                              <TrendingDown className="w-3 h-3 text-rose-600" />
+                              Decrease
+                            </span>
+                          )}
+                          <span className="text-xs font-semibold text-slate-800 font-mono">
+                            {Math.abs(tx.qty)} {tx.unit || 'Piece'}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                            <TrendingDown className="w-3 h-3 text-rose-600" />
-                            Decrease
-                          </span>
-                        )}
+                        </div>
                       </td>
 
                       {/* Adjustment Reason */}
