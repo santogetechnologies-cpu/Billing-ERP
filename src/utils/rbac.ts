@@ -1008,7 +1008,7 @@ export function canRoleAccessNavItem(
   }
 
   if (id === 'settings') {
-    return normalizedRole === 'Accountant';
+    return normalizedRole === 'Accountant' || normalizedRole === 'Purchase Manager';
   }
 
   const allowedMenus = ROLE_ALLOWED_NAV_MENUS[normalizedRole];
