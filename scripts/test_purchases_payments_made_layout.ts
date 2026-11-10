@@ -45,8 +45,8 @@ assert(
   'PurchasePaymentsMadeTab receives isRecordPaymentOpen and onCloseRecordPayment props'
 );
 
-// 2. PurchasePaymentsMadeTab Quick Disbursement & Metrics Verification
-console.log('\n--- 2. PurchasePaymentsMadeTab Quick Disbursement & Metrics Verification ---');
+// 2. PurchasePaymentsMadeTab Two-Column Metrics Verification
+console.log('\n--- 2. PurchasePaymentsMadeTab Two-Column Metrics Verification ---');
 const tabPath = path.resolve('src/components/purchases/PurchasePaymentsMadeTab.tsx');
 assert(fs.existsSync(tabPath), 'PurchasePaymentsMadeTab.tsx exists');
 const tabContent = fs.readFileSync(tabPath, 'utf-8');
@@ -62,21 +62,13 @@ assert(
 );
 
 assert(
-  tabContent.includes("Quick Disbursement"),
-  'Metrics Card 3: Quick Disbursement title is present'
+  !tabContent.includes("Quick Disbursement"),
+  'Quick Disbursement card is completely removed from the dashboard'
 );
 
 assert(
-  tabContent.includes("Make direct payment against an approved supplier bill."),
-  'Metrics Card 3: Quick Disbursement description is present'
-);
-
-// Verify button is removed from Quick Disbursement card
-const quickDisbursementCardMatch = tabContent.match(/Quick Disbursement[\s\S]*?Make direct payment against an approved supplier bill.[\s\S]*?<\/div>/);
-assert(quickDisbursementCardMatch, 'Quick Disbursement card element found');
-assert(
-  !quickDisbursementCardMatch![0].includes('Record Payment'),
-  'Record Payment button has been removed from the Quick Disbursement card'
+  tabContent.includes('grid grid-cols-1 sm:grid-cols-2 gap-4'),
+  'Summary cards arranged in a clean, balanced two-column layout (grid-cols-1 sm:grid-cols-2 gap-4)'
 );
 
 // Verify props & modal opening logic
@@ -100,3 +92,4 @@ assert(
 console.log('\n================================================================================');
 console.log('ALL TESTS PASSED SUCCESSFULLY! (10/10)');
 console.log('================================================================================\n');
+

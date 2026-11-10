@@ -726,7 +726,7 @@ export const PurchasePaymentsMadeTab: React.FC<PurchasePaymentsMadeTabProps> = (
       {/* On-Screen Supplier Payment History UI (Hidden during window.print) */}
       <div className="space-y-4 no-print">
         {/* Top metrics summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-white p-4 rounded-xl border border-slate-200">
             <span className="text-xs text-slate-500 font-medium">Total Paid to Suppliers</span>
             <div className="text-xl font-bold text-slate-900 mt-1 tabular-nums">
@@ -741,11 +741,6 @@ export const PurchasePaymentsMadeTab: React.FC<PurchasePaymentsMadeTabProps> = (
               {formatCurrency(totalOutstandingPayables)}
             </div>
             <span className="text-[11px] text-slate-400 mt-0.5 block">Across all pending supplier bills</span>
-          </div>
-
-          <div className="bg-white p-4 rounded-xl border border-slate-200 sm:col-span-2 lg:col-span-1 flex flex-col justify-center">
-            <span className="text-xs text-slate-500 font-medium">Quick Disbursement</span>
-            <p className="text-xs text-slate-600 mt-1">Make direct payment against an approved supplier bill.</p>
           </div>
         </div>
 
